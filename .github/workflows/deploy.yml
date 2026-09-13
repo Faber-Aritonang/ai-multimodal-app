@@ -1,0 +1,81 @@
+name: Deploy to Railway & Vercel
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: 'Deploy Backend to Railway'
+        required: false
+        default: 'true'
+      deploy_frontend:
+        description: 'Deploy Frontend to Vercel'
+        required: false
+        default: 'true'
+
+jobs:
+  # Deploy Backend ke Railway
+  deploy-backend:
+    if: github.event_name == 'push' || (github.event.inputs.deploy_backend == 'true')
+    name: Deploy Backend to Railway
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci --omit=dev
+      
+      - name: Deploy to Railway
+        uses: railway/railway-github-action@v0.4.0
+        with:
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
+          service-name: "ai-multimodal-backend"
+          project-id: ${{ secrets.RAILWAY_PROJECT_ID }}
+          environment: "production"
+
+  # Deploy Frontend ke Vercel
+  deploy-frontend:
+    if: github.event_name == 'push' || (github.event.inputs.deploy_frontend == 'true')
+    name: Deploy Frontend to Vercel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci --omit=dev
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v30
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_FRONTEND }}
+          working-directory: ./frontend
+          prod: true
