@@ -65,6 +65,11 @@ export const memberAPI = {
   getProfile: () => api.get('/member/profile'),
   getQuota: () => api.get('/member/quota'),
   
+  // Member list (untuk referral)
+  getApprovedMembers: () => api.get('/member/members'),
+  getMemberByReferralCode: (code) => api.get(`/member/members/${code}`),
+  getReferralStats: () => api.get('/member/referral-stats'),
+  
   // Media (placeholder)
   // textToImage: (prompt) => api.post('/member/media/text-to-image', { prompt }),
   // imageToImage: (image, prompt) => api.post('/member/media/image-to-image', { image, prompt }),

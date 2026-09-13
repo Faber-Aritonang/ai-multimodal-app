@@ -76,8 +76,12 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Update timestamp
+// Generate referral code otomatis
 userSchema.pre('save', function(next) {
+  if (!this.referralCode) {
+    // Generate referral code: REF + 6 digit random
+    this.referralCode = 'REF' + Math.random().toString(36).substring(2, 8).toUpperCase()
+  }
   this.updatedAt = Date.now();
   next();
 });
@@ -86,6 +90,7 @@ userSchema.pre('save', function(next) {
 userSchema.index({ uid: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ isApproved: 1 });
+userSchema.index({ referralCode: 1 }, { sparse: true });
 userSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('User', userSchema);

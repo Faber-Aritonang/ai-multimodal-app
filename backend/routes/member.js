@@ -6,13 +6,14 @@
 const express = require('express');
 const router = express.Router();
 const { requireMember, checkQuota } = require('../middleware/auth');
-const {
+const { 
   getChatSessions,
   createChatSession,
   sendMessage,
   getChatSession,
   deleteChatSession
 } = require('../controllers/chatController');
+const MemberController = require('../controllers/memberController');
 
 // Semua route di sini membutuhkan member yang sudah disetujui
 router.use(requireMember);
@@ -23,6 +24,9 @@ router.post('/chat/sessions', createChatSession);
 router.post('/chat/sessions/:sessionId/message', checkQuota('chat'), sendMessage);
 router.get('/chat/sessions/:sessionId', getChatSession);
 router.delete('/chat/sessions/:sessionId', deleteChatSession);
+
+// Member list (public - untuk referral)
+router.get('/members', MemberController.getApprovedMembers);
 
 // Media routes (akan ditambah nanti)
 // router.post('/media/text-to-image', checkQuota('imageGeneration'), ...);
