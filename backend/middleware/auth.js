@@ -6,6 +6,7 @@
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
 const User = require('../models/User');
+const Admin = require('../models/Admin');
 
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
@@ -49,6 +50,39 @@ exports.authenticate = async (req, res, next) => {
       message: 'Authentication failed',
       error: error.message
     });
+  }
+};
+
+/**
+ * Middleware untuk verifikasi token secara opsional
+ * Tidak menolak request jika token tidak ada
+ */
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = decoded;
+      return next();
+    } catch (jwtError) {
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        req.user = { uid: decodedToken.uid, email: decodedToken.email };
+        return next();
+      } catch (firebaseError) {
+        req.user = null;
+        return next();
+      }
+    }
+  } catch (error) {
+    req.user = null;
+    return next();
   }
 };
 

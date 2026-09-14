@@ -11,7 +11,7 @@ const {
   getAuthStatus, 
   logout 
 } = require('../controllers/authController');
-const { authenticate, requireGuest } = require('../middleware/auth');
+const { authenticate, optionalAuth, requireGuest } = require('../middleware/auth');
 
 // POST /api/v1/auth/register
 // Registrasi akun baru
@@ -22,8 +22,8 @@ router.post('/register', requireGuest, register);
 router.post('/login', requireGuest, login);
 
 // GET /api/v1/auth/status
-// Cek status autentikasi
-router.get('/status', authenticate, getAuthStatus);
+// Cek status autentikasi (token opsional - bisa diakses tanpa login)
+router.get('/status', optionalAuth, getAuthStatus);
 
 // POST /api/v1/auth/logout
 // Logout dan bersihkan token

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
 
-const ProfilePage = ({ user }) => {
+const ProfilePage = ({ user, setUser }) => {
   const [quota, setQuota] = useState(null)
   const [loading, setLoading] = useState(true)
 

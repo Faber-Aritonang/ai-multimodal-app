@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
 
-const ChatPage = ({ user }) => {
+const ChatPage = ({ user, setUser }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const [currentSession, setCurrentSession] = useState(null)
@@ -267,7 +267,6 @@ const ChatPage = ({ user }) => {
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyPress={handleKeyPress}
                 placeholder="Type a message..."
                 className="flex-1 px-4 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
                 rows={1}

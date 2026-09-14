@@ -11,6 +11,7 @@ import {
 } from '../components/icons'
 
 const Layout = ({ user, setUser, children }) => {
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -62,7 +63,7 @@ const Layout = ({ user, setUser, children }) => {
               {navigation.map((item) => (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  to={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center px-3 py-2 text-sm font-medium text-dark-600 hover:bg-dark-100 rounded-lg"
                 >
@@ -83,7 +84,7 @@ const Layout = ({ user, setUser, children }) => {
               {navigation.map((item) => (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  to={item.href}
                   className="flex items-center px-3 py-2 text-sm font-medium text-dark-600 hover:bg-dark-100 rounded-lg"
                 >
                   <item.icon className="w-5 h-5 mr-3" />
@@ -140,10 +141,6 @@ const Layout = ({ user, setUser, children }) => {
       </nav>
     </div>
   )
-}
-
-function useLinkType(link) {
-  return link
 }
 
 export default Layout

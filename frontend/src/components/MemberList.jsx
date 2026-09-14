@@ -26,7 +26,7 @@ const MemberList = ({ user }) => {
 
   // Generate referral link
   const getReferralLink = (code) => {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin || 'http://localhost:5173'
+    const baseUrl = window.location.origin || 'http://localhost:5173'
     return `${baseUrl}/register?ref=${code}`
   }
 

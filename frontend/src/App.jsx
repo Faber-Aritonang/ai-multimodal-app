@@ -35,8 +35,8 @@ function App() {
       } else {
         const firebaseUser = await getCurrentUser()
         if (firebaseUser) {
-          response = await authAPI.getStatus()
-          setUser(response.data.user || null)
+          const retryResponse = await authAPI.getStatus()
+          setUser(retryResponse.data.user || null)
         } else {
           setUser(null)
         }
@@ -74,7 +74,7 @@ function App() {
         } />
         
         {/* Protected Routes - Admin Only */}
-        <Route path="/admin/*" element={
+        <Route path="/admin" element={
           <ProtectedRoute user={user} requiredRole="admin">
             <AdminDashboard />
           </ProtectedRoute>
@@ -100,19 +100,19 @@ function App() {
         
         <Route path="/chat" element={
           <ProtectedRoute user={user} requiredApproval={true}>
-            <ChatPage user={user} />
+            <ChatPage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
-        
+
         <Route path="/chat/:sessionId" element={
           <ProtectedRoute user={user} requiredApproval={true}>
-            <ChatPage user={user} />
+            <ChatPage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
         
         <Route path="/profile" element={
           <ProtectedRoute user={user} requiredApproval={true}>
-            <ProfilePage user={user} />
+            <ProfilePage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
         

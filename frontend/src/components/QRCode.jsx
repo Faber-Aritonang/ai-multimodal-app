@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { Member } from '../models/User'
 
 /**
  * QR Code Generator Component

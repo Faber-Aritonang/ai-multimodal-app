@@ -21,13 +21,12 @@ const AdminLayout = ({ children }) => {
           {navigation.map((item) => (
             <Link
               key={item.name}
-              href={item.href}
-              onClick={() => navigate(item.href)}
+              to={item.href}
               className={`
                 flex items-center px-3 py-2 rounded-lg text-sm font-medium mb-1
                 transition-colors
                 ${location.pathname === item.href || location.pathname.startsWith(item.href + '/')
-                  ? 'bg-primary-500 text-white' 
+                  ? 'bg-primary-500 text-white'
                   : 'text-dark-600 hover:bg-dark-100'
                 }
               `}

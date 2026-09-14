@@ -6,12 +6,12 @@
 const ChatSession = require('../models/ChatSession');
 const MediaContent = require('../models/MediaContent');
 
-// OpenAI API (hanya untuk chat)
-const { Configuration, OpenAIApi } = require('openai');
+// OpenAI API (v4+) - hanya untuk chat
+const OpenAI = require('openai');
 
-const openai = new OpenAIApi(new Configuration({
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
-}));
+});
 
 /**
  * @GET /api/v1/member/chat/sessions
@@ -75,15 +75,16 @@ exports.sendMessage = async (req, res) => {
       });
     }
     
-    const { sessionId, message } = req.body;
-    
+    const sessionId = req.params.sessionId;
+    const { message } = req.body;
+
     if (!message) {
       return res.status(400).json({
         success: false,
         message: 'Message is required'
       });
     }
-    
+
     // Cari chat session
     const session = await ChatSession.findOne({
       sessionId,
@@ -105,7 +106,7 @@ exports.sendMessage = async (req, res) => {
     
     // Panggil OpenAI API
     try {
-      const openaiResponse = await openai.createChatCompletion({
+      const openaiResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: session.messages.map(m => ({
           role: m.role,
@@ -113,8 +114,8 @@ exports.sendMessage = async (req, res) => {
         })),
         max_tokens: 2000
       });
-      
-      const assistantMessage = openaiResponse.data.choices[0].message.content;
+
+      const assistantMessage = openaiResponse.choices[0].message.content;
       
       // Tambahkan pesan assistant
       session.messages.push({
