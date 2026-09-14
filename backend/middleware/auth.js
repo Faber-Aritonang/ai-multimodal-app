@@ -4,16 +4,12 @@
  */
 
 const jwt = require('jsonwebtoken');
-const admin = require('firebase-admin');
+const { getFirebaseAdmin } = require('../config/firebase');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 
-// Initialize Firebase Admin SDK
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'))
-  });
-}
+// Firebase Admin diinisialisasi secara lazy via config/firebase
+// (getFirebaseAdmin) saat pertama kali dibutuhkan.
 
 /**
  * Middleware untuk verifikasi JWT atau Firebase Token
@@ -37,7 +33,7 @@ exports.authenticate = async (req, res, next) => {
     } catch (jwtError) {
       // Jika JWT invalid, coba verifikasi Firebase token
       try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
+        const decodedToken = await getFirebaseAdmin().auth().verifyIdToken(token);
         req.user = { uid: decodedToken.uid, email: decodedToken.email };
         return next();
       } catch (firebaseError) {
@@ -72,7 +68,7 @@ exports.optionalAuth = async (req, res, next) => {
       return next();
     } catch (jwtError) {
       try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
+        const decodedToken = await getFirebaseAdmin().auth().verifyIdToken(token);
         req.user = { uid: decodedToken.uid, email: decodedToken.email };
         return next();
       } catch (firebaseError) {

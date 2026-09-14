@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { adminAPI } from '../config/api'
-import Layout from '../components/AdminLayout'
+import { adminAPI } from '../../config/api'
+import Layout from '../../components/AdminLayout'
 
 const AdminDashboard = () => {
   const [analytics, setAnalytics] = useState(null)

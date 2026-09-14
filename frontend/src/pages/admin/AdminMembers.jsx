@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { adminAPI } from '../config/api'
-import AdminLayout from '../components/AdminLayout'
-import QRCode from '../components/QRCode'
+import { adminAPI } from '../../config/api'
+import AdminLayout from '../../components/AdminLayout'
+import QRCode from '../../components/QRCode'
 
 const AdminMembers = () => {
   const [pendingMembers, setPendingMembers] = useState([])

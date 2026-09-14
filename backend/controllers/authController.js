@@ -4,15 +4,9 @@
  */
 
 const jwt = require('jsonwebtoken');
-const admin = require('firebase-admin');
+const { getFirebaseAdmin } = require('../config/firebase');
 const User = require('../models/User');
-
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'))
-  });
-}
+const Admin = require('../models/Admin');
 
 /**
  * @POST /api/v1/auth/register
@@ -33,6 +27,7 @@ exports.register = async (req, res) => {
     // Verifikasi Firebase ID Token
     if (firebaseToken) {
       try {
+        const admin = getFirebaseAdmin();
         const decoded = await admin.auth().verifyIdToken(firebaseToken);
         
         // Cek apakah user sudah terdaftar
@@ -144,10 +139,46 @@ exports.login = async (req, res) => {
     }
     
     // Verifikasi token
+    const admin = getFirebaseAdmin();
     const decoded = await admin.auth().verifyIdToken(firebaseToken);
     
     // Cari user
     const user = await User.findOne({ uid: decoded.uid });
+    
+    // Cek apakah uid ini terdaftar sebagai admin
+    const adminRecord = await Admin.findOne({ uid: decoded.uid });
+    
+    if (adminRecord) {
+      // Update last login admin
+      adminRecord.lastLogin = new Date();
+      await adminRecord.save();
+      
+      // Generate JWT dengan role admin
+      const token = jwt.sign(
+        { 
+          uid: adminRecord.uid, 
+          email: adminRecord.email, 
+          role: 'admin',
+          isApproved: true
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      
+      return res.json({
+        success: true,
+        message: 'Admin login successful',
+        token,
+        user: {
+          uid: adminRecord.uid,
+          email: adminRecord.email,
+          displayName: adminRecord.displayName,
+          photoURL: '',
+          role: 'admin',
+          isApproved: true
+        }
+      });
+    }
     
     if (!user) {
       return res.status(404).json({
@@ -208,6 +239,26 @@ exports.getAuthStatus = async (req, res) => {
         isAuthenticated: false,
         role: 'guest',
         isApproved: false
+      });
+    }
+    
+    // Cek apakah uid ini terdaftar sebagai admin
+    const adminRecord = await Admin.findOne({ uid: req.user.uid });
+    
+    if (adminRecord) {
+      return res.json({
+        success: true,
+        isAuthenticated: true,
+        user: {
+          uid: adminRecord.uid,
+          email: adminRecord.email,
+          displayName: adminRecord.displayName,
+          photoURL: '',
+          role: 'admin',
+          isApproved: true
+        },
+        role: 'admin',
+        isApproved: true
       });
     }
     

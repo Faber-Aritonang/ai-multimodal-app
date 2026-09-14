@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { authAPI } from '../config/api'
-import { getCurrentUser } from '../config/firebase'
+import { authAPI } from './config/api'
+import { getCurrentUser } from './config/firebase'
 
 // Pages
 import LoginPage from './pages/LoginPage'
@@ -118,7 +118,9 @@ function App() {
         
         {/* Redirect root */}
         <Route path="/" element={
-          user && user.isApproved ? 
+          user && user.role === 'admin' ?
+            <Navigate to="/admin" /> :
+            user && user.isApproved ? 
             <Navigate to="/dashboard" /> : 
             user && !user.isApproved ?
             <Navigate to="/pending-approval" /> :

@@ -6,6 +6,9 @@ import { Navigate } from 'react-router-dom'
  */
 const GuestRoute = ({ user, children }) => {
   if (user) {
+    if (user.role === 'admin') {
+      return <Navigate to="/admin" replace />
+    }
     if (user.isApproved) {
       return <Navigate to="/dashboard" replace />
     } else {

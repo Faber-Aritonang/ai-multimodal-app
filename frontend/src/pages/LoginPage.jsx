@@ -21,31 +21,37 @@ const LoginPage = ({ setUser }) => {
         throw new Error(result.error)
       }
       
-      // 2. Cek apakah user sudah terdaftar di backend
-      const statusResponse = await authAPI.getStatus()
-      const authData = statusResponse.data
+      // 2. Kirim Firebase token ke backend untuk verifikasi & dapat JWT
+      //    Backend mengecek koleksi Admin dulu: jika uid terdaftar sebagai
+      //    admin, response berisi role 'admin'.
+      const loginResponse = await authAPI.login({
+        firebaseToken: result.token
+      })
       
-      if (authData.isAuthenticated && authData.user) {
-        // User sudah terdaftar
-        setUser(authData.user)
-        if (authData.user.isApproved) {
-          navigate('/dashboard')
-        } else {
-          navigate('/pending-approval')
-        }
+      const { token, user } = loginResponse.data
+      
+      // 3. Simpan sesi
+      localStorage.setItem('authToken', token)
+      localStorage.setItem('user', JSON.stringify(user))
+      setUser(user)
+      
+      // 4. Redirect sesuai role
+      if (user.role === 'admin') {
+        navigate('/admin')
+      } else if (user.isApproved) {
+        navigate('/dashboard')
       } else {
-        // User belum terdaftar - arahkan ke register
-        navigate('/register')
+        navigate('/pending-approval')
       }
       
     } catch (err) {
       console.error('Login error:', err)
       
-      // Jika user belum ada di backend
-      if (err.response?.status === 401 || err.message?.includes('not registered')) {
+      // Jika user belum ada di backend, arahkan ke register
+      if (err.response?.status === 404 || err.message?.includes('not registered')) {
         navigate('/register')
       } else {
-        setError(err.message || 'Login failed. Please try again.')
+        setError(err.response?.data?.message || err.message || 'Login failed. Please try again.')
       }
     } finally {
       setLoading(false)
