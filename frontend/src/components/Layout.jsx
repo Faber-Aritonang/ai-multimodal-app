@@ -1,34 +1,40 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../config/api'
-import { 
-  MenuIcon, 
+import { signOutUser } from '../config/firebase'
+import {
+  MenuIcon,
   XIcon,
   HomeIcon,
   ChatIcon,
-  UserIcon,
-  CogIcon
+  ImageIcon,
+  UserIcon
 } from '../components/icons'
 
 const Layout = ({ user, setUser, children }) => {
   const navigate = useNavigate()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const handleLogout = async () => {
     try {
       await authAPI.logout()
-      localStorage.removeItem('authToken')
-      localStorage.removeItem('user')
-      setUser(null)
     } catch (error) {
       console.error('Logout failed:', error)
     }
+
+    // Putus sesi Firebase juga, agar tidak otomatis login lagi
+    await signOutUser()
+
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('user')
+    setUser(null)
+    navigate('/login')
   }
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Chat', href: '/chat', icon: ChatIcon },
+    { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon },
     { name: 'Profile', href: '/profile', icon: UserIcon },
   ]
 
@@ -80,6 +86,29 @@ const Layout = ({ user, setUser, children }) => {
       <div className="hidden md:flex md:items-start md:fixed md:inset-y-0 md:mt-0">
         <div className="flex flex-col flex-grow justify-between pt-5 overflow-y-auto bg-white dark-glass border-r border-dark-200">
           <div className="flex-1 flexGrow">
+            {/* Current user */}
+            <div className="px-4 pb-4 mb-2 border-b border-dark-200 flex items-center gap-3">
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'User'}
+                  className="w-10 h-10 rounded-full"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center">
+                  <span className="text-white font-bold">
+                    {user?.displayName?.charAt(0) || '?'}
+                  </span>
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-dark-800 truncate">
+                  {user?.displayName || 'User'}
+                </p>
+                <p className="text-xs text-dark-400 truncate">{user?.email}</p>
+              </div>
+            </div>
+
             <nav className="space-y-1 px-4">
               {navigation.map((item) => (
                 <Link
@@ -92,6 +121,15 @@ const Layout = ({ user, setUser, children }) => {
                 </Link>
               ))}
             </nav>
+          </div>
+
+          <div className="p-4 border-t border-dark-200">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>
@@ -126,10 +164,17 @@ const Layout = ({ user, setUser, children }) => {
         </button>
         <button
           onClick={() => navigate('/chat')}
-          className="flex flex-col items-center p-2 text-primary-600"
+          className="flex flex-col items-center p-2 text-dark-600"
         >
           <ChatIcon className="w-6 h-6" />
           <span className="text-xs">Chat</span>
+        </button>
+        <button
+          onClick={() => navigate('/tools/text-to-image')}
+          className="flex flex-col items-center p-2 text-dark-600"
+        >
+          <ImageIcon className="w-6 h-6" />
+          <span className="text-xs">Image</span>
         </button>
         <button
           onClick={handleLogout}

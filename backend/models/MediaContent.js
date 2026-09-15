@@ -33,14 +33,16 @@ const mediaContentSchema = new mongoose.Schema({
     default: null
   },
   
+  // Path file hasil generate di server (null selama processing / saat gagal)
   outputFile: {
     type: String,
-    required: true
+    default: null
   },
   
+  // URL publik relatif (mis. /uploads/media_xxx.png) yang dipakai frontend
   outputUrl: {
     type: String,
-    required: true
+    default: null
   },
   
   metadata: {

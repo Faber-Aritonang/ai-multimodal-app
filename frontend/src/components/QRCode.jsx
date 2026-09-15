@@ -1,62 +1,57 @@
-import { useState, useRef, useEffect } from 'react'
+import { memo } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 
 /**
  * QR Code Generator Component
- * Menggunakan library QRious untuk generate QR code
+ *
+ * Di-render sepenuhnya di browser memakai library `qrcode.react`,
+ * jadi tidak butuh service eksternal (Google Charts API sudah tidak aktif).
+ *
+ * Props:
+ * - value    : string yang di-encode ke dalam QR
+ * - size     : ukuran QR dalam pixel (default 200)
+ * - className: kelas tambahan untuk wrapper
+ * - onError  : opsional, dipanggil jika value tidak valid
  */
-const QRCode = ({ value, size = 200, onError }) => {
-  const [qrData, setQrData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const canvasRef = useRef(null)
+const QRCode = memo(({ value, size = 200, className = '', onError }) => {
+  if (!value) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-dark-100 rounded-lg text-xs text-dark-400 ${className}`}
+        style={{ width: size, height: size }}
+      >
+        QR code belum tersedia
+      </div>
+    )
+  }
 
-  useEffect(() => {
-    const generateQR = async () => {
-      setLoading(true)
-      
-      // Dinamis: gunakan QRious jika tersedia, atau fallback ke Google Charts
-      if (typeof QRious !== 'undefined') {
-        try {
-          const qr = new QRious({
-            element: canvasRef.current,
-            value: value,
-            size: size
-          })
-          setQrData(value)
-        } catch (err) {
-          console.error('QR generation error:', err)
-          onError?.(err)
-        }
-      } else {
-        // Fallback ke Google Charts API
-        const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=${size}x${size}&chl=${encodeURIComponent(value)}&choe=UTF-8`
-        setQrData(qrUrl)
-      }
-      
-      setLoading(false)
-    }
+  try {
+    return (
+      <div className={`inline-block bg-white p-2 rounded-lg shadow-md ${className}`}>
+        <QRCodeSVG
+          value={String(value)}
+          size={size}
+          level="M"
+          marginSize={2}
+          title={`QR Code: ${value}`}
+        />
+      </div>
+    )
+  } catch (error) {
+    console.error('QR generation error:', error)
+    onError?.(error)
 
-    generateQR()
-  }, [value, size])
+    return (
+      <div
+        className={`flex items-center justify-center bg-red-50 rounded-lg text-xs text-red-500 ${className}`}
+        style={{ width: size, height: size }}
+      >
+        Gagal membuat QR code
+      </div>
+    )
+  }
+})
 
-  if (loading) return <div className="animate-pulse bg-gray-200 rounded" style={{ width: size, height: size }} />
-
-  if (!qrData) return null
-
-  const isCanvas = !qrData.includes('chart.googleapis.com')
-
-  return isCanvas ? (
-    <canvas ref={canvasRef} />
-  ) : (
-    <img 
-      src={qrData} 
-      alt="QR Code" 
-      className="rounded-lg shadow-md"
-      onError={(e) => {
-        e.target.style.display = 'none'
-        onError?.(new Error('Failed to load QR code'))
-      }}
-    />
-  )
-}
+QRCode.displayName = 'QRCode'
 
 export default QRCode

@@ -68,11 +68,18 @@ const userSchema = new mongoose.Schema({
     default: Date.now
   },
   
-  // Opsional: referral code
+  // Kode referral milik user ini (dipakai orang lain saat mendaftar)
   referralCode: {
     type: String,
     unique: true,
     sparse: true
+  },
+
+  // Kode referral milik user yang mengajak user ini mendaftar
+  referredBy: {
+    type: String,
+    default: null,
+    index: true
   }
 });
 
@@ -86,11 +93,10 @@ userSchema.pre('save', function(next) {
   next();
 });
 
-// Index untuk pencarian cepat
-userSchema.index({ uid: 1 });
-userSchema.index({ email: 1 });
+// Index untuk pencarian cepat.
+// Catatan: uid & email sudah unique (dan referralCode sudah sparse unique) di
+// definisi field, jadi tidak perlu dideklarasikan ulang di sini.
 userSchema.index({ isApproved: 1 });
-userSchema.index({ referralCode: 1 }, { sparse: true });
 userSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('User', userSchema);

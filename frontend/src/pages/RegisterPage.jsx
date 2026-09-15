@@ -1,18 +1,48 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { signInWithGoogle } from '../config/firebase'
 import { authAPI } from '../config/api'
 import { GoogleIcon } from '../components/icons'
 
 const RegisterPage = ({ setUser }) => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const inviteCode = (searchParams.get('ref') || '').trim().toUpperCase()
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [referrer, setReferrer] = useState(null)
+  const [referrerError, setReferrerError] = useState('')
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
-    referralCode: ''
+    referralCode: inviteCode
   })
+
+  // Tampilkan siapa yang mengundang (dari link /register?ref=CODE)
+  useEffect(() => {
+    if (!inviteCode) return
+
+    let cancelled = false
+
+    const fetchReferrer = async () => {
+      try {
+        const response = await authAPI.getReferralInfo(inviteCode)
+        if (!cancelled) setReferrer(response.data.member)
+      } catch (err) {
+        if (!cancelled) {
+          setReferrerError('Kode undangan tidak ditemukan. Anda tetap bisa mendaftar tanpa kode.')
+        }
+        console.error('Failed to fetch referral info:', err)
+      }
+    }
+
+    fetchReferrer()
+
+    return () => {
+      cancelled = true
+    }
+  }, [inviteCode])
 
   const handleGoogleRegister = async () => {
     setLoading(true)
@@ -72,6 +102,33 @@ const RegisterPage = ({ setUser }) => {
           <h1 className="text-3xl font-bold text-dark-800 mb-2">AI Multimodal App</h1>
           <p className="text-dark-500">Register your account</p>
         </div>
+
+        {referrer && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex items-center gap-3">
+            {referrer.photoURL ? (
+              <img
+                src={referrer.photoURL}
+                alt={referrer.displayName}
+                className="w-10 h-10 rounded-full"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold">
+                  {referrer.displayName?.charAt(0) || '?'}
+                </span>
+              </div>
+            )}
+            <p className="text-green-800 text-sm">
+              You were invited by <strong>{referrer.displayName}</strong>.
+            </p>
+          </div>
+        )}
+
+        {referrerError && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+            <p className="text-yellow-800 text-sm">{referrerError}</p>
+          </div>
+        )}
         
         <div className="space-y-4 mb-6">
           <div>
@@ -152,7 +209,7 @@ const RegisterPage = ({ setUser }) => {
         <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-blue-800 text-sm">
             <strong>Note:</strong> Your account will be pending admin approval.
-            You'll be able to use the chat feature immediately, but other AI features
+            You&apos;ll be able to use the chat feature immediately, but other AI features
             will be unlocked once approved.
           </p>
         </div>

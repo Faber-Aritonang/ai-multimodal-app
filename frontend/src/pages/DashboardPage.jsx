@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { memberAPI, authAPI } from '../config/api'
+import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
 
 const DashboardPage = ({ user, setUser }) => {
@@ -39,7 +39,7 @@ const DashboardPage = ({ user, setUser }) => {
       description: 'Generate images from text prompts',
       icon: '🎨',
       path: '/tools/text-to-image',
-      available: false,
+      available: true,
       color: 'bg-purple-500'
     },
     {
@@ -98,7 +98,7 @@ const DashboardPage = ({ user, setUser }) => {
             Welcome back, {user?.displayName || 'User'}!
           </h1>
           <p className="text-dark-500">
-            Access AI-powered multimodal tools. New features coming soon!
+            Access AI-powered multimodal tools. More features coming soon!
           </p>
         </div>
         

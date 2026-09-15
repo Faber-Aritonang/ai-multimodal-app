@@ -5,8 +5,8 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireMember, checkQuota } = require('../middleware/auth');
-const { 
+const { authenticate, requireMember, checkQuota } = require('../middleware/auth');
+const {
   getChatSessions,
   createChatSession,
   sendMessage,
@@ -15,7 +15,9 @@ const {
 } = require('../controllers/chatController');
 const MemberController = require('../controllers/memberController');
 
-// Semua route di sini membutuhkan member yang sudah disetujui
+// Semua route member butuh akun yang sudah disetujui admin.
+// authenticate wajib lebih dulu: requireMember membaca req.user yang diisi di sana.
+router.use(authenticate);
 router.use(requireMember);
 
 // Chat routes
@@ -25,16 +27,10 @@ router.post('/chat/sessions/:sessionId/message', checkQuota('chat'), sendMessage
 router.get('/chat/sessions/:sessionId', getChatSession);
 router.delete('/chat/sessions/:sessionId', deleteChatSession);
 
-// Member list (public - untuk referral)
+// Member & referral routes
 router.get('/members', MemberController.getApprovedMembers);
-
-// Media routes (akan ditambah nanti)
-// router.post('/media/text-to-image', checkQuota('imageGeneration'), ...);
-// router.post('/media/image-to-image', ...);
-// router.post('/media/text-to-video', checkQuota('videoGeneration'), ...);
-// router.post('/media/image-to-video', ...);
-// router.post('/media/text-to-sound', ...);
-// router.post('/media/sound-to-text', ...);
+router.get('/members/:referralCode', MemberController.getMemberByReferralCode);
+router.get('/referral-stats', MemberController.getReferralStats);
 
 // Get member profile
 router.get('/profile', (req, res) => {
