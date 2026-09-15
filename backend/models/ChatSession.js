@@ -70,8 +70,8 @@ chatSessionSchema.pre('save', function(next) {
   next();
 });
 
-// Index untuk query cepat
+// Index untuk query cepat.
+// sessionId sudah unique di definisi field, cukup tambahkan index gabungan ini.
 chatSessionSchema.index({ userId: 1, createdAt: -1 });
-chatSessionSchema.index({ sessionId: 1 });
 
 module.exports = mongoose.model('ChatSession', chatSessionSchema);

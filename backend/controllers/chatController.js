@@ -4,14 +4,7 @@
  */
 
 const ChatSession = require('../models/ChatSession');
-const MediaContent = require('../models/MediaContent');
-
-// OpenAI API (v4+) - hanya untuk chat
-const OpenAI = require('openai');
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const { getOpenAIClient, getChatModel } = require('../config/openai');
 
 /**
  * @GET /api/v1/member/chat/sessions
@@ -106,8 +99,8 @@ exports.sendMessage = async (req, res) => {
     
     // Panggil OpenAI API
     try {
-      const openaiResponse = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+      const openaiResponse = await getOpenAIClient().chat.completions.create({
+        model: getChatModel(),
         messages: session.messages.map(m => ({
           role: m.role,
           content: m.content

@@ -5,7 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 const {
   getPendingMembers,
   getApprovedMembers,
@@ -14,7 +14,9 @@ const {
   getAnalytics
 } = require('../controllers/adminController');
 
-// Semua route ini membutuhkan akses admin
+// Semua route ini membutuhkan akses admin.
+// authenticate wajib lebih dulu: requireAdmin membaca req.user yang diisi di sana.
+router.use(authenticate);
 router.use(requireAdmin);
 
 // Member management

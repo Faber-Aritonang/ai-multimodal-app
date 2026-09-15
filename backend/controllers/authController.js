@@ -9,12 +9,23 @@ const User = require('../models/User');
 const Admin = require('../models/Admin');
 
 /**
+ * Apakah dev-login boleh dipakai?
+ *
+ * Dev-login melewati verifikasi Firebase: cukup cocokkan email ke database.
+ * Karena itu fitur ini hanya hidup saat NODE_ENV bukan 'production', baik di
+ * sisi route (tidak dipasang) maupun di sisi controller (menolak dengan 404).
+ */
+const isDevLoginEnabled = () => process.env.NODE_ENV !== 'production';
+
+exports.isDevLoginEnabled = isDevLoginEnabled;
+
+/**
  * @POST /api/v1/auth/register
  * Registrasi user baru (guest -> pending approval)
  */
 exports.register = async (req, res) => {
   try {
-    const { email, displayName, photoURL, firebaseToken } = req.body;
+    const { email, displayName, photoURL, firebaseToken, referralCode } = req.body;
     
     // Validasi input
     if (!email || !displayName) {
@@ -22,6 +33,25 @@ exports.register = async (req, res) => {
         success: false,
         message: 'Email and displayName are required'
       });
+    }
+
+    // Validasi kode referral (opsional): harus milik member yang sudah disetujui
+    let referredBy = null;
+    if (referralCode && String(referralCode).trim()) {
+      const normalizedCode = String(referralCode).trim().toUpperCase();
+      const referrer = await User.findOne({
+        referralCode: normalizedCode,
+        isApproved: true
+      });
+
+      if (!referrer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Referral code not found. Please check the code or leave it empty.'
+        });
+      }
+
+      referredBy = referrer.referralCode;
     }
     
     // Verifikasi Firebase ID Token
@@ -47,7 +77,8 @@ exports.register = async (req, res) => {
           displayName,
           photoURL: photoURL || decoded.picture || '',
           role: 'guest',
-          isApproved: false // Perlu approval admin
+          isApproved: false, // Perlu approval admin
+          referredBy
         });
         
         // Generate JWT token
@@ -92,7 +123,8 @@ exports.register = async (req, res) => {
       displayName,
       photoURL: photoURL || '',
       role: 'guest',
-      isApproved: false
+      isApproved: false,
+      referredBy
     });
     
     const token = jwt.sign(
@@ -222,6 +254,131 @@ exports.login = async (req, res) => {
     return res.status(401).json({
       success: false,
       message: 'Login failed',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @POST /api/v1/auth/dev-login
+ * Login instan tanpa Firebase untuk pengembangan lokal.
+ *
+ * Body: { email, displayName?, role? ('member' | 'guest') }
+ * - email yang sudah terdaftar sebagai admin -> token role 'admin'
+ * - email lain -> user dibuat/di-set sesuai role yang diminta
+ *
+ * Selalu mengembalikan 404 saat NODE_ENV=production.
+ */
+exports.devLogin = async (req, res) => {
+  if (!isDevLoginEnabled()) {
+    return res.status(404).json({
+      success: false,
+      message: 'Not found'
+    });
+  }
+
+  try {
+    const { email, displayName, role } = req.body || {};
+
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: 'JWT_SECRET is not set. Isi backend/.env terlebih dahulu.'
+      });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // Admin dicek lebih dulu supaya bisa uji halaman /admin di lokal.
+    const adminRecord = await Admin.findOne({ email: normalizedEmail });
+
+    if (adminRecord) {
+      adminRecord.lastLogin = new Date();
+      await adminRecord.save();
+
+      const token = jwt.sign(
+        { uid: adminRecord.uid, email: adminRecord.email, role: 'admin', isApproved: true },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        success: true,
+        message: 'Dev login successful (development only)',
+        token,
+        user: {
+          uid: adminRecord.uid,
+          email: adminRecord.email,
+          displayName: adminRecord.displayName,
+          photoURL: '',
+          role: 'admin',
+          isApproved: true
+        }
+      });
+    }
+
+    const requestedRole = role === 'guest' ? 'guest' : 'member';
+    const isApproved = requestedRole === 'member';
+
+    let user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      user = await User.create({
+        uid: `dev_${normalizedEmail}`,
+        email: normalizedEmail,
+        displayName: displayName || normalizedEmail.split('@')[0],
+        role: requestedRole,
+        isApproved
+      });
+    } else if (user.role !== requestedRole || user.isApproved !== isApproved) {
+      // Dev-login sengaja menuruti role yang diminta, supaya alur
+      // 'pending approval' bisa diuji bolak-balik tanpa edit database manual.
+      user.role = requestedRole;
+      user.isApproved = isApproved;
+      user.lastLogin = new Date();
+      await user.save();
+    } else {
+      user.lastLogin = new Date();
+      await user.save();
+    }
+
+    const token = jwt.sign(
+      {
+        uid: user.uid,
+        email: user.email,
+        role: user.role,
+        isApproved: user.isApproved
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Dev login successful (development only)',
+      token,
+      user: {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL || '',
+        role: user.role,
+        isApproved: user.isApproved,
+        quota: user.quota
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Dev login failed',
       error: error.message
     });
   }

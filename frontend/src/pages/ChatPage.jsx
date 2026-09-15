@@ -128,13 +128,6 @@ const ChatPage = ({ user, setUser }) => {
     }
   }
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
-    }
-  }
-
   const startNewChat = () => {
     navigate('/chat')
   }
@@ -253,7 +246,7 @@ const ChatPage = ({ user, setUser }) => {
                     Start a new conversation
                   </h3>
                   <p className="text-dark-400 max-w-md">
-                    Ask me anything! I'm here to help with questions, explanations, 
+                    Ask me anything! I&apos;m here to help with questions, explanations, 
                     coding assistance, creative writing, and more.
                   </p>
                 </div>
