@@ -34,6 +34,9 @@ yarn-error.log*
 # Firebase config
 backend/config/firebase-service-account.json
 
+# Hasil generate media (image/video/audio)
+backend/uploads/
+
 # Cache
 .cache/
 .temp/

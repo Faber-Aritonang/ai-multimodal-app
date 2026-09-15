@@ -17,12 +17,13 @@ Full-stack web application with AI-powered multimodal features including chat, t
 ## Features
 
 ### Available Features
-- **Chat**: AI-powered conversational chat (available for all users including guests)
+- **Chat**: AI-powered conversational chat
+- **Text-to-Image**: Generate images from text prompts (DALL-E 3), lengkap dengan riwayat & hapus
+- **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
 
 ### Feature Flags (Pending Admin Approval)
-- **Text-to-Image**: Generate images from text prompts
 - **Image-to-Image**: Transform images using AI
 - **Text-to-Video**: Generate videos from text descriptions
 - **Image-to-Video**: Create videos from images
@@ -79,7 +80,7 @@ npm install
 ```
 
 ### 2. Environment Variables
-Copy `.env.example` to `.env` and configure:
+Copy `.env.example` to `.env` and configure (panduan detail: [`docs/setup-kredensial.md`](docs/setup-kredensial.md)):
 
 ```bash
 # Server
@@ -101,8 +102,26 @@ HUGGINGFACE_API_KEY=hf-your-key
 1. Go to [Firebase Console](https://console.firebase.google.com/)
 2. Create a new project
 3. Enable Google Sign-in in Authentication
-4. Download service account key: Project Settings → Service accounts → Generate new private key
-5. Place it at `./config/firebase-service-account.json`
+4. Add `localhost` to Authentication → Settings → **Authorized domains**
+5. Download service account key: Project Settings → Service accounts → Generate new private key
+6. Place it at `./config/firebase-service-account.json`
+
+### 3b. Tanpa Firebase: dev-login (development)
+
+Belum punya kredensial Firebase? Aplikasi tetap bisa dipakai di lokal. Saat
+`npm run dev`, halaman `/login` menampilkan panel **Dev login** yang masuk hanya
+dengan email:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/dev-login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev.member@example.com","role":"member"}'
+```
+
+`role` boleh `member` (default, langsung disetujui) atau `guest` (untuk menguji
+alur pending approval). Email yang sudah terdaftar di koleksi `admins` akan
+mendapat token admin. Endpoint ini tidak dipasang sama sekali saat
+`NODE_ENV=production`.
 
 ### 4. MongoDB Setup
 
@@ -126,22 +145,36 @@ cd frontend
 npm install
 ```
 
-### 2. Firebase Configuration
+### 2. Environment Variables
 
-Edit `src/config/firebase.js`:
-
-```javascript
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
+```bash
+cp .env.example .env.local
 ```
 
-Get these from your Firebase project settings.
+Isi `frontend/.env.local` dengan Firebase Web App config (Firebase Console →
+Project Settings → Your apps) dan `VITE_API_URL` (kosongkan saat development):
+
+```env
+VITE_API_URL=
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+```env
+# Opsional: target proxy Vite saat development (default http://localhost:3000)
+# Harus sama dengan PORT di backend/.env
+VITE_PROXY_TARGET=http://localhost:3000
+```
+
+> `VITE_API_URL` hanya dipakai saat production (mis. Vercel tanpa proxy).
+> Saat development, request `/api/v1` dan `/uploads` otomatis di-proxy Vite ke
+> backend (lihat `VITE_PROXY_TARGET`).
+
+Restart dev server setiap kali `.env.local` diubah.
 
 ### 3. Run Development Server
 ```bash
@@ -149,6 +182,16 @@ npm run dev
 ```
 
 Visit `http://localhost:5173`
+
+## Testing & Linting
+
+```bash
+# Backend - unit test (tanpa MongoDB/Firebase, aman untuk CI)
+cd backend && npm test
+
+# Frontend - ESLint
+cd frontend && npm run lint
+```
 
 ## API Documentation
 
@@ -158,6 +201,7 @@ Visit `http://localhost:5173`
 |--------|----------|-------------|---------------|
 | POST | `/api/v1/auth/register` | Register new user (creates pending member) | ❌ No |
 | POST | `/api/v1/auth/login` | Login with Firebase token | ❌ No |
+| POST | `/api/v1/auth/dev-login` | Login tanpa Firebase — **development only** (404 saat `NODE_ENV=production`) | ❌ No |
 | GET | `/api/v1/auth/status` | Check authentication status | ✅ Optional |
 | POST | `/api/v1/auth/logout` | Logout user | ✅ Optional |
 
@@ -172,6 +216,14 @@ Visit `http://localhost:5173`
 | POST | `/api/v1/member/chat/sessions/:sessionId/message` | Send message | ✅ Member |
 | GET | `/api/v1/member/chat/sessions/:sessionId` | Get session details | ✅ Member |
 | DELETE | `/api/v1/member/chat/sessions/:sessionId` | Delete session | ✅ Member |
+| GET | `/api/v1/member/members` | Daftar member approved | ✅ Member |
+| GET | `/api/v1/member/members/:referralCode` | Profil pemilik kode referral | ✅ Member |
+| GET | `/api/v1/member/referral-stats` | Statistik referral (jumlah yang diundang) | ✅ Member |
+| POST | `/api/v1/media/text-to-image` | Generate gambar dari prompt | ✅ Member |
+| GET | `/api/v1/media/history` | Riwayat media user | ✅ Member |
+| DELETE | `/api/v1/media/:contentId` | Hapus media (record + file) | ✅ Member |
+| GET | `/api/v1/media/status` | Daftar endpoint media | ❌ No |
+| GET | `/api/v1/auth/referral/:referralCode` | Info pemilik kode referral (halaman undangan) | ❌ No |
 
 ### Admin Endpoints
 
@@ -209,6 +261,21 @@ curl -X POST http://localhost:3000/api/v1/member/chat/sessions/xxx/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello AI!"}'
 ```
+
+### Generate Image (Text to Image)
+```bash
+curl -X POST http://localhost:3000/api/v1/media/text-to-image \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A futuristic city at sunset, cinematic lighting",
+    "size": "1024x1024",
+    "quality": "standard"
+  }'
+```
+
+Hasil generate disimpan di `backend/uploads/` dan disajikan di `/uploads/<file>.png`.
+Quota `imageGeneration` berkurang 1 hanya jika gambar berhasil dibuat.
 
 ## Deployment
 
@@ -258,10 +325,20 @@ OPENAI_API_KEY=your-openai-key
 
 **Frontend**: Set in Vercel dashboard:
 ```
+VITE_API_URL=https://ai-multimodal-backend.up.railway.app
 VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=...
-...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
 ```
+
+> Jangan lupa menambahkan domain Vercel ke Firebase Console → Authentication →
+> Settings → Authorized domains, dan URL Vercel ke `FRONTEND_URL` di Railway.
+
+Workflow CI menjalankan job **quality** (unit test backend + lint + build frontend)
+sebelum deploy. Job ini tidak butuh secret; deploy di-skip jika test/lint gagal.
 
 ## Architecture
 
@@ -303,6 +380,8 @@ ai-multimodal-app/
 │   ├── middleware/          # Auth & validation middleware
 │   ├── models/              # MongoDB schemas
 │   ├── routes/              # API routes
+│   ├── scripts/             # Utility scripts (seed admin)
+│   ├── tests/               # Unit test (jest)
 │   ├── server.js            # Main entry point
 │   └── package.json
 │
@@ -316,6 +395,7 @@ ai-multimodal-app/
 │   │   └── main.jsx         # Entry point
 │   └── package.json
 │
+├── docs/                     # Dokumentasi (setup kredensial, CI secrets)
 └── README.md
 ```
 
@@ -329,9 +409,13 @@ ai-multimodal-app/
 - [x] Frontend framework
 - [x] UI components
 - [x] Google authentication
+- [x] Admin dashboard (approval member + analytics)
+- [x] Referral code & QR code
+- [x] Konfigurasi berbasis environment (VITE_* / .env)
+- [x] Unit test backend (jest)
 
-### Phase 2: Media Features (Coming Soon)
-- [ ] Text-to-Image (OpenAI DALL-E, Stable Diffusion)
+### Phase 2: Media Features
+- [x] Text-to-Image (OpenAI DALL-E 3)
 - [ ] Image-to-Image
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
@@ -339,7 +423,7 @@ ai-multimodal-app/
 - [ ] Sound-to-Text (Whisper)
 
 ### Phase 3: Enhancements
-- [ ] File upload & storage (Firebase Storage/Cloudinary)
+- [ ] File upload & storage (Firebase Storage/Cloudinary) — saat ini hasil generate disimpan di disk lokal `backend/uploads/`
 - [ ] Real-time chat (Socket.io)
 - [ ] Admin dashboard with analytics
 - [ ] User profile management

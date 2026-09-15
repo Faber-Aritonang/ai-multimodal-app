@@ -30,10 +30,21 @@ Set these secrets di GitHub Repository → Settings → Secrets and variables �
    - Dari: Firebase Console → Project Settings → Service Accounts → Generate New Private Key
    - Salin seluruh isi JSON file
 
-### OpenAI (untuk chat)
+### OpenAI (untuk chat & text-to-image)
 
 7. **OPENAI_API_KEY** (string)
    - Dari: https://platform.openai.com/api-keys
+
+---
+
+## Catatan untuk job Quality di CI
+
+Workflow `.github/workflows/deploy.yml` punya job **quality** (unit test backend +
+lint + build frontend) yang jalan sebelum deploy. Job ini **tidak membutuhkan
+secret apa pun** karena test backend memakai mock (tanpa MongoDB/Firebase).
+
+Build di job quality juga tidak butuh `VITE_*` karena bundle produksi yang dipakai
+Vercel dibuat ulang di sisi Vercel memakai environment variables di dashboard.
 
 ---
 

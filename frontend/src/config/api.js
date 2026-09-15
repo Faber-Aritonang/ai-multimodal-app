@@ -2,9 +2,16 @@
 
 import axios from 'axios';
 
+// Base URL backend API.
+// - Development: dibiarkan kosong, request '/api/v1' di-forward oleh proxy Vite
+//   (lihat vite.config.js) ke http://localhost:3000.
+// - Production  : isi VITE_API_URL dengan URL backend, mis.
+//   https://ai-multimodal-backend.up.railway.app
+const apiRoot = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+
 // Buat instance axios dengan konfigurasi default
 const api = axios.create({
-  baseURL: '/api/v1', // Proxy Vite akan forward ke backend
+  baseURL: apiRoot ? `${apiRoot}/api/v1` : '/api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -39,16 +46,32 @@ api.interceptors.response.use(
   }
 );
 
+/**
+ * Ubah URL media relatif dari backend menjadi URL yang bisa dipakai browser.
+ * Hasil generate disimpan sebagai '/uploads/xxx.png'.
+ * - Development: dibiarkan relatif, di-proxy Vite ke backend.
+ * - Production : ditempel ke VITE_API_URL.
+ */
+export const resolveMediaUrl = (url) => {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${apiRoot}${url}`;
+};
+
 // Auth API
 export const authAPI = {
   // Registrasi
   register: (data) => api.post('/auth/register', data),
   // Login
   login: (data) => api.post('/auth/login', data),
+  // Login tanpa Firebase — hanya berfungsi saat backend di luar production
+  devLogin: (data) => api.post('/auth/dev-login', data),
   // Logout
   logout: () => api.post('/auth/logout'),
   // Cek status auth
   getStatus: () => api.get('/auth/status'),
+  // Info pemilik kode referral (publik, untuk halaman undangan)
+  getReferralInfo: (code) => api.get(`/auth/referral/${code}`),
 };
 
 // Member API
@@ -65,18 +88,26 @@ export const memberAPI = {
   getProfile: () => api.get('/member/profile'),
   getQuota: () => api.get('/member/quota'),
   
-  // Member list (untuk referral)
+  // Member list & referral
   getApprovedMembers: () => api.get('/member/members'),
   getMemberByReferralCode: (code) => api.get(`/member/members/${code}`),
   getReferralStats: () => api.get('/member/referral-stats'),
-  
-  // Media (placeholder)
-  // textToImage: (prompt) => api.post('/member/media/text-to-image', { prompt }),
-  // imageToImage: (image, prompt) => api.post('/member/media/image-to-image', { image, prompt }),
-  // textToVideo: (prompt) => api.post('/member/media/text-to-video', { prompt }),
-  // imageToVideo: (image, prompt) => api.post('/member/media/image-to-video', { image, prompt }),
-  // textToSound: (text) => api.post('/member/media/text-to-sound', { text }),
-  // soundToText: (audio) => api.post('/member/media/sound-to-text', { audio }),
+};
+
+// Media API (AI multimodal berbasis gambar)
+export const mediaAPI = {
+  // Info endpoint yang tersedia + yang belum diimplementasi
+  getStatus: () => api.get('/media/status'),
+
+  // Text to image
+  textToImage: ({ prompt, size, quality }) =>
+    api.post('/media/text-to-image', { prompt, size, quality }, { timeout: 120000 }),
+
+  // Riwayat media milik user
+  getHistory: (params = {}) => api.get('/media/history', { params }),
+
+  // Hapus satu media
+  deleteMedia: (contentId) => api.delete(`/media/${contentId}`),
 };
 
 // Admin API
