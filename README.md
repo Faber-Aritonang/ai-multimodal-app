@@ -406,8 +406,34 @@ VITE_FIREBASE_APP_ID=...
 > Jangan lupa menambahkan domain Vercel ke Firebase Console → Authentication →
 > Settings → Authorized domains, dan URL Vercel ke `FRONTEND_URL` di Railway.
 
-Workflow CI menjalankan job **quality** (unit test backend + lint + build frontend)
-sebelum deploy. Job ini tidak butuh secret; deploy di-skip jika test/lint gagal.
+### Pipeline otomatis (`.github/workflows/deploy.yml`)
+
+Setiap push ke `main` menjalankan tiga job:
+
+1. **quality** — unit test backend + lint & build frontend. Tidak butuh secret;
+   kalau gagal, deploy tidak dijalankan.
+2. **deploy-backend** — `railway up` lewat **Railway CLI** (mengunggah direktori
+   `backend`, Railway membangunnya di sana).
+3. **deploy-frontend** — alur resmi **Vercel CLI**: `vercel pull` → `vercel build`
+   → `vercel deploy --prebuilt --prod`.
+
+Keduanya memakai CLI resmi, bukan action pihak ketiga: workflow lama memakai
+`railway/railway-github-action` (repositori action-nya sudah tidak ada) dan
+`amondnet/vercel-action@v30` (tag itu tidak pernah ada), sehingga setiap push
+gagal di langkah *Set up job* — bukan karena kode aplikasi.
+
+Secret yang wajib ada di repo (**Settings → Secrets and variables → Actions**):
+
+| Secret | Dipakai untuk |
+|---|---|
+| `RAILWAY_TOKEN` | token project Railway (bukan token akun) |
+| `RAILWAY_PROJECT_ID` | project Railway tujuan |
+| `VERCEL_TOKEN` | token Vercel |
+| `VERCEL_ORG_ID` | org/team Vercel |
+| `VERCEL_PROJECT_ID` | project Vercel (frontend) |
+
+Deploy bisa dijalankan manual lewat **Actions → Deploy to Railway & Vercel →
+Run workflow** (lihat input `deploy_backend` / `deploy_frontend`).
 
 ## Architecture
 

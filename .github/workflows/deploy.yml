@@ -1,5 +1,16 @@
 name: Deploy to Railway & Vercel
 
+# Deploy memakai CLI resmi (Railway CLI & Vercel CLI), BUKAN action pihak ketiga.
+#
+# Alasannya konkret: workflow sebelumnya memakai `railway/railway-github-action`
+# (repositori action-nya sudah tidak ada sehingga job gagal di langkah "Set up
+# job") dan `amondnet/vercel-action@v30` (tag v30 tidak pernah ada; rilisnya
+# melompat ke v42). Kedua kegagalan itu bukan soal kode aplikasi, tapi soal
+# referensi action yang bisa hilang kapan saja. CLI resmi dipakai langsung
+# supaya versi yang dipin adalah versi paket yang benar-benar ada.
+#
+# Uji ulang referensinya: `npm view @railway/cli version` dan `npm view vercel version`.
+
 on:
   push:
     branches: [ main ]
@@ -14,12 +25,28 @@ on:
         required: false
         default: 'true'
 
+# Deploy dijalankan satu per satu untuk ref yang sama: push baru menunggu
+# deploy yang sedang berjalan selesai (tidak dibatalkan di tengah jalan, karena
+# deploy yang terpotong bisa meninggalkan aplikasi dalam keadaan setengah jadi).
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Dipakai kedua job CLI. Dipin ke major version agar tidak berubah sendiri.
+  RAILWAY_CLI_VERSION: '5'
+  VERCEL_CLI_VERSION: '59'
+
 jobs:
   # Quality gate: unit test backend + lint & build frontend.
   # Test backend tidak butuh kredensial apa pun (tanpa Mongo/Firebase).
   quality:
     name: Test & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -53,71 +80,99 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-  # Deploy Backend ke Railway
+  # Deploy Backend ke Railway.
+  #
+  # `railway up` mengunggah direktori backend dan membangunnya di Railway
+  # (Nixpacks mendeteksi Node dari package.json), jadi tidak perlu memasang
+  # dependency di runner. Tanpa `--detach`, perintah ini menunggu build selesai
+  # dan gagal kalau build-nya gagal — itu yang membuat status job jujur.
   deploy-backend:
     needs: quality
-    if: github.event_name == 'push' || (github.event.inputs.deploy_backend == 'true')
+    if: github.event_name == 'push' || github.event.inputs.deploy_backend == 'true'
     name: Deploy Backend to Railway
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-      
-      - name: Install dependencies
-        run: npm ci --omit=dev
-      
-      - name: Deploy to Railway
-        uses: railway/railway-github-action@v0.4.0
-        with:
-          railway-token: ${{ secrets.RAILWAY_TOKEN }}
-          service-name: "ai-multimodal-backend"
-          project-id: ${{ secrets.RAILWAY_PROJECT_ID }}
-          environment: "production"
 
-  # Deploy Frontend ke Vercel
+      - name: Pastikan kredensial tersedia
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Secret RAILWAY_TOKEN belum diisi di repo ini."
+            exit 1
+          fi
+
+      - name: Install Railway CLI
+        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+      - name: Deploy ke Railway
+        working-directory: backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --service "ai-multimodal-backend" \
+            --environment "production" \
+            --ci
+
+  # Deploy Frontend ke Vercel.
+  #
+  # Ini alur resmi Vercel untuk Actions: `vercel pull` mengambil pengaturan
+  # project, `vercel build` membangun secara lokal di runner, lalu
+  # `vercel deploy --prebuilt` mengunggah artefaknya tanpa membangun ulang.
   deploy-frontend:
     needs: quality
-    if: github.event_name == 'push' || (github.event.inputs.deploy_frontend == 'true')
+    if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
     name: Deploy Frontend to Vercel
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
+    env:
+      # VERCEL_TOKEN wajib ada di level job (bukan hanya di langkah pengecekan)
+      # supaya langkah pull/build/deploy benar-benar menerima tokennya.
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      # Nama secret di repo ini adalah VERCEL_PROJECT_ID (bukan
+      # VERCEL_PROJECT_ID_FRONTEND seperti di workflow lama, yang membuat
+      # project-id terkirim kosong).
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      - name: Pastikan kredensial tersedia
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::Secret VERCEL_TOKEN belum diisi di repo ini."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
-      
-      # vite & @vitejs/plugin-react adalah devDependencies, jadi dev deps wajib
-      # ikut terinstall agar `npm run build` bisa jalan di CI.
+
       - name: Install dependencies
         run: npm ci
-      
-      - name: Build project
-        run: npm run build
-      
-      - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v30
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_FRONTEND }}
-          working-directory: ./frontend
-          prod: true
+
+      - name: Install Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Vercel - tarik pengaturan project
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Vercel - build
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Vercel - deploy
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
