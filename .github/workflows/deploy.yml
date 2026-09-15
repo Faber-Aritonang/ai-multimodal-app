@@ -5,11 +5,14 @@ name: Deploy to Railway & Vercel
 # Alasannya konkret: workflow sebelumnya memakai `railway/railway-github-action`
 # (repositori action-nya sudah tidak ada sehingga job gagal di langkah "Set up
 # job") dan `amondnet/vercel-action@v30` (tag v30 tidak pernah ada; rilisnya
-# melompat ke v42). Kedua kegagalan itu bukan soal kode aplikasi, tapi soal
-# referensi action yang bisa hilang kapan saja. CLI resmi dipakai langsung
-# supaya versi yang dipin adalah versi paket yang benar-benar ada.
+# melompat ke v42). Keduanya bukan soal kode aplikasi, tapi referensi action yang
+# bisa hilang kapan saja.
 #
-# Uji ulang referensinya: `npm view @railway/cli version` dan `npm view vercel version`.
+# Catatan: repo ini publik, jadi log run juga publik. Tahap diagnostik di bawah
+# sengaja hanya mencetak NAMA service, tanpa nilai environment variable.
+#
+# Uji ulang referensi versi: `npm view @railway/cli version` dan
+# `npm view vercel version`.
 
 on:
   push:
@@ -36,9 +39,13 @@ permissions:
   contents: read
 
 env:
-  # Dipakai kedua job CLI. Dipin ke major version agar tidak berubah sendiri.
+  # Dipin ke major version agar tidak berubah sendiri.
   RAILWAY_CLI_VERSION: '5'
   VERCEL_CLI_VERSION: '59'
+  RAILWAY_ENVIRONMENT: 'production'
+  # Nama service Railway. Bisa diganti tanpa mengubah workflow dengan menambah
+  # secret RAILWAY_SERVICE (mis. kalau service-nya bernama lain).
+  RAILWAY_SERVICE_DEFAULT: 'ai-multimodal-backend'
 
 jobs:
   # Quality gate: unit test backend + lint & build frontend.
@@ -49,10 +56,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -92,40 +99,84 @@ jobs:
     name: Deploy Backend to Railway
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      # Opsional: diisi hanya kalau nama service-nya bukan default di atas.
+      RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Pastikan kredensial tersedia
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "::error::Secret RAILWAY_TOKEN belum diisi di repo ini."
+            exit 1
+          fi
+          if [ -z "$RAILWAY_PROJECT_ID" ]; then
+            echo "::error::Secret RAILWAY_PROJECT_ID belum diisi di repo ini."
             exit 1
           fi
 
       - name: Install Railway CLI
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
+      # Kalau nama service salah, error CLI hanya berbunyi "Service not found" —
+      # tidak memberi tahu nama yang benar. Langkah ini mencetak daftar nama
+      # service di environment tujuan supaya penyebabnya langsung kelihatan.
+      - name: Diagnostik - daftar service Railway
+        run: |
+          railway service list \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --json > /tmp/railway-services.json 2>/tmp/railway-services.err || true
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const target = process.env.RAILWAY_SERVICE || process.env.RAILWAY_SERVICE_DEFAULT;
+
+          let raw = '';
+          try { raw = fs.readFileSync('/tmp/railway-services.json', 'utf8'); } catch {}
+
+          let data = null;
+          try { data = JSON.parse(raw); } catch {}
+
+          const list = !data ? [] : (Array.isArray(data) ? data : (data.services || data.items || []));
+          const names = list.map((s) => s.name || s.serviceName).filter(Boolean);
+
+          console.log('Service tujuan :', target);
+          console.log('Service tersedia:', names.length ? names.join(', ') : '(tidak terbaca)');
+
+          if (names.length && !names.includes(target)) {
+            console.log(`::warning::Service "${target}" tidak ada di project ini. ` +
+              'Ganti nilainya di env RAILWAY_SERVICE_DEFAULT atau tambahkan secret RAILWAY_SERVICE.');
+          }
+          NODE
+
+          if [ -s /tmp/railway-services.err ]; then
+            echo "--- pesan CLI ---"
+            head -5 /tmp/railway-services.err
+          fi
+
       - name: Deploy ke Railway
         working-directory: backend
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           railway up \
             --project "$RAILWAY_PROJECT_ID" \
-            --service "ai-multimodal-backend" \
-            --environment "production" \
+            --service "${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" \
+            --environment "$RAILWAY_ENVIRONMENT" \
             --ci
 
   # Deploy Frontend ke Vercel.
   #
   # Ini alur resmi Vercel untuk Actions: `vercel pull` mengambil pengaturan
-  # project, `vercel build` membangun secara lokal di runner, lalu
-  # `vercel deploy --prebuilt` mengunggah artefaknya tanpa membangun ulang.
+  # project, `vercel build` membangun di runner, lalu `vercel deploy --prebuilt`
+  # mengunggah artefaknya tanpa membangun ulang.
+  #
+  # Perintah install/build/output ditetapkan di `frontend/vercel.json`, bukan
+  # diserahkan ke setelan dashboard: run pertama gagal dengan `sh: 1: vite: not
+  # found` karena `vite` (devDependency) tidak terpasang saat build di CI.
   deploy-frontend:
     needs: quality
     if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
@@ -146,7 +197,7 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Pastikan kredensial tersedia
         run: |
@@ -154,9 +205,13 @@ jobs:
             echo "::error::Secret VERCEL_TOKEN belum diisi di repo ini."
             exit 1
           fi
+          if [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::error::Secret VERCEL_PROJECT_ID belum diisi di repo ini."
+            exit 1
+          fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
