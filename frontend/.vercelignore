@@ -1,0 +1,4 @@
+# Vercel membangun ulang dari sumber, jadi keduanya tidak perlu diunggah.
+node_modules
+dist
+tests

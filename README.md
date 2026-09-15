@@ -414,8 +414,9 @@ Setiap push ke `main` menjalankan tiga job:
    kalau gagal, deploy tidak dijalankan.
 2. **deploy-backend** — `railway up` lewat **Railway CLI** (mengunggah direktori
    `backend`, Railway membangunnya di sana).
-3. **deploy-frontend** — alur resmi **Vercel CLI**: `vercel pull` → `vercel build`
-   → `vercel deploy --prebuilt --prod`.
+3. **deploy-frontend** — `vercel pull` lalu **`vercel deploy --prod`**: frontend
+   dibangun di sisi Vercel, sehingga instalasi dependency memakai lingkungan
+   build resminya (termasuk devDependencies seperti `vite`).
 
 Keduanya memakai CLI resmi, bukan action pihak ketiga: workflow lama memakai
 `railway/railway-github-action` (repositori action-nya sudah tidak ada) dan
@@ -428,6 +429,7 @@ Secret yang wajib ada di repo (**Settings → Secrets and variables → Actions*
 |---|---|
 | `RAILWAY_TOKEN` | token project Railway (bukan token akun) |
 | `RAILWAY_PROJECT_ID` | project Railway tujuan |
+| `RAILWAY_SERVICE` | opsional — nama service Railway bila bukan `ai-multimodal-app` |
 | `VERCEL_TOKEN` | token Vercel |
 | `VERCEL_ORG_ID` | org/team Vercel |
 | `VERCEL_PROJECT_ID` | project Vercel (frontend) |
