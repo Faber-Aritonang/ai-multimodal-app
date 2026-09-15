@@ -50,7 +50,17 @@ const mediaContentSchema = new mongoose.Schema({
     height: Number,
     duration: Number,
     resolution: String,
-    format: String
+    // Ukuran yang diminta user; bisa berbeda dari `resolution` kalau provider
+    // mengembalikan gambar dengan dimensi lain.
+    requestedResolution: String,
+    // Dimensi gambar input pada image-to-image (sebelum diedit). Mongoose
+    // membuang field yang tidak ada di schema secara diam-diam, jadi setiap
+    // field metadata baru harus didaftarkan di sini.
+    inputResolution: String,
+    format: String,
+    // Provider & model yang dipakai saat generate (mis. cloudflare / flux-1-schnell)
+    provider: String,
+    model: String
   },
   
   status: {

@@ -137,6 +137,34 @@ export const ImageIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 )
 
+export const TransformIcon = ({ className = "w-6 h-6" }) => (
+  <svg 
+    className={className} 
+    fill="none" 
+    stroke="currentColor" 
+    viewBox="0 0 24 24"
+  >
+    <path 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      strokeWidth={2} 
+      d="M3 5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5z" 
+    />
+    <path 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      strokeWidth={2} 
+      d="M12 14a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-5z" 
+    />
+    <path 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      strokeWidth={2} 
+      d="M8 12v3a2 2 0 0 0 2 2h2" 
+    />
+  </svg>
+)
+
 export const GoogleIcon = ({ className = "w-5 h-5" }) => (
   <svg 
     className={className} 

@@ -11,6 +11,9 @@ backend/build/
 .env
 .env.local
 .env.*.local
+# Salinan cadangan .env (mis. sebelum mengubah kredensial) juga memuat rahasia
+.env.bak*
+.env.*.bak
 
 # IDE
 .vscode/

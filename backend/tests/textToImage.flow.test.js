@@ -3,8 +3,8 @@
  *
  * Yang diuji adalah stack asli: route -> requireMember -> checkQuota ->
  * mediaController -> penulisan file -> express.static.
- * Hanya MongoDB (model) dan OpenAI yang di-mock, jadi test tetap jalan di CI
- * tanpa kredensial.
+ * Hanya MongoDB (model) dan provider gambar yang di-mock, jadi test tetap jalan
+ * di CI tanpa kredensial.
  */
 
 const fs = require('fs');
@@ -12,7 +12,6 @@ const os = require('os');
 const path = require('path');
 
 const mockGenerateImage = jest.fn();
-const mockGetOpenAIClient = jest.fn();
 
 const tempUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-uploads-'));
 process.env.UPLOAD_DIR = tempUploadDir;
@@ -21,11 +20,8 @@ process.env.JWT_SECRET = 'flow-test-secret';
 jest.mock('../models/User');
 jest.mock('../models/Admin');
 jest.mock('../models/MediaContent');
-jest.mock('../config/openai', () => ({
-  getOpenAIClient: (...args) => mockGetOpenAIClient(...args),
-  getChatModel: () => 'gpt-3.5-turbo',
-  getImageModel: () => 'dall-e-3',
-  supportsResponseFormat: () => true
+jest.mock('../config/imageProviders', () => ({
+  generateImage: (...args) => mockGenerateImage(...args)
 }));
 
 const jwt = require('jsonwebtoken');
@@ -51,10 +47,16 @@ const approvedMember = (imageGeneration = 3) => ({
 });
 
 beforeEach(() => {
-  mockGetOpenAIClient.mockReturnValue({ images: { generate: mockGenerateImage } });
+  mockGenerateImage.mockReset();
   mockGenerateImage.mockResolvedValue({
-    data: [{ b64_json: Buffer.from('flow-image').toString('base64') }]
+    buffer: Buffer.from('flow-image-bytes'),
+    format: 'jpeg',
+    mimeType: 'image/jpeg',
+    provider: 'cloudflare',
+    model: '@cf/black-forest-labs/flux-1-schnell',
+    attempts: []
   });
+
   MediaContent.create.mockResolvedValue({
     contentId: 'media_flow',
     status: 'processing',
@@ -74,18 +76,20 @@ describe('POST /api/v1/media/text-to-image', () => {
 
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
-    expect(response.body.media.outputUrl).toBe('/uploads/media_flow.png');
+    expect(response.body.provider).toBe('cloudflare');
+    expect(response.body.media.outputUrl).toBe('/uploads/media_flow.jpeg');
     expect(response.body.quota.imageGeneration).toBe(2);
     expect(member.save).toHaveBeenCalled();
 
     // File benar-benar tersimpan dan bisa diambil lewat endpoint statis
-    expect(fs.existsSync(path.join(tempUploadDir, 'media_flow.png'))).toBe(true);
+    expect(fs.existsSync(path.join(tempUploadDir, 'media_flow.jpeg'))).toBe(true);
 
-    const fileResponse = await request(app).get('/uploads/media_flow.png');
+    const fileResponse = await request(app).get('/uploads/media_flow.jpeg');
     expect(fileResponse.status).toBe(200);
+    expect(fileResponse.headers['content-type']).toMatch(/image\/jpeg/);
   });
 
-  test('member tanpa quota gambar ditolak 403 dan OpenAI tidak dipanggil', async () => {
+  test('member tanpa quota gambar ditolak 403 dan provider tidak dipanggil', async () => {
     User.findOne.mockResolvedValue(approvedMember(0));
 
     const response = await request(app)
@@ -128,5 +132,24 @@ describe('POST /api/v1/media/text-to-image', () => {
     expect(response.status).toBe(400);
     expect(response.body.message).toMatch(/prompt/i);
     expect(mockGenerateImage).not.toHaveBeenCalled();
+  });
+
+  test('kegagalan provider dicatat sebagai media failed dan quota tidak berkurang', async () => {
+    const member = approvedMember(3);
+    User.findOne.mockResolvedValue(member);
+
+    const providerError = new Error('All image providers failed (pollinations: HTTP 429)');
+    providerError.code = 'PROVIDER_UNAVAILABLE';
+    mockGenerateImage.mockRejectedValue(providerError);
+
+    const response = await request(app)
+      .post('/api/v1/media/text-to-image')
+      .set(authHeader())
+      .send({ prompt: 'a scenic mountain lake' });
+
+    expect(response.status).toBe(502);
+    expect(response.body.success).toBe(false);
+    expect(member.quota.imageGeneration).toBe(3);
+    expect(member.save).not.toHaveBeenCalled();
   });
 });

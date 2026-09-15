@@ -9,11 +9,25 @@ const ProfilePage = ({ user, setUser }) => {
   const [referral, setReferral] = useState(null)
   const [referralLoading, setReferralLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  // Profil dari server dipakai untuk bagian "Account Info". Objek `user` dari
+  // login/localStorage tidak memuat createdAt, sehingga "Member Since" selalu
+  // tampil 'N/A' untuk semua user sebelum ini.
+  const [profile, setProfile] = useState(null)
 
   useEffect(() => {
     fetchQuota()
     fetchReferralStats()
+    fetchProfile()
   }, [])
+
+  const fetchProfile = async () => {
+    try {
+      const response = await memberAPI.getProfile()
+      setProfile(response.data.user)
+    } catch (error) {
+      console.error('Failed to fetch profile:', error)
+    }
+  }
 
   const fetchQuota = async () => {
     try {
@@ -54,6 +68,9 @@ const ProfilePage = ({ user, setUser }) => {
     }
   }
 
+  // Data server bila sudah termuat, kalau belum pakai objek user dari login.
+  const account = profile || user
+
   const quotaItems = [
     { label: 'Chat', key: 'chat', icon: '💬' },
     { label: 'Images', key: 'imageGeneration', icon: '🎨' },
@@ -83,8 +100,8 @@ const ProfilePage = ({ user, setUser }) => {
             )}
             
             <div>
-              <h2 className="text-xl font-bold text-dark-800">{user?.displayName}</h2>
-              <p className="text-dark-500">{user?.email}</p>
+              <h2 data-testid="profile-name" className="text-xl font-bold text-dark-800">{user?.displayName}</h2>
+              <p data-testid="profile-email" className="text-dark-500">{user?.email}</p>
               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-2">
                 {user?.isApproved ? 'Approved Member' : 'Pending Approval'}
               </span>
@@ -108,13 +125,13 @@ const ProfilePage = ({ user, setUser }) => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-dark-500 mb-1">Kode referral</p>
-                    <code className="bg-dark-100 px-3 py-2 rounded-lg font-mono text-sm block">
+                    <code data-testid="referral-code" className="bg-dark-100 px-3 py-2 rounded-lg font-mono text-sm block">
                       {referralCode || 'Belum tersedia'}
                     </code>
                   </div>
                   <div>
                     <p className="text-xs text-dark-500 mb-1">Total referral</p>
-                    <p className="text-2xl font-bold text-primary-600">
+                    <p data-testid="referral-total" className="text-2xl font-bold text-primary-600">
                       {referral?.totalReferrals ?? 0}
                     </p>
                   </div>
@@ -126,6 +143,7 @@ const ProfilePage = ({ user, setUser }) => {
                     <input
                       type="text"
                       readOnly
+                      data-testid="referral-link"
                       value={referralLink}
                       className="flex-1 px-3 py-2 border border-dark-200 rounded-lg text-sm bg-dark-50"
                     />
@@ -168,7 +186,7 @@ const ProfilePage = ({ user, setUser }) => {
               </div>
 
               {referralCode && (
-                <div className="md:w-52 shrink-0 text-center">
+                <div data-testid="referral-qr" className="md:w-52 shrink-0 text-center">
                   <QRCode value={referralCode} size={180} />
                   <p className="text-xs text-dark-400 mt-2">Scan untuk mendaftar</p>
                 </div>
@@ -185,7 +203,7 @@ const ProfilePage = ({ user, setUser }) => {
                 <div key={item.key} className="text-center p-4 bg-dark-50 rounded-lg">
                   <div className="text-2xl mb-1">{item.icon}</div>
                   <p className="text-sm text-dark-500">{item.label}</p>
-                  <p className="text-2xl font-bold text-primary-600">
+                  <p data-testid="quota-value" data-quota-key={item.key} className="text-2xl font-bold text-primary-600">
                     {quota[item.key] ?? 0}
                   </p>
                 </div>
@@ -200,13 +218,13 @@ const ProfilePage = ({ user, setUser }) => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-dark-500">Role</p>
-                <p className="font-medium text-dark-700">{user?.role || 'Guest'}</p>
+                <p className="font-medium text-dark-700">{account?.role || 'Guest'}</p>
               </div>
               <div>
                 <p className="text-sm text-dark-500">Member Since</p>
-                <p className="font-medium text-dark-700">
-                  {user?.createdAt 
-                    ? new Date(user.createdAt).toLocaleDateString() 
+                <p data-testid="member-since" className="font-medium text-dark-700">
+                  {account?.createdAt 
+                    ? new Date(account.createdAt).toLocaleDateString() 
                     : 'N/A'}
                 </p>
               </div>
@@ -214,7 +232,7 @@ const ProfilePage = ({ user, setUser }) => {
             <div>
               <p className="text-sm text-dark-500">Status</p>
               <p className="font-medium text-dark-700">
-                {user?.isApproved ? 'Approved' : 'Pending Approval by Admin'}
+                {account?.isApproved ? 'Approved' : 'Pending Approval by Admin'}
               </p>
             </div>
           </div>

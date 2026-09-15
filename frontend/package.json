@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src --fix --ext .jsx,.js,.ts,.tsx"
+    "lint": "eslint src --fix --ext .jsx,.js,.ts,.tsx",
+    "test:browser": "node tests/browser/run.cjs"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
@@ -19,7 +20,9 @@
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.16.0"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.16.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",

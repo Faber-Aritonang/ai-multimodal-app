@@ -2,9 +2,8 @@
  * Routes: Media API
  * Fitur AI multimodal berbasis gambar.
  *
- * Sudah tersedia : text-to-image
- * Rencana        : image-to-image, text-to-video, image-to-video,
- *                  text-to-sound, sound-to-text
+ * Sudah tersedia : text-to-image, image-to-image
+ * Rencana        : text-to-video, image-to-video, text-to-sound, sound-to-text
  */
 
 const express = require('express');
@@ -12,6 +11,7 @@ const router = express.Router();
 const { authenticate, requireMember, checkQuota } = require('../middleware/auth');
 const {
   textToImage,
+  imageToImage,
   getMediaHistory,
   deleteMedia
 } = require('../controllers/mediaController');
@@ -23,11 +23,11 @@ router.get('/status', (req, res) => {
     message: 'Media API is ready.',
     availableEndpoints: [
       'POST /api/v1/media/text-to-image',
+      'POST /api/v1/media/image-to-image',
       'GET /api/v1/media/history',
       'DELETE /api/v1/media/:contentId'
     ],
     comingSoonEndpoints: [
-      'POST /api/v1/media/image-to-image',
       'POST /api/v1/media/text-to-video',
       'POST /api/v1/media/image-to-video',
       'POST /api/v1/media/text-to-sound',
@@ -43,6 +43,15 @@ router.post(
   requireMember,
   checkQuota('imageGeneration'),
   textToImage
+);
+
+// image-to-image: quota yang sama dengan text-to-image (satu kuota per gambar hasil)
+router.post(
+  '/image-to-image',
+  authenticate,
+  requireMember,
+  checkQuota('imageGeneration'),
+  imageToImage
 );
 
 // Riwayat & hapus media milik user

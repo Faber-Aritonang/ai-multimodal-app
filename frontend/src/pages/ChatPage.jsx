@@ -1,27 +1,50 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
+
+// Renderer markdown (+ remark-gfm) berat (±160 kB mentah). Halaman chat berada
+// di balik login, jadi pustakanya dimuat terpisah agar tidak membebani bundel
+// awal aplikasi. Selama chunk-nya dimuat, teks balasan tampil apa adanya.
+const MarkdownMessage = lazy(() => import('../components/MarkdownMessage'))
 
 const ChatPage = ({ user, setUser }) => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const [currentSession, setCurrentSession] = useState(null)
   const [sessions, setSessions] = useState([])
+  const [quota, setQuota] = useState(null)
   const [inputValue, setInputValue] = useState('')
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const messagesEndRef = useRef(null)
+  // Penjaga agar satu kunjungan ke /chat tidak membuat dua sesi.
+  // React StrictMode (development) menjalankan effect dua kali; tanpa ini
+  // setiap kunjungan meninggalkan satu sesi kosong di riwayat user.
+  const creatingSessionRef = useRef(false)
+
+  // Sisa kuota chat: null selama belum diketahui (jangan menebak "0"), 0 = habis.
+  const chatQuotaLeft = quota?.chat ?? null
+  const outOfQuota = chatQuotaLeft !== null && chatQuotaLeft <= 0
 
   useEffect(() => {
     fetchSessions()
-    
+
     if (sessionId) {
+      // Ada session di URL: buka pembuatan sesi berikutnya (tombol "+ New Chat")
+      creatingSessionRef.current = false
       fetchSession(sessionId)
-    } else {
-      createNewSession()
+      return
     }
+
+    if (creatingSessionRef.current) return
+    creatingSessionRef.current = true
+    createNewSession()
   }, [sessionId])
+
+  useEffect(() => {
+    fetchQuota()
+  }, [])
 
   useEffect(() => {
     scrollToBottom()
@@ -37,6 +60,15 @@ const ChatPage = ({ user, setUser }) => {
       setSessions(response.data.sessions || [])
     } catch (error) {
       console.error('Failed to fetch sessions:', error)
+    }
+  }
+
+  const fetchQuota = async () => {
+    try {
+      const response = await memberAPI.getQuota()
+      setQuota(response.data.quota)
+    } catch (error) {
+      console.error('Failed to fetch quota:', error)
     }
   }
 
@@ -77,7 +109,7 @@ const ChatPage = ({ user, setUser }) => {
   }
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !currentSession || loading) return
+    if (!inputValue.trim() || !currentSession || loading || outOfQuota) return
 
     setLoading(true)
     setTyping(true)
@@ -104,27 +136,49 @@ const ChatPage = ({ user, setUser }) => {
 
       if (response.data.success) {
         setCurrentSession(response.data.session)
+        // Kuota terbaru dari server, jadi badge tidak perlu refresh manual
+        if (response.data.quota) setQuota(response.data.quota)
       } else {
         setTyping(false)
       }
     } catch (error) {
       console.error('Failed to send message:', error)
-      setTyping(false)
 
-      // Tambahkan error message
+      // Backend mengirim pesan spesifik (mis. provider belum dikonfigurasi atau
+      // kuota habis) dan menyertakan sesi terbaru — pesan user sudah tersimpan
+      // di sana, jadi pakai itu agar UI tidak menampilkan percakapan ganda.
+      const detail = error.response?.data?.message
+      const reason = error.response?.data?.error
+
+      // Respons gagal pun menyertakan kuota terbaru (kuota tidak berkurang saat
+      // provider gagal), jadi badge di header tetap akurat setelah error.
+      if (error.response?.data?.quota) setQuota(error.response.data.quota)
+      const baseSession = error.response?.data?.session || updatedSession
+
+      // Alasan teknis (mis. "groq: 429 rate limit") ditampilkan supaya mudah
+      // didiagnosis, tapi disaring dulu agar kunci API tidak pernah muncul di UI.
+      const safeReason =
+        typeof reason === 'string' &&
+        reason !== detail &&
+        !/(gsk_|AIza|sk-[A-Za-z0-9]{12,})/.test(reason)
+          ? reason
+          : null
+
       const errorMessage = {
         role: 'assistant',
-        content: '⚠️ Failed to get response. Please try again.',
+        content: detail
+          ? `⚠️ ${detail}${safeReason ? `\n(${safeReason})` : ''}`
+          : '⚠️ Failed to get response. Please try again.',
         timestamp: new Date().toISOString()
       }
+
       setCurrentSession({
-        ...updatedSession,
-        messages: [...updatedSession.messages, errorMessage]
+        ...baseSession,
+        messages: [...baseSession.messages, errorMessage]
       })
     } finally {
       setLoading(false)
-      setTyping(true)
-      setTimeout(() => setTyping(false), 1000)
+      setTyping(false)
     }
   }
 
@@ -187,18 +241,34 @@ const ChatPage = ({ user, setUser }) => {
         {/* Main Chat Area */}
         <div className="flex-1 bg-white dark-glass rounded-xl border border-dark-200 overflow-hidden flex flex-col">
           {/* Chat Header */}
-          <div className="p-4 border-b border-dark-200 flex items-center justify-between">
-            <h3 className="font-bold text-dark-800">
+          <div className="p-4 border-b border-dark-200 flex items-center justify-between gap-3">
+            <h3 className="font-bold text-dark-800 truncate">
               {currentSession?.title || 'New Chat'}
             </h3>
-            {currentSession?.sessionId && (
-              <button
-                onClick={() => deleteSession(currentSession.sessionId)}
-                className="text-red-500 hover:text-red-600 text-sm"
-              >
-                Delete
-              </button>
-            )}
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Kuota selalu terlihat supaya user tidak kaget saat habis */}
+              {chatQuotaLeft !== null && (
+                <span
+                  data-testid="chat-quota"
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    outOfQuota
+                      ? 'bg-red-50 border-red-200 text-red-600'
+                      : 'bg-dark-50 border-dark-200 text-dark-500'
+                  }`}
+                  title="Chat messages left in your quota"
+                >
+                  {chatQuotaLeft} {chatQuotaLeft === 1 ? 'message' : 'messages'} left
+                </span>
+              )}
+              {currentSession?.sessionId && (
+                <button
+                  onClick={() => deleteSession(currentSession.sessionId)}
+                  className="text-red-500 hover:text-red-600 text-sm"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
           
           {/* Messages */}
@@ -208,6 +278,8 @@ const ChatPage = ({ user, setUser }) => {
                 {currentSession.messages.map((message, index) => (
                   <div
                     key={index}
+                    data-testid="chat-message"
+                    data-role={message.role}
                     className={`
                       max-w-[80%] p-3 rounded-lg
                       ${message.role === 'user' 
@@ -216,13 +288,37 @@ const ChatPage = ({ user, setUser }) => {
                       }
                     `}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'user' ? (
+                      // Pesan user ditampilkan apa adanya: markdown hanya dirender
+                      // untuk balasan AI, supaya input user tidak mengubah layout.
+                      <p className="text-sm whitespace-pre-wrap break-words">
+                        {message.content}
+                      </p>
+                    ) : (
+                      <Suspense
+                        fallback={
+                          <p className="text-sm whitespace-pre-wrap break-words">
+                            {message.content}
+                          </p>
+                        }
+                      >
+                        <MarkdownMessage content={message.content} />
+                      </Suspense>
+                    )}
                     <p className="text-xs opacity-70 mt-1">
                       {new Date(message.timestamp).toLocaleTimeString([], { 
                         hour: '2-digit', 
                         minute: '2-digit' 
                       })}
                     </p>
+                    {/* Label per balasan: provider bisa berganti di tengah
+                        percakapan, jadi ditampilkan dari data pesan itu sendiri */}
+                    {message.role === 'assistant' && message.provider && (
+                      <p className="text-xs text-dark-400 mt-1">
+                        via {message.provider}
+                        {message.model ? ` · ${message.model}` : ''}
+                      </p>
+                    )}
                   </div>
                 ))}
                 {loading && typing && (
@@ -256,11 +352,16 @@ const ChatPage = ({ user, setUser }) => {
           
           {/* Input Area */}
           <div className="p-4 border-t border-dark-200">
+            {outOfQuota && (
+              <p className="text-xs text-red-600 mb-2">
+                Chat quota exhausted. Ask an admin to increase it before sending new messages.
+              </p>
+            )}
             <div className="flex gap-2">
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Type a message..."
+                placeholder={outOfQuota ? 'Chat quota exhausted' : 'Type a message...'}
                 className="flex-1 px-4 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
                 rows={1}
                 onKeyDown={(e) => {
@@ -272,7 +373,7 @@ const ChatPage = ({ user, setUser }) => {
               />
               <button
                 onClick={handleSendMessage}
-                disabled={loading || !inputValue.trim()}
+                disabled={loading || !inputValue.trim() || outOfQuota}
                 className="bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 transition-colors flex items-center justify-center"
               >
                 {loading ? (

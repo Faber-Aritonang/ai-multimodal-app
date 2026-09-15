@@ -34,8 +34,35 @@ describe('GET /health', () => {
     const TOUCHED_VARS = [
       'FIREBASE_SERVICE_ACCOUNT',
       'OPENAI_API_KEY',
-      'NODE_ENV'
+      'NODE_ENV',
+      'IMAGE_PROVIDER',
+      'IMAGE_FALLBACK_PROVIDER',
+      'CLOUDFLARE_ACCOUNT_ID',
+      'CLOUDFLARE_API_TOKEN',
+      'CHAT_PROVIDER',
+      'CHAT_FALLBACK_PROVIDER',
+      'GROQ_API_KEY',
+      'GEMINI_API_KEY',
+      'IMAGE_EDIT_PROVIDER',
+      'IMAGE_EDIT_FALLBACK_PROVIDER',
+      'PUBLIC_BASE_URL'
     ];
+
+    const clearChatAndImageEnv = () => {
+      [
+        'IMAGE_PROVIDER',
+        'IMAGE_FALLBACK_PROVIDER',
+        'CLOUDFLARE_ACCOUNT_ID',
+        'CLOUDFLARE_API_TOKEN',
+        'CHAT_PROVIDER',
+        'CHAT_FALLBACK_PROVIDER',
+        'GROQ_API_KEY',
+        'GEMINI_API_KEY',
+        'IMAGE_EDIT_PROVIDER',
+        'IMAGE_EDIT_FALLBACK_PROVIDER',
+        'PUBLIC_BASE_URL'
+      ].forEach((key) => delete process.env[key]);
+    };
 
     let saved;
 
@@ -55,11 +82,85 @@ describe('GET /health', () => {
     test('tanpa kredensial keduanya dilaporkan missing', async () => {
       delete process.env.FIREBASE_SERVICE_ACCOUNT;
       delete process.env.OPENAI_API_KEY;
+      clearChatAndImageEnv();
 
+      // Tanpa kredensial apa pun provider gambar tetap tersedia lewat
+      // Pollinations, jadi fitur text-to-image tidak pernah mati total.
+      // Chat sebaliknya: butuh minimal satu API key.
       expect(await services()).toEqual({
         firebase: 'missing',
         openai: 'missing',
+        chatProvider: 'groq',
+        chatProviders: { groq: 'missing', gemini: 'missing', openai: 'missing' },
+        imageProvider: 'pollinations',
+        imageFallback: 'none',
+        imageProviders: {
+          cloudflare: 'missing',
+          pollinations: 'configured',
+          openai: 'missing'
+        },
+        // Tanpa kredensial apa pun, satu-satunya provider edit yang mungkin
+        // adalah Cloudflare (menerima bytes gambar). Pollinations butuh
+        // PUBLIC_BASE_URL, jadi ia sengaja tidak masuk rantai — kalau dipaksa,
+        // hasilnya "edit" palsu karena input gagal diambil provider.
+        imageEditProvider: 'cloudflare',
+        imageEditFallback: 'none',
+        imageEditReady: false,
+        imageEditCapabilities: { cloudflare: true, pollinations: true, openai: false },
         devLogin: 'enabled'
+      });
+    });
+
+    test('kredensial Cloudflare mengaktifkan image-to-image lewat FLUX.2 [klein]', async () => {
+      process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
+      process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+      delete process.env.IMAGE_PROVIDER;
+      delete process.env.IMAGE_EDIT_PROVIDER;
+      delete process.env.IMAGE_EDIT_FALLBACK_PROVIDER;
+
+      const status = await services();
+
+      expect(status.imageEditProvider).toBe('cloudflare');
+      expect(status.imageEditReady).toBe(true);
+      expect(status.imageEditCapabilities.cloudflare).toBe(true);
+    });
+
+    test('PUBLIC_BASE_URL publik menambahkan Pollinations sebagai cadangan edit', async () => {
+      process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
+      process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+      process.env.PUBLIC_BASE_URL = 'https://aplikasi.example.com';
+      delete process.env.IMAGE_EDIT_PROVIDER;
+
+      const status = await services();
+
+      expect(status.imageEditProvider).toBe('cloudflare');
+      expect(status.imageEditFallback).toBe('pollinations');
+    });
+
+    test('kredensial Cloudflare membuatnya menjadi provider gambar utama', async () => {
+      process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
+      process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+      delete process.env.IMAGE_PROVIDER;
+      delete process.env.IMAGE_FALLBACK_PROVIDER;
+
+      const status = await services();
+
+      expect(status.imageProvider).toBe('cloudflare');
+      expect(status.imageFallback).toBe('pollinations');
+      expect(status.imageProviders.cloudflare).toBe('configured');
+    });
+
+    test('GROQ_API_KEY membuat Groq menjadi provider chat utama', async () => {
+      process.env.GROQ_API_KEY = 'gsk-test';
+      process.env.GEMINI_API_KEY = 'gemini-test';
+
+      const status = await services();
+
+      expect(status.chatProvider).toBe('groq');
+      expect(status.chatProviders).toEqual({
+        groq: 'configured',
+        gemini: 'configured',
+        openai: 'missing'
       });
     });
 

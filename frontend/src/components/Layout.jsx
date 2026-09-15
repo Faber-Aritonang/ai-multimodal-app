@@ -8,6 +8,7 @@ import {
   HomeIcon,
   ChatIcon,
   ImageIcon,
+  TransformIcon,
   UserIcon
 } from '../components/icons'
 
@@ -35,6 +36,7 @@ const Layout = ({ user, setUser, children }) => {
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Chat', href: '/chat', icon: ChatIcon },
     { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon },
+    { name: 'Image to Image', href: '/tools/image-to-image', icon: TransformIcon },
     { name: 'Profile', href: '/profile', icon: UserIcon },
   ]
 
@@ -175,6 +177,13 @@ const Layout = ({ user, setUser, children }) => {
         >
           <ImageIcon className="w-6 h-6" />
           <span className="text-xs">Image</span>
+        </button>
+        <button
+          onClick={() => navigate('/tools/image-to-image')}
+          className="flex flex-col items-center p-2 text-dark-600"
+        >
+          <TransformIcon className="w-6 h-6" />
+          <span className="text-xs">Transform</span>
         </button>
         <button
           onClick={handleLogout}

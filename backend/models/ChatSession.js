@@ -18,6 +18,19 @@ const messageSchema = new mongoose.Schema({
   timestamp: {
     type: Date,
     default: Date.now
+  },
+
+  // Provider & model yang menjawab pesan ini. Disimpan per pesan (bukan hanya
+  // per sesi) karena fallback bisa berganti di tengah percakapan — satu balasan
+  // dari Groq, balasan berikutnya dari Gemini. Label di UI jadi tetap jujur.
+  provider: {
+    type: String,
+    default: null
+  },
+
+  model: {
+    type: String,
+    default: null
   }
 });
 
@@ -35,9 +48,18 @@ const chatSessionSchema = new mongoose.Schema({
   
   messages: [messageSchema],
   
+  // Provider & model yang benar-benar menjawab, diisi chatController saat balasan
+  // berhasil. Sebelumnya `model` hanya berisi default 'gpt-4' yang tidak pernah
+  // diperbarui, sehingga riwayat chat melaporkan model yang salah (mis. balasan
+  // dari Groq tetap tertulis gpt-4).
+  provider: {
+    type: String,
+    default: null
+  },
+  
   model: {
     type: String,
-    default: 'gpt-4'
+    default: null
   },
   
   title: {

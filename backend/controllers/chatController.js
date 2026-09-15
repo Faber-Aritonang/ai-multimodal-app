@@ -1,10 +1,16 @@
 /**
  * Controller: Chat
- * Mengelola sesi chat user
+ * Mengelola sesi chat user.
+ *
+ * Provider LLM bisa ditukar lewat env (lihat config/chatProviders.js): Groq
+ * sebagai default gratis, dengan Gemini/OpenAI sebagai fallback. Controller ini
+ * tidak tahu provider mana yang menjawab — yang dipakai dikembalikan di
+ * response (`provider` & `model`).
  */
 
 const ChatSession = require('../models/ChatSession');
-const { getOpenAIClient, getChatModel } = require('../config/openai');
+const { generateChatReply } = require('../config/chatProviders');
+const { withSystemPrompt } = require('../config/chatPersona');
 
 /**
  * @GET /api/v1/member/chat/sessions
@@ -97,52 +103,74 @@ exports.sendMessage = async (req, res) => {
       content: message
     });
     
-    // Panggil OpenAI API
+    // Panggil provider LLM yang aktif
     try {
-      const openaiResponse = await getOpenAIClient().chat.completions.create({
-        model: getChatModel(),
-        messages: session.messages.map(m => ({
-          role: m.role,
-          content: m.content
-        })),
-        max_tokens: 2000
+      // System prompt dikirim ke provider tapi tidak disimpan ke sesi, jadi
+      // riwayat user tetap bersih dan persona/kuota selalu memakai nilai terbaru.
+      const reply = await generateChatReply({
+        messages: withSystemPrompt(
+          session.messages.map((m) => ({
+            role: m.role,
+            content: m.content
+          })),
+          { member: req.member }
+        )
       });
 
-      const assistantMessage = openaiResponse.choices[0].message.content;
-      
-      // Tambahkan pesan assistant
+      // Tambahkan pesan assistant, lengkap dengan provider/model yang menjawab
+      // pesan ini supaya UI bisa memberi label yang benar per balasan.
       session.messages.push({
         role: 'assistant',
-        content: assistantMessage
+        content: reply.content,
+        provider: reply.provider,
+        model: reply.model
       });
-      
-      // Update title jika pertama kali chat
-      if (session.messages.length === 3 && session.title === 'New Chat') {
+
+      // Update title saat pertukaran pertama (user + assistant = 2 pesan).
+      // Sebelumnya syaratnya `length === 3`, dan itu tidak pernah terpenuhi
+      // karena array selalu berisi pasangan, sehingga judul sesi tidak pernah
+      // ikut berubah dari 'New Chat'.
+      if (session.messages.length === 2 && session.title === 'New Chat') {
         session.title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
       }
-      
+
+      // Catat provider/model yang benar-benar menjawab supaya riwayat tidak
+      // melaporkan model yang keliru saat provider berganti (Groq/Gemini/OpenAI).
+      session.provider = reply.provider;
+      session.model = reply.model;
+
       await session.save();
-      
-      // Kurangi quota
+
+      // Kurangi quota (hanya setelah balasan benar-benar diterima)
       req.member.quota.chat -= 1;
       await req.member.save();
-      
+
       res.json({
         success: true,
-        response: assistantMessage,
+        response: reply.content,
+        provider: reply.provider,
+        model: reply.model,
         session,
         quota: req.member.quota
       });
-      
+
     } catch (apiError) {
-      console.error('OpenAI API Error:', apiError.message);
-      
-      // Simpan pesan user saja jika API gagal
+      console.error('Chat provider error:', apiError.message);
+
+      // Bedakan masalah konfigurasi server (503) dengan kegagalan provider (502)
+      const isConfigError = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'].includes(
+        apiError.code
+      );
+
+      // Pesan user tetap disimpan supaya tidak hilang saat provider bermasalah
       await session.save();
-      
-      res.status(500).json({
+
+      res.status(isConfigError ? 503 : 502).json({
         success: false,
-        message: 'AI service temporarily unavailable',
+        message: isConfigError
+          ? apiError.message
+          : 'AI service temporarily unavailable',
+        error: apiError.message,
         session,
         quota: req.member.quota
       });

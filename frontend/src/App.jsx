@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import ChatPage from './pages/ChatPage'
 import TextToImagePage from './pages/TextToImagePage'
+import ImageToImagePage from './pages/ImageToImagePage'
 import ProfilePage from './pages/ProfilePage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminMembers from './pages/admin/AdminMembers'
@@ -114,6 +115,12 @@ function App() {
         <Route path="/tools/text-to-image" element={
           <ProtectedRoute user={user} requiredApproval={true}>
             <TextToImagePage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/tools/image-to-image" element={
+          <ProtectedRoute user={user} requiredApproval={true}>
+            <ImageToImagePage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
 

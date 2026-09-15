@@ -37,11 +37,36 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+
+    if (status === 401) {
       // Hapus token jika unauthorized
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
     }
+
+    // 429 bisa datang dalam bentuk teks polos (rate limiter bawaan) atau HTML
+    // (proxy di depan backend). Akibatnya `err.response.data.message` kosong dan
+    // UI hanya menampilkan pesan axios mentah "Request failed with status code
+    // 429", yang tidak memberi tahu apa pun ke user. Bentuknya diseragamkan di
+    // sini supaya semua halaman bisa menampilkannya apa adanya.
+    if (status === 429 && error.response) {
+      const data = error.response.data;
+      const alreadyHasMessage = data && typeof data === 'object' && data.message;
+
+      if (!alreadyHasMessage) {
+        const retryAfter = Number(error.response.headers?.['retry-after']) || null;
+
+        error.response.data = {
+          success: false,
+          message: retryAfter
+            ? `Too many requests. Please try again in ${retryAfter} seconds.`
+            : 'Too many requests to the server. Please wait a moment and try again.',
+          ...(retryAfter ? { retryAfter } : {})
+        };
+      }
+    }
+
     return Promise.reject(error);
   }
 );
@@ -79,8 +104,10 @@ export const memberAPI = {
   // Chat
   getChatSessions: () => api.get('/member/chat/sessions'),
   createChatSession: () => api.post('/member/chat/sessions'),
-  sendMessage: (sessionId, message) => 
-    api.post(`/member/chat/sessions/${sessionId}/message`, { message }),
+  // Timeout lebih panjang dari default (30 detik): provider chat punya fallback
+  // berantai, dan free tier Gemini bisa butuh sampai ~60 detik untuk menjawab.
+  sendMessage: (sessionId, message) =>
+    api.post(`/member/chat/sessions/${sessionId}/message`, { message }, { timeout: 150000 }),
   getChatSession: (sessionId) => api.get(`/member/chat/sessions/${sessionId}`),
   deleteChatSession: (sessionId) => api.delete(`/member/chat/sessions/${sessionId}`),
   
@@ -102,6 +129,10 @@ export const mediaAPI = {
   // Text to image
   textToImage: ({ prompt, size, quality }) =>
     api.post('/media/text-to-image', { prompt, size, quality }, { timeout: 120000 }),
+
+  // Image to image (gambar dikirim sebagai data URL, sudah diperkecil di browser)
+  imageToImage: ({ prompt, image, size }) =>
+    api.post('/media/image-to-image', { prompt, image, size }, { timeout: 180000 }),
 
   // Riwayat media milik user
   getHistory: (params = {}) => api.get('/media/history', { params }),

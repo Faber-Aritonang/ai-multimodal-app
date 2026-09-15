@@ -25,6 +25,21 @@ const authRoutes = require('./routes/auth');
 const memberRoutes = require('./routes/member');
 const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
+const { getProviderStatus } = require('./config/imageProviders');
+const { getChatProviderStatus } = require('./config/chatProviders');
+const { preferEnvFile } = require('./config/envFile');
+
+// Di development, kredensial AI diambil dari .env walau variabel shell berisi
+// nilai lain (mis. sisa `export GROQ_API_KEY=...` yang rusak di ~/.bashrc).
+// Di production tidak dijalankan: variabel dari platform tetap menang.
+if (process.env.NODE_ENV !== 'production') {
+  const overridden = preferEnvFile({});
+  if (overridden.length) {
+    console.log(
+      `Config: ${overridden.join(', ')} diambil dari .env (mengabaikan nilai shell yang berbeda)`
+    );
+  }
+}
 
 const app = express();
 
@@ -65,17 +80,55 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX) || 100
-});
-app.use(limiter);
+// Di produksi backend berjalan di belakang proxy platform (Railway/Vercel).
+// Tanpa ini req.ip berisi IP proxy, sehingga SEMUA pengunjung berbagi satu
+// hitungan rate limit dan aplikasi akan menolak diri sendiri dengan 429.
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 // Middleware
+// Morgan sengaja dipasang SEBELUM limiter: kalau limiter lebih dulu, request
+// yang ditolak tidak pernah tercatat dan 429 jadi tidak terlihat saat debugging.
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Rate limiting
+// Batas ini adalah jaring pengaman terhadap penyalahgunaan, bukan pembatas
+// per fitur. Nilainya harus longgar: satu kali buka dashboard frontend saja
+// sudah memanggil beberapa endpoint, dan kuota per user (chat/gambar) yang
+// membatasi pemakaian sebenarnya.
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX) || 1000;
+
+const limiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Health check (monitoring) dan file statis (tag <img>) tidak dihitung.
+  skip: (req) => req.path === '/health' || req.path.startsWith('/uploads'),
+  // Balas JSON, bukan teks polos. Tanpa ini frontend hanya menerima pesan
+  // axios mentah "Request failed with status code 429" karena response tidak
+  // punya field message.
+  handler: (req, res) => {
+    const resetTime = req.rateLimit && req.rateLimit.resetTime;
+    const retryAfter = resetTime
+      ? Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
+      : Math.ceil(RATE_LIMIT_WINDOW_MS / 1000);
+
+    res.status(429).json({
+      success: false,
+      message:
+        `Too many requests from this address (limit ${RATE_LIMIT_MAX} per ` +
+        `${Math.round(RATE_LIMIT_WINDOW_MS / 60000)} minutes). ` +
+        `Please try again in ${retryAfter} seconds.`,
+      retryAfter
+    });
+  }
+});
+app.use(limiter);
 
 // File hasil generate media (lihat mediaController).
 // Saat scale-up, pindahkan ke object storage dan ganti mount ini.
@@ -99,9 +152,25 @@ app.get('/health', (req, res) => {
   // Status konfigurasi layanan pihak ketiga, berguna untuk debugging lokal.
   // Tidak diekspos di production supaya tidak membocorkan info infrastruktur.
   if (process.env.NODE_ENV !== 'production') {
+    // Provider gambar & chat yang aktif, supaya error fitur AI bisa langsung
+    // dicocokkan dengan konfigurasi yang sebenarnya.
+    const image = getProviderStatus();
+    const chat = getChatProviderStatus();
+
     payload.services = {
       firebase: isFirebaseConfigured() ? 'configured' : 'missing',
       openai: isConfigured(process.env.OPENAI_API_KEY) ? 'configured' : 'missing',
+      chatProvider: chat.chain[0] || 'none',
+      chatProviders: chat.status,
+      imageProvider: image.chain[0] || 'none',
+      imageFallback: image.chain[1] || 'none',
+      imageProviders: image.status,
+      // image-to-image bisa memakai provider berbeda dari text-to-image
+      // (mis. Cloudflare FLUX.2 [klein] untuk edit, Pollinations untuk generate).
+      imageEditProvider: image.editChain[0] || 'none',
+      imageEditFallback: image.editChain[1] || 'none',
+      imageEditReady: image.editReady,
+      imageEditCapabilities: image.editCapabilities,
       devLogin: 'enabled'
     };
   }

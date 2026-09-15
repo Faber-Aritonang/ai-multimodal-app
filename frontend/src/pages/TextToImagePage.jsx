@@ -101,7 +101,9 @@ const TextToImagePage = ({ user, setUser }) => {
             {remainingImages !== null && (
               <div className="text-right">
                 <p className="text-xs text-dark-500">Images left</p>
-                <p className="text-2xl font-bold text-primary-600">{remainingImages}</p>
+                <p data-testid="image-quota" className="text-2xl font-bold text-primary-600">
+                  {remainingImages}
+                </p>
               </div>
             )}
           </div>
@@ -156,7 +158,10 @@ const TextToImagePage = ({ user, setUser }) => {
             </div>
 
             <div>
-              <span className="block text-sm font-medium text-dark-700 mb-2">Quality</span>
+              {/* Parameter quality hanya dikenal model DALL-E; provider gratis mengabaikannya */}
+              <span className="block text-sm font-medium text-dark-700 mb-2">
+                Quality <span className="font-normal text-dark-400">(DALL·E only)</span>
+              </span>
               <div className="flex gap-2">
                 {['standard', 'hd'].map((option) => (
                   <button
@@ -175,6 +180,11 @@ const TextToImagePage = ({ user, setUser }) => {
               </div>
             </div>
           </div>
+
+          <p className="text-xs text-dark-400">
+            The size above is a request sent to the provider. Free providers may return a
+            different size — the actual resolution is shown on the result.
+          </p>
 
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -201,7 +211,7 @@ const TextToImagePage = ({ user, setUser }) => {
 
         {/* Latest result */}
         {result?.outputUrl && (
-          <div className="bg-white dark-glass rounded-2xl p-6">
+          <div data-testid="latest-result" className="bg-white dark-glass rounded-2xl p-6">
             <h2 className="text-lg font-bold text-dark-800 mb-4">Latest result</h2>
             <img
               src={resolveMediaUrl(result.outputUrl)}
@@ -209,6 +219,17 @@ const TextToImagePage = ({ user, setUser }) => {
               className="w-full max-w-xl rounded-xl shadow-md"
             />
             <p className="text-sm text-dark-500 mt-3">{result.prompt}</p>
+            <p className="text-xs text-dark-400 mt-1">
+              {/* Ukuran asli dibaca dari header file gambar. Provider gratis sering
+                  mengabaikan ukuran yang diminta (mis. minta 1792x1024, dapat
+                  1015x580), jadi keduanya ditampilkan agar tidak menyesatkan. */}
+              {result.metadata?.resolution}
+              {result.metadata?.requestedResolution &&
+              result.metadata.requestedResolution !== result.metadata.resolution
+                ? ` (requested ${result.metadata.requestedResolution})`
+                : ''}
+              {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
+            </p>
             <a
               href={resolveMediaUrl(result.outputUrl)}
               download
@@ -238,7 +259,7 @@ const TextToImagePage = ({ user, setUser }) => {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {history.map((item) => (
-                <figure key={item.contentId} className="group">
+                <figure key={item.contentId} data-testid="history-item" className="group">
                   <div className="relative">
                     {item.outputUrl ? (
                       <img
@@ -263,6 +284,14 @@ const TextToImagePage = ({ user, setUser }) => {
                   <figcaption className="text-xs text-dark-500 mt-2 line-clamp-2">
                     {item.prompt}
                   </figcaption>
+                  {/* Resolusi asli + provider yang dipakai, supaya riwayat tidak
+                      menyembunyikan bahwa ukuran hasil bisa beda dari permintaan */}
+                  {(item.metadata?.resolution || item.metadata?.provider) && (
+                    <p className="text-xs text-dark-400 mt-1">
+                      {item.metadata?.resolution}
+                      {item.metadata?.provider ? ` · via ${item.metadata.provider}` : ''}
+                    </p>
+                  )}
                 </figure>
               ))}
             </div>

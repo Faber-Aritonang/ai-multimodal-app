@@ -48,7 +48,7 @@ const DashboardPage = ({ user, setUser }) => {
       description: 'Transform images using AI',
       icon: '🖼️',
       path: '/tools/image-to-image',
-      available: false,
+      available: true,
       color: 'bg-pink-500'
     },
     {
@@ -108,19 +108,19 @@ const DashboardPage = ({ user, setUser }) => {
             <h3 className="font-medium text-dark-700 mb-3">Your Quotas</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-primary-600">{quota.chat || 0}</p>
+                <p data-testid="quota-value" data-quota-key="chat" className="text-2xl font-bold text-primary-600">{quota.chat || 0}</p>
                 <p className="text-xs text-dark-500">Chat</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-primary-600">{quota.imageGeneration || 0}</p>
+                <p data-testid="quota-value" data-quota-key="imageGeneration" className="text-2xl font-bold text-primary-600">{quota.imageGeneration || 0}</p>
                 <p className="text-xs text-dark-500">Images</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-primary-600">{quota.videoGeneration || 0}</p>
+                <p data-testid="quota-value" data-quota-key="videoGeneration" className="text-2xl font-bold text-primary-600">{quota.videoGeneration || 0}</p>
                 <p className="text-xs text-dark-500">Videos</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-primary-600">{quota.total || 0}</p>
+                <p data-testid="quota-value" data-quota-key="total" className="text-2xl font-bold text-primary-600">{quota.total || 0}</p>
                 <p className="text-xs text-dark-500">Total</p>
               </div>
             </div>
@@ -134,6 +134,8 @@ const DashboardPage = ({ user, setUser }) => {
             {features.map((feature) => (
               <div
                 key={feature.id}
+                data-testid="tool-card"
+                data-available={feature.available}
                 onClick={() => feature.available && navigate(feature.path)}
                 className={`
                   border rounded-xl p-6 transition-all cursor-pointer

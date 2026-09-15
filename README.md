@@ -17,14 +17,14 @@ Full-stack web application with AI-powered multimodal features including chat, t
 ## Features
 
 ### Available Features
-- **Chat**: AI-powered conversational chat
-- **Text-to-Image**: Generate images from text prompts (DALL-E 3), lengkap dengan riwayat & hapus
+- **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI sebagai fallback)
+- **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
+- **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
 
 ### Feature Flags (Pending Admin Approval)
-- **Image-to-Image**: Transform images using AI
 - **Text-to-Video**: Generate videos from text descriptions
 - **Image-to-Video**: Create videos from images
 - **Text-to-Sound**: Convert text to audio
@@ -40,6 +40,8 @@ Full-stack web application with AI-powered multimodal features including chat, t
 | **Backend** | Node.js + Express | ✅ Free | Railway/Render |
 | **Database** | MongoDB Atlas | ✅ 512MB Free | MongoDB Cloud |
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
+| **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
+| **Chat (LLM)** | Groq + Gemini fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -91,10 +93,30 @@ JWT_SECRET=your-super-secret-key-here
 # Firebase (for Auth)
 FIREBASE_SERVICE_ACCOUNT=./config/firebase-service-account.json
 
-# AI APIs (for future features)
-OPENAI_API_KEY=sk-your-key
-ELEVENLABS_API_KEY=your-key
-HUGGINGFACE_API_KEY=hf-your-key
+# AI APIs — semua fitur AI punya jalur gratis, OPENAI_API_KEY tidak wajib lagi.
+# (Chat: Groq/Gemini gratis · Text-to-Image: Pollinations tanpa key ·
+#  Image-to-Image: Cloudflare atau PUBLIC_BASE_URL publik)
+# OPENAI_API_KEY=sk-your-key   # opsional, hanya untuk provider berbayar
+
+# Text-to-image gratis (lihat docs/setup-kredensial.md bagian 3b)
+# Kalau dua nilai Cloudflare di bawah diisi, Cloudflare otomatis jadi provider
+# utama; kalau dikosongkan, fitur tetap jalan lewat Pollinations (tanpa API key).
+CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+IMAGE_PROVIDER=cloudflare
+IMAGE_FALLBACK_PROVIDER=pollinations
+
+# Image-to-image (kredensial Cloudflare di atas dipakai ulang oleh FLUX.2 [klein])
+# Gambar input wajib < 512x512; frontend memperkecilnya otomatis.
+# IMAGE_EDIT_PROVIDER=cloudflare
+# IMAGE_EDIT_FALLBACK_PROVIDER=pollinations
+# PUBLIC_BASE_URL=https://aplikasi-anda.example.com   # untuk jalur tanpa API key
+
+# Chat gratis (lihat docs/setup-kredensial.md bagian 3c)
+GROQ_API_KEY=gsk_your-groq-key
+CHAT_PROVIDER=groq
+GEMINI_API_KEY=your-gemini-key
+CHAT_FALLBACK_PROVIDER=gemini
 ```
 
 ### 3. Firebase Setup
@@ -191,7 +213,40 @@ cd backend && npm test
 
 # Frontend - ESLint
 cd frontend && npm run lint
+
+# Frontend - uji browser sungguhan (butuh aplikasi jalan + Chrome)
+cd frontend && npm run test:browser
 ```
+
+### Uji browser (`npm run test:browser`)
+
+Menjalankan Chrome headless lewat protokol DevTools (CDP) dan memeriksa DOM,
+respons HTTP, serta error console. Tanpa dependency tambahan — Node 22 sudah
+punya `fetch` dan `WebSocket` global.
+
+Yang diuji:
+
+| Spec | Cakupan |
+|------|---------|
+| `chat.spec.cjs` | buat sesi, badge kuota, kirim pesan, balasan AI, label provider, markdown dirender, kuota berkurang, bersihkan sesi |
+| `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
+| `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
+| `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
+
+Prasyarat: backend (`cd backend && npm start`) dan frontend
+(`cd frontend && npm run dev`) sudah jalan, serta Chrome/Chromium terpasang.
+
+```bash
+# Konfigurasi opsional
+TEST_BASE_URL=http://localhost:5173   # default
+TEST_API_URL=http://localhost:4000    # default
+TEST_MEMBER_EMAIL=dev.member@example.com
+CHROME_BIN=/path/ke/chrome            # bila Chrome tidak terdeteksi otomatis
+```
+
+Catatan: spec memakai akun dev member, jadi setiap eksekusi memakai
+**1 kuota chat** dan **1 kuota gambar**. Data yang dibuat (sesi chat, media)
+dihapus kembali oleh spec, tapi kuotanya tidak bisa dikembalikan dari sini.
 
 ## API Documentation
 
@@ -274,8 +329,15 @@ curl -X POST http://localhost:3000/api/v1/media/text-to-image \
   }'
 ```
 
-Hasil generate disimpan di `backend/uploads/` dan disajikan di `/uploads/<file>.png`.
+Respons memuat `provider` yang dipakai (mis. `cloudflare`, `pollinations`, `openai`).
+Hasil generate disimpan di `backend/uploads/` dan disajikan statis di
+`/uploads/<file>` (PNG atau JPEG mengikuti keluaran provider).
 Quota `imageGeneration` berkurang 1 hanya jika gambar berhasil dibuat.
+
+Provider text-to-image bisa diganti lewat `IMAGE_PROVIDER` /
+`IMAGE_FALLBACK_PROVIDER` tanpa mengubah kode — lihat
+[`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3b untuk penyiapan
+provider gratis (Cloudflare Workers AI: ±65 gambar 1024x1024 per hari).
 
 ## Deployment
 
@@ -321,6 +383,13 @@ MONGODB_URI=your-mongodb-connection-string
 JWT_SECRET=production-secret-key
 FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 OPENAI_API_KEY=your-openai-key
+GROQ_API_KEY=gsk_your-groq-key
+CHAT_PROVIDER=groq
+CHAT_FALLBACK_PROVIDER=gemini
+CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
+IMAGE_PROVIDER=cloudflare
+IMAGE_FALLBACK_PROVIDER=pollinations
 ```
 
 **Frontend**: Set in Vercel dashboard:
@@ -387,6 +456,7 @@ ai-multimodal-app/
 │
 ├── frontend/
 │   ├── public/              # Static assets
+│   ├── tests/browser/       # Uji browser (Chrome headless + CDP)
 │   ├── src/
 │   │   ├── components/      # Reusable components
 │   │   ├── config/          # API & Firebase config
@@ -415,8 +485,8 @@ ai-multimodal-app/
 - [x] Unit test backend (jest)
 
 ### Phase 2: Media Features
-- [x] Text-to-Image (OpenAI DALL-E 3)
-- [ ] Image-to-Image
+- [x] Text-to-Image — provider bisa ditukar (Cloudflare Workers AI gratis / Pollinations tanpa API key / DALL·E 3), plus riwayat & hapus
+- [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
 - [ ] Text-to-Sound (ElevenLabs)

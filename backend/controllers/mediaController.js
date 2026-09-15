@@ -5,21 +5,34 @@
  * text-to-image:
  *   1. validasi prompt & ukuran
  *   2. buat record MediaContent (status: processing)
- *   3. panggil OpenAI Images API (base64)
+ *   3. minta gambar dari provider yang aktif (lihat config/imageProviders.js)
  *   4. simpan gambar ke folder uploads/ dan update record (status: completed)
  *   5. kurangi quota user (hanya jika berhasil)
+ *
+ * image-to-image:
+ *   1. validasi prompt + gambar input (base64 data URL dari browser)
+ *   2. simpan gambar input ke uploads/ agar riwayat bisa menampilkan sebelum/sesudah
+ *   3. minta provider melakukan edit (FLUX.2 [klein] di Cloudflare)
+ *   4. simpan hasil & update record, lalu kurangi quota user
+ *
+ * Provider gambar bisa ditukar lewat env IMAGE_PROVIDER / IMAGE_FALLBACK_PROVIDER,
+ * jadi controller ini tidak bergantung pada satu vendor saja.
  */
 
 const fs = require('fs/promises');
 const path = require('path');
 const MediaContent = require('../models/MediaContent');
 const {
-  getOpenAIClient,
-  getImageModel,
-  supportsResponseFormat
-} = require('../config/openai');
+  generateImage,
+  editImage,
+  detectFormat,
+  measureImage,
+  looksLikeImage,
+  MAX_EDIT_INPUT_EDGE
+} = require('../config/imageProviders');
 
-// Ukuran yang didukung DALL-E 3
+// Ukuran yang didukung frontend. Provider yang tidak sanggup memenuhi ukuran
+// tertentu akan dilewati otomatis (lihat supportedSizes di imageProviders.js).
 const ALLOWED_SIZES = ['1024x1024', '1792x1024', '1024x1792'];
 const DEFAULT_SIZE = '1024x1024';
 const ALLOWED_QUALITIES = ['standard', 'hd'];
@@ -87,43 +100,49 @@ exports.textToImage = async (req, res) => {
       status: 'processing'
     });
 
-    const model = getImageModel();
-    const params = {
-      model,
+    const result = await generateImage({
       prompt: parsed.prompt,
-      n: 1,
-      size: parsed.size
-    };
+      size: parsed.size,
+      quality: parsed.quality
+    });
 
-    // Parameter quality hanya dikenal model dall-e-*
-    if (supportsResponseFormat(model)) {
-      params.quality = parsed.quality;
-      params.response_format = 'b64_json';
-    }
-
-    const response = await getOpenAIClient().images.generate(params);
-    const image = response?.data?.[0];
-    const base64 = image?.b64_json;
-
-    if (!base64) {
-      throw new Error('OpenAI did not return image data in base64 format');
+    // Catat bila provider utama gagal dan permintaan dilayani provider cadangan.
+    // Tanpa baris ini, penurunan kualitas (mis. gambar lebih kecil dari provider
+    // publik) hanya terlihat dari metadata — bukan dari log server.
+    if (result.attempts && result.attempts.length) {
+      console.warn(
+        `Text-to-image dilayani ${result.provider} (provider utama gagal): ` +
+          result.attempts.map((item) => `${item.provider}: ${item.reason}`).join('; ')
+      );
     }
 
     const uploadDir = getUploadDir();
     await fs.mkdir(uploadDir, { recursive: true });
 
-    const fileName = `${media.contentId}.png`;
+    // Ekstensi mengikuti format asli dari provider (FLUX/Pollinations -> jpeg).
+    const format = result.format || 'png';
+    const fileName = `${media.contentId}.${format}`;
     const filePath = path.join(uploadDir, fileName);
-    await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
+    await fs.writeFile(filePath, result.buffer);
+
+    // Dimensi asli dari provider dipakai bila ada; kalau header gambar tidak
+    // terbaca, jatuh kembali ke ukuran yang diminta.
+    const requested = parseSize(parsed.size);
+    const width = result.width || requested.width;
+    const height = result.height || requested.height;
 
     media.outputFile = filePath;
     media.outputUrl = `/uploads/${fileName}`;
     media.status = 'completed';
     media.completedAt = new Date();
     media.metadata = {
-      ...parseSize(parsed.size),
-      resolution: parsed.size,
-      format: 'png'
+      width,
+      height,
+      resolution: `${width}x${height}`,
+      requestedResolution: parsed.size,
+      format,
+      provider: result.provider,
+      model: result.model
     };
     await media.save();
 
@@ -135,7 +154,8 @@ exports.textToImage = async (req, res) => {
       success: true,
       media,
       quota: req.member.quota,
-      revisedPrompt: image.revised_prompt || null
+      provider: result.provider,
+      revisedPrompt: result.revisedPrompt || null
     });
   } catch (error) {
     console.error('Text-to-image error:', error.message);
@@ -150,14 +170,238 @@ exports.textToImage = async (req, res) => {
       }
     }
 
-    // Bedakan masalah konfigurasi server dengan kegagalan dari provider
-    const isConfigError = error.message.includes('OPENAI_API_KEY');
+    // Bedakan masalah konfigurasi server (503) dengan kegagalan dari provider (502)
+    const isConfigError = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'].includes(
+      error.code
+    );
 
     return res.status(isConfigError ? 503 : 502).json({
       success: false,
       message: isConfigError
         ? error.message
         : 'Image generation failed. Please try again.',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Batas ukuran gambar input setelah didekode (bukan ukuran base64-nya).
+ * Frontend sudah memperkecil gambar ke <= 512px, jadi 6 MB lebih dari cukup
+ * dan mencegah body raksasa masuk ke memori.
+ */
+const MAX_INPUT_BYTES = 6 * 1024 * 1024;
+const DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
+
+/**
+ * Ubah gambar input dari body menjadi Buffer, sekaligus memastikan isinya
+ * benar-benar gambar (dicek dari magic bytes, bukan dari header yang dikirim).
+ *
+ * @param {string} value data URL (`data:image/png;base64,...`) atau base64 polos
+ * @returns {{error: string}|{buffer: Buffer, format: string, mimeType: string, width: number, height: number}}
+ */
+const parseInputImage = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+
+  if (!raw) {
+    return { error: 'Input image is required' };
+  }
+
+  const base64 = raw.replace(DATA_URL_PATTERN, '');
+
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) {
+    return { error: 'Input image must be base64 or a data URL' };
+  }
+
+  const buffer = Buffer.from(base64, 'base64');
+
+  if (buffer.length === 0) {
+    return { error: 'Input image is empty' };
+  }
+
+  if (buffer.length > MAX_INPUT_BYTES) {
+    return {
+      error: `Input image is too large (${Math.round(buffer.length / 1024)} KB). ` +
+        `Limit is ${MAX_INPUT_BYTES / (1024 * 1024)} MB.`
+    };
+  }
+
+  if (!looksLikeImage(buffer)) {
+    return { error: 'Input image is not a valid PNG, JPEG, or WEBP file' };
+  }
+
+  const { format, mimeType } = detectFormat(buffer);
+  const dimensions = measureImage(buffer);
+
+  if (!dimensions) {
+    return { error: 'Failed to read input image dimensions' };
+  }
+
+  // Provider (FLUX.2 [klein]) menolak gambar input >= 512x512. Frontend
+  // memperkecilnya lewat canvas; kalau batas ini tembus, permintaan datang dari
+  // klien lain, jadi lebih baik ditolak dengan pesan jelas daripada gagal di
+  // provider dengan error yang sulit dipahami.
+  if (dimensions.width > MAX_EDIT_INPUT_EDGE || dimensions.height > MAX_EDIT_INPUT_EDGE) {
+    return {
+      error: `Input image must be at most ${MAX_EDIT_INPUT_EDGE}x${MAX_EDIT_INPUT_EDGE} pixels ` +
+        `(received ${dimensions.width}x${dimensions.height}). Resize it first.`
+    };
+  }
+
+  return { buffer, format, mimeType, ...dimensions };
+};
+
+/**
+ * Validasi body request image-to-image.
+ * @returns {{error: string}|{prompt: string, size: string, guidance: number|null}}
+ */
+const parseImageEditRequest = (body = {}) => {
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+
+  if (!prompt) {
+    return { error: 'Prompt is required' };
+  }
+
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    return { error: `Prompt is too long (max ${MAX_PROMPT_LENGTH} characters)` };
+  }
+
+  const size = body.size || DEFAULT_SIZE;
+  if (!ALLOWED_SIZES.includes(size)) {
+    return { error: `Invalid size. Allowed values: ${ALLOWED_SIZES.join(', ')}` };
+  }
+
+  let guidance = null;
+  if (body.guidance !== undefined && body.guidance !== null && body.guidance !== '') {
+    guidance = Number(body.guidance);
+    if (!Number.isFinite(guidance) || guidance < 1 || guidance > 20) {
+      return { error: 'Invalid guidance. Allowed range: 1 - 20' };
+    }
+  }
+
+  return { prompt, size, guidance };
+};
+
+/**
+ * URL publik gambar input untuk provider yang mengambil gambar lewat URL
+ * (Pollinations). Hanya dari PUBLIC_BASE_URL — sengaja TIDAK diambil dari host
+ * request, karena host lokal (localhost) tetap "terlihat valid" bagi aplikasi
+ * padahal provider tidak bisa mengambilnya. Pollinations akan tetap membalas 200
+ * dengan gambar dari prompt saja kalau URL-nya tidak terjangkau, jadi lebih baik
+ * tidak memberi URL sama sekali daripada memberi URL yang menyesatkan.
+ */
+const getPublicUploadUrl = (fileName) => {
+  const base = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  return base ? `${base}/uploads/${fileName}` : null;
+};
+
+/**
+ * @POST /api/v1/media/image-to-image
+ * Transformasi gambar input sesuai prompt.
+ */
+exports.imageToImage = async (req, res) => {
+  const parsedRequest = parseImageEditRequest(req.body);
+  if (parsedRequest.error) {
+    return res.status(400).json({ success: false, message: parsedRequest.error });
+  }
+
+  const parsedImage = parseInputImage(req.body.image);
+  if (parsedImage.error) {
+    return res.status(400).json({ success: false, message: parsedImage.error });
+  }
+
+  let media = null;
+
+  try {
+    media = await MediaContent.create({
+      userId: req.member.uid,
+      type: 'image-to-image',
+      prompt: parsedRequest.prompt,
+      status: 'processing'
+    });
+
+    const uploadDir = getUploadDir();
+    await fs.mkdir(uploadDir, { recursive: true });
+
+    // Gambar input ikut disimpan supaya riwayat bisa menampilkan sebelum/sesudah
+    // dan supaya provider berbasis URL bisa mengambilnya (lihat PUBLIC_BASE_URL).
+    const inputFileName = `${media.contentId}_input.${parsedImage.format}`;
+    await fs.writeFile(path.join(uploadDir, inputFileName), parsedImage.buffer);
+    media.inputFile = `/uploads/${inputFileName}`;
+
+    const result = await editImage({
+      prompt: parsedRequest.prompt,
+      imageBuffer: parsedImage.buffer,
+      mimeType: parsedImage.mimeType,
+      size: parsedRequest.size,
+      guidance: parsedRequest.guidance,
+      inputPublicUrl: getPublicUploadUrl(inputFileName)
+    });
+
+    if (result.attempts && result.attempts.length) {
+      console.warn(
+        `Image-to-image dilayani ${result.provider} (provider utama gagal): ` +
+          result.attempts.map((item) => `${item.provider}: ${item.reason}`).join('; ')
+      );
+    }
+
+    const format = result.format || 'png';
+    const outputFileName = `${media.contentId}.${format}`;
+    await fs.writeFile(path.join(uploadDir, outputFileName), result.buffer);
+
+    const requested = parseSize(parsedRequest.size);
+    const width = result.width || requested.width;
+    const height = result.height || requested.height;
+
+    media.outputFile = path.join(uploadDir, outputFileName);
+    media.outputUrl = `/uploads/${outputFileName}`;
+    media.status = 'completed';
+    media.completedAt = new Date();
+    media.metadata = {
+      width,
+      height,
+      resolution: `${width}x${height}`,
+      requestedResolution: parsedRequest.size,
+      inputResolution: `${parsedImage.width}x${parsedImage.height}`,
+      format,
+      provider: result.provider,
+      model: result.model
+    };
+    await media.save();
+
+    req.member.quota.imageGeneration -= 1;
+    await req.member.save();
+
+    return res.status(201).json({
+      success: true,
+      media,
+      quota: req.member.quota,
+      provider: result.provider
+    });
+  } catch (error) {
+    console.error('Image-to-image error:', error.message);
+
+    if (media) {
+      media.status = 'failed';
+      media.error = { message: error.message };
+      try {
+        await media.save();
+      } catch (saveError) {
+        console.error('Failed to update media status:', saveError.message);
+      }
+    }
+
+    const isConfigError = [
+      'MISSING_CREDENTIALS',
+      'INVALID_PROVIDER_CONFIG',
+      'PROVIDER_UNSUPPORTED'
+    ].includes(error.code);
+
+    return res.status(isConfigError ? 503 : 502).json({
+      success: false,
+      message: isConfigError
+        ? error.message
+        : 'Image transformation failed. Please try again.',
       error: error.message
     });
   }
@@ -211,11 +455,19 @@ exports.deleteMedia = async (req, res) => {
       });
     }
 
+    const uploadDir = getUploadDir();
+
     // Hapus file hanya jika memang berada di folder upload
-    if (media.outputFile) {
-      const uploadDir = getUploadDir();
-      if (path.resolve(media.outputFile).startsWith(uploadDir)) {
-        await fs.rm(media.outputFile, { force: true });
+    if (media.outputFile && path.resolve(media.outputFile).startsWith(uploadDir)) {
+      await fs.rm(media.outputFile, { force: true });
+    }
+
+    // Gambar input (image-to-image) disimpan sebagai URL relatif
+    // (/uploads/xxx_input.jpg), jadi perlu diresolusi ke folder upload dulu.
+    if (media.inputFile) {
+      const inputPath = path.resolve(uploadDir, path.basename(media.inputFile));
+      if (inputPath.startsWith(uploadDir)) {
+        await fs.rm(inputPath, { force: true });
       }
     }
 
