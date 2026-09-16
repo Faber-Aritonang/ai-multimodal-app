@@ -27,6 +27,7 @@ const memberRoutes = require('./routes/member');
 const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
 const { getProviderStatus } = require('./config/imageProviders');
+const { describeStorage } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { preferEnvFile } = require('./config/envFile');
 
@@ -188,6 +189,9 @@ app.get('/health', (req, res) => {
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
       imageEditCapabilities: image.editCapabilities,
+      // Di produksi nilainya harus `s3`; kalau `local`, gambar akan hilang pada
+      // setiap deploy (filesystem container bersifat sementara).
+      storage: describeStorage(),
       devLogin: 'enabled'
     };
   }

@@ -45,7 +45,13 @@ describe('GET /health', () => {
       'GEMINI_API_KEY',
       'IMAGE_EDIT_PROVIDER',
       'IMAGE_EDIT_FALLBACK_PROVIDER',
-      'PUBLIC_BASE_URL'
+      'PUBLIC_BASE_URL',
+      'STORAGE_PROVIDER',
+      'S3_ENDPOINT',
+      'S3_BUCKET',
+      'S3_ACCESS_KEY_ID',
+      'S3_SECRET_ACCESS_KEY',
+      'S3_PUBLIC_BASE_URL'
     ];
 
     const clearChatAndImageEnv = () => {
@@ -58,6 +64,14 @@ describe('GET /health', () => {
         'CHAT_FALLBACK_PROVIDER',
         'GROQ_API_KEY',
         'GEMINI_API_KEY',
+        // Penyimpanan juga dibersihkan: nilainya ikut muncul di /health, dan
+        // test bisa berjalan di mesin yang env-nya sudah berisi kredensial S3.
+        'STORAGE_PROVIDER',
+        'S3_ENDPOINT',
+        'S3_BUCKET',
+        'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY',
+        'S3_PUBLIC_BASE_URL',
         'IMAGE_EDIT_PROVIDER',
         'IMAGE_EDIT_FALLBACK_PROVIDER',
         'PUBLIC_BASE_URL'
@@ -107,6 +121,9 @@ describe('GET /health', () => {
         imageEditFallback: 'none',
         imageEditReady: false,
         imageEditCapabilities: { cloudflare: true, pollinations: true, openai: false },
+        // Tanpa kredensial S3, berkas disimpan lokal. Di produksi nilainya harus
+        // `s3`, karena filesystem container Railway hilang tiap deploy.
+        storage: { mode: 'local', bucket: null, publicBaseUrl: null },
         devLogin: 'enabled'
       });
     });

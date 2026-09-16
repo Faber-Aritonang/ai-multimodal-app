@@ -117,6 +117,17 @@ GROQ_API_KEY=gsk_your-groq-key
 CHAT_PROVIDER=groq
 GEMINI_API_KEY=your-gemini-key
 CHAT_FALLBACK_PROVIDER=gemini
+
+# Penyimpanan media (opsional di lokal, WAJIB di produksi)
+# Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
+# terhapus setiap deploy. Lihat "Penyimpanan media" di bawah.
+# STORAGE_PROVIDER=s3
+# S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+# S3_BUCKET=nama-bucket
+# S3_ACCESS_KEY_ID=...
+# S3_SECRET_ACCESS_KEY=...
+# S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
+# S3_FORCE_PATH_STYLE=true   # hanya untuk MinIO/B2
 ```
 
 ### 3. Firebase Setup
@@ -229,7 +240,7 @@ Yang diuji:
 | Spec | Cakupan |
 |------|---------|
 | `chat.spec.cjs` | buat sesi, badge kuota, kirim pesan, balasan AI, label provider, markdown dirender, kuota berkurang, bersihkan sesi |
-| `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
+| `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), berkas di object storage memakai URL absolut, berkas yang hilang dijelaskan ke user, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
 | `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
@@ -400,6 +411,15 @@ CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 IMAGE_PROVIDER=cloudflare
 IMAGE_FALLBACK_PROVIDER=pollinations
+
+# WAJIB di produksi — tanpa ini gambar hilang setiap deploy (lihat bagian
+# "Penyimpanan media" di bawah). Diperiksa lewat GET /health → services.storage.
+STORAGE_PROVIDER=s3
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+S3_BUCKET=nama-bucket
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
 ```
 
 **Frontend**: Set in Vercel dashboard:
@@ -457,6 +477,45 @@ VITE_FIREBASE_APP_ID=...
 > `uid` Firebase-nya bisa dibaca dari koleksi `users` (dokumen user yang baru
 > mendaftar). Setelah itu **login ulang**: JWT-nya akan berisi `role: 'admin'`
 > dan aplikasi mengarahkan ke `/admin`, bukan ke *Pending Approval*.
+
+### Penyimpanan media
+
+Container Railway memakai filesystem **sementara**: setiap deploy (dan setiap
+restart) mengganti container beserta seluruh isi `/app/uploads`. Tanpa object
+storage, gambar hasil generate hilang pada deploy berikutnya — catatannya tetap
+ada di database, jadi UI menampilkan gambar rusak dan kuota user sudah terpakai.
+Karena itu produksi **wajib** memakai object storage:
+
+```
+STORAGE_PROVIDER=s3          # opsional: otomatis 's3' bila kredensial lengkap
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+S3_BUCKET=nama-bucket
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
+S3_FORCE_PATH_STYLE=true     # hanya MinIO/B2
+```
+
+API-nya S3, jadi berlaku untuk Cloudflare R2, Supabase Storage, Backblaze B2,
+maupun MinIO. `S3_PUBLIC_BASE_URL` harus bisa dibaca publik — URL itulah yang
+disimpan di `outputUrl` dan dipakai langsung oleh `<img>`.
+
+Cara memeriksa mode yang benar-benar aktif:
+
+```bash
+curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A4 storage
+# "storage": { "mode": "s3", "bucket": "...", "publicBaseUrl": "..." }
+```
+
+Kalau hasilnya `"mode": "local"` di produksi, gambar akan hilang pada deploy
+berikutnya. Tanpa kredensial apa pun (lokal/dev), penyimpanan otomatis memakai
+folder `uploads/` seperti sebelumnya, jadi tidak ada setup tambahan untuk
+development.
+
+Catatan: berkas lama yang sudah hilang tidak bisa dipulihkan. Untuk membuat
+riwayat tidak menggantung, `frontend` menampilkan pesan *"berkas gambar ini
+sudah tidak ada di server"* di tempat gambar yang gagal dimuat — bukan ikon
+gambar rusak berisi teks `alt`.
 
 ### Pipeline otomatis (`.github/workflows/deploy.yml`)
 

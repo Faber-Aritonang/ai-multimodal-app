@@ -6,7 +6,8 @@
  *   1. validasi prompt & ukuran
  *   2. buat record MediaContent (status: processing)
  *   3. minta gambar dari provider yang aktif (lihat config/imageProviders.js)
- *   4. simpan gambar ke folder uploads/ dan update record (status: completed)
+ *   4. simpan gambar ke penyimpanan media (object storage bila dikonfigurasi,
+ *      kalau tidak ke folder uploads/) dan update record (status: completed)
  *   5. kurangi quota user (hanya jika berhasil)
  *
  * image-to-image:
@@ -19,9 +20,13 @@
  * jadi controller ini tidak bergantung pada satu vendor saja.
  */
 
-const fs = require('fs/promises');
-const path = require('path');
 const MediaContent = require('../models/MediaContent');
+const {
+  putObject,
+  removeByReference,
+  removeByUrl,
+  getStorageMode
+} = require('../config/storage');
 const {
   generateImage,
   editImage,
@@ -37,13 +42,6 @@ const ALLOWED_SIZES = ['1024x1024', '1792x1024', '1024x1792'];
 const DEFAULT_SIZE = '1024x1024';
 const ALLOWED_QUALITIES = ['standard', 'hd'];
 const MAX_PROMPT_LENGTH = 1000;
-
-/**
- * Folder penyimpanan hasil generate. Dibaca dari env agar mudah dipindah
- * (mis. ke volume persisten saat deploy) dan supaya test bisa memakai temp dir.
- */
-const getUploadDir = () =>
-  path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
 const parseSize = (size) => {
   const [width, height] = String(size).split('x').map(Number);
@@ -116,14 +114,14 @@ exports.textToImage = async (req, res) => {
       );
     }
 
-    const uploadDir = getUploadDir();
-    await fs.mkdir(uploadDir, { recursive: true });
-
     // Ekstensi mengikuti format asli dari provider (FLUX/Pollinations -> jpeg).
     const format = result.format || 'png';
     const fileName = `${media.contentId}.${format}`;
-    const filePath = path.join(uploadDir, fileName);
-    await fs.writeFile(filePath, result.buffer);
+    const saved = await putObject({
+      key: fileName,
+      buffer: result.buffer,
+      contentType: `image/${format === 'jpg' ? 'jpeg' : format}`
+    });
 
     // Dimensi asli dari provider dipakai bila ada; kalau header gambar tidak
     // terbaca, jatuh kembali ke ukuran yang diminta.
@@ -131,8 +129,8 @@ exports.textToImage = async (req, res) => {
     const width = result.width || requested.width;
     const height = result.height || requested.height;
 
-    media.outputFile = filePath;
-    media.outputUrl = `/uploads/${fileName}`;
+    media.outputFile = saved.reference;
+    media.outputUrl = saved.url;
     media.status = 'completed';
     media.completedAt = new Date();
     media.metadata = {
@@ -320,14 +318,22 @@ exports.imageToImage = async (req, res) => {
       status: 'processing'
     });
 
-    const uploadDir = getUploadDir();
-    await fs.mkdir(uploadDir, { recursive: true });
-
     // Gambar input ikut disimpan supaya riwayat bisa menampilkan sebelum/sesudah
-    // dan supaya provider berbasis URL bisa mengambilnya (lihat PUBLIC_BASE_URL).
+    // dan supaya provider berbasis URL bisa mengambilnya.
     const inputFileName = `${media.contentId}_input.${parsedImage.format}`;
-    await fs.writeFile(path.join(uploadDir, inputFileName), parsedImage.buffer);
-    media.inputFile = `/uploads/${inputFileName}`;
+    const savedInput = await putObject({
+      key: inputFileName,
+      buffer: parsedImage.buffer,
+      contentType: parsedImage.mimeType
+    });
+    media.inputFile = savedInput.url;
+
+    // Dengan object storage, URL publiknya memang terjangkau dari internet.
+    // Mode lokal tetap memakai PUBLIC_BASE_URL seperti sebelumnya — sengaja TIDAK
+    // diambil dari host request, karena host lokal (localhost) tetap "terlihat
+    // valid" bagi aplikasi padahal provider tidak bisa mengambilnya.
+    const inputPublicUrl =
+      getStorageMode() === 's3' ? savedInput.url : getPublicUploadUrl(inputFileName);
 
     const result = await editImage({
       prompt: parsedRequest.prompt,
@@ -335,7 +341,7 @@ exports.imageToImage = async (req, res) => {
       mimeType: parsedImage.mimeType,
       size: parsedRequest.size,
       guidance: parsedRequest.guidance,
-      inputPublicUrl: getPublicUploadUrl(inputFileName)
+      inputPublicUrl
     });
 
     if (result.attempts && result.attempts.length) {
@@ -347,14 +353,18 @@ exports.imageToImage = async (req, res) => {
 
     const format = result.format || 'png';
     const outputFileName = `${media.contentId}.${format}`;
-    await fs.writeFile(path.join(uploadDir, outputFileName), result.buffer);
+    const savedOutput = await putObject({
+      key: outputFileName,
+      buffer: result.buffer,
+      contentType: `image/${format === 'jpg' ? 'jpeg' : format}`
+    });
 
     const requested = parseSize(parsedRequest.size);
     const width = result.width || requested.width;
     const height = result.height || requested.height;
 
-    media.outputFile = path.join(uploadDir, outputFileName);
-    media.outputUrl = `/uploads/${outputFileName}`;
+    media.outputFile = savedOutput.reference;
+    media.outputUrl = savedOutput.url;
     media.status = 'completed';
     media.completedAt = new Date();
     media.metadata = {
@@ -455,20 +465,16 @@ exports.deleteMedia = async (req, res) => {
       });
     }
 
-    const uploadDir = getUploadDir();
-
-    // Hapus file hanya jika memang berada di folder upload
-    if (media.outputFile && path.resolve(media.outputFile).startsWith(uploadDir)) {
-      await fs.rm(media.outputFile, { force: true });
+    // outputFile menyimpan referensi penyimpanan (`s3://bucket/key` atau path
+    // lokal), sedangkan inputFile menyimpan URL publik. Keduanya ditangani
+    // supaya record lama (yang semuanya menunjuk folder uploads/) tetap bisa
+    // dihapus setelah penyimpanan pindah ke object storage.
+    if (media.outputFile) {
+      await removeByReference(media.outputFile);
     }
 
-    // Gambar input (image-to-image) disimpan sebagai URL relatif
-    // (/uploads/xxx_input.jpg), jadi perlu diresolusi ke folder upload dulu.
     if (media.inputFile) {
-      const inputPath = path.resolve(uploadDir, path.basename(media.inputFile));
-      if (inputPath.startsWith(uploadDir)) {
-        await fs.rm(inputPath, { force: true });
-      }
+      await removeByUrl(media.inputFile);
     }
 
     res.json({
