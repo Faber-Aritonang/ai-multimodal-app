@@ -260,6 +260,114 @@ jobs:
             head -3 /tmp/railway-vars.err
           fi
 
+      # Diagnostik lanjutan: di environment MANA variabel media berada.
+      #
+      # Satu service bisa punya beberapa environment, dan dashboard menampilkan
+      # environment yang sedang dipilih — variabel yang disimpan di environment
+      # lain tidak akan pernah terlihat oleh container produksi. Karena itu
+      # langkah ini memeriksa SEMUA environment di project dan mencetak NAMA
+      # variabelnya saja (log run publik; nilainya tidak pernah dicetak).
+      - name: Diagnostik - variabel media per environment
+        run: |
+          python3 - "$RAILWAY_PROJECT_ID" "$RAILWAY_TOKEN" "${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" <<'PY'
+          import json
+          import subprocess
+          import sys
+          import urllib.request
+
+          project_id, token, target = sys.argv[1], sys.argv[2], sys.argv[3]
+
+          def graphql(kueri, variabel):
+              permintaan = urllib.request.Request(
+                  "https://backboard.railway.com/graphql/v2",
+                  data=json.dumps({"query": kueri, "variables": variabel}).encode(),
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(permintaan, timeout=30) as respons:
+                  return json.loads(respons.read().decode())
+
+          def relevan(nama):
+              besar = nama.upper()
+              return "CLOUD" in besar or "STORAGE" in besar or besar.startswith("S3_") or besar == "UPLOAD_DIR"
+
+          try:
+              data = graphql(
+                  "query($id: String!) { project(id: $id) { environments { edges { node { name } } } } }",
+                  {"id": project_id},
+              )
+              envs = [
+                  simpul["node"]["name"]
+                  for simpul in data["data"]["project"]["environments"]["edges"]
+              ]
+          except Exception as galat:  # token project mungkin tidak boleh membaca project
+              print(f"(daftar environment tidak terbaca lewat API: {galat})")
+              envs = ["production"]
+
+          print(f"Environment di project: {', '.join(envs) if envs else '(tidak ada)'}")
+
+          wajib = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
+          ada_di = {nama: [] for nama in wajib}
+          dekat = {}
+
+          for nama_env in envs:
+              keluaran = subprocess.run(
+                  [
+                      "railway", "variables",
+                      "--project", project_id,
+                      "--service", target,
+                      "--environment", nama_env,
+                      "--json",
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+
+              kunci = []
+              try:
+                  isi = json.loads(keluaran.stdout)
+                  if isinstance(isi, dict):
+                      kunci = list(isi.keys())
+                  elif isinstance(isi, list):
+                      kunci = [v.get("name") or v.get("key") or "" for v in isi]
+                      kunci = [k for k in kunci if k]
+              except Exception:
+                  kunci = []
+
+              if not kunci:
+                  pesan = (keluaran.stderr or "").strip().splitlines()
+                  print(f"\n[{nama_env}] tidak terbaca: {pesan[0][:140] if pesan else 'keluaran kosong'}")
+                  continue
+
+              print(f"\n[{nama_env}] {len(kunci)} variabel — nama: {', '.join(sorted(kunci))}")
+
+              media = sorted(nama for nama in kunci if relevan(nama))
+              print(f"  [{nama_env}] nama terkait media: {', '.join(media) if media else '(tidak ada)'}")
+
+              for nama in media:
+                  if nama not in wajib:
+                      dekat[nama] = nama_env
+              for nama in wajib:
+                  if nama in kunci:
+                      ada_di[nama].append(nama_env)
+
+          print("")
+          for nama in wajib:
+              if ada_di[nama]:
+                  print(f"{nama}: ADA di environment {', '.join(ada_di[nama])}")
+              else:
+                  print(f"::warning::{nama}: tidak ada di environment mana pun pada project ini")
+
+          if dekat:
+              for nama, nama_env in dekat.items():
+                  print(
+                      f"::warning::Ada variabel bernama hampir sama, '{nama}' di environment "
+                      f"'{nama_env}' — kemungkinan salah ketik nama yang sebenarnya."
+                  )
+          PY
+
       # PENTING — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.
       # Service Railway menetapkan `rootDirectory: backend`, dan builder
       # menggabungkannya dengan konteks unggahan: mengunggah direktori `backend`
