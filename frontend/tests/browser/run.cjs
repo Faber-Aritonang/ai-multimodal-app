@@ -149,7 +149,10 @@ const main = async () => {
       await session.setAuth({ token: auth.token, user: auth.user });
       // `health` ikut dikirim supaya spec bisa menyesuaikan diri dengan
       // konfigurasi provider yang sebenarnya (mis. kredensial belum diisi).
-      await spec.run({ session, reporter, api, baseUrl: BASE_URL, sleep, health });
+      // `apiUrl` dipakai spec untuk memuat media secara absolut — di produksi
+      // halaman dan gambarnya berbeda origin, dan itu justru kondisi yang harus
+      // diuji (lihat text-to-image.spec.cjs).
+      await spec.run({ session, reporter, api, baseUrl: BASE_URL, sleep, health, apiUrl: API_URL });
     } catch (error) {
       reporter.check('spec selesai tanpa error tak terduga', false, error.message);
     } finally {

@@ -134,7 +134,23 @@ app.use(limiter);
 // File hasil generate media (lihat mediaController).
 // Saat scale-up, pindahkan ke object storage dan ganti mount ini.
 const UPLOAD_DIR = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
-app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+app.use(
+  '/uploads',
+  express.static(UPLOAD_DIR, {
+    maxAge: '7d',
+    setHeaders: (res) => {
+      // `helmet()` di atas menyetel Cross-Origin-Resource-Policy: same-origin
+      // untuk semua respons. Untuk berkas media itu justru mematikan fiturnya:
+      // frontend (domain Vercel) memuat gambar lewat tag <img> dari domain
+      // backend, dan browser menolaknya dengan
+      // ERR_BLOCKED_BY_RESPONSE.NotSameOrigin — gambar tampil rusak (yang
+      // terlihat hanya teks `alt`) padahal berkasnya ada dan curl menerima 200.
+      // Di lokal kekeliruan ini tidak terlihat karena Vite mem-proxy /uploads,
+      // sehingga halaman dan gambarnya satu origin.
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+  })
+);
 
 // Routes
 app.use('/api/v1/auth', authRoutes);

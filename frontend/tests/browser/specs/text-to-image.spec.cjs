@@ -44,7 +44,7 @@ const angkaDari = (teks) => {
 module.exports = {
   name: 'text-to-image',
 
-  async run({ session, reporter, api, sleep }) {
+  async run({ session, reporter, api, sleep, apiUrl }) {
     await session.open('/tools/text-to-image');
 
     const awal = await session.waitFor(async () => {
@@ -97,7 +97,9 @@ module.exports = {
     if (!reporter.check('gambar berhasil dibuat dan dimuat browser', Boolean(hasil && !hasil.teksError),
       hasil?.teksError || hasil?.hasilDimuat)) return;
 
-    reporter.matches('hasil memakai URL /uploads/...', hasil.hasilUrl, /^\/uploads\//);
+    // URL-nya relatif ('/uploads/...') saat dev memakai proxy Vite, dan absolut
+    // ke backend saat VITE_API_URL diisi (seperti di produksi). Keduanya benar.
+    reporter.matches('hasil memakai URL media di /uploads/', hasil.hasilUrl, /^(https?:\/\/[^/]+)?\/uploads\//);
     reporter.check('tautan unduh tersedia', hasil.adaTombolUnduh === true);
     reporter.check(
       'metadata hasil menyebut resolusi asli + provider',
@@ -119,6 +121,35 @@ module.exports = {
       hasil.riwayatTermuat === hasil.jumlahRiwayat,
       `${hasil.riwayatTermuat} dari ${hasil.jumlahRiwayat}`
     );
+
+    // Bug produksi yang tidak akan terlihat dari assertion di atas: di produksi
+    // halaman (domain Vercel) dan gambar (domain backend) berbeda origin, dan
+    // helmet() menyetel Cross-Origin-Resource-Policy: same-origin sehingga
+    // browser menolak gambarnya (ERR_BLOCKED_BY_RESPONSE.NotSameOrigin) — hasil
+    // generate tampil rusak padahal berkasnya 200. Di lokal gambar dimuat lewat
+    // proxy Vite (satu origin), jadi kondisi produksi harus dibuat eksplisit di
+    // sini: muat URL backend secara absolut, seperti yang dilakukan produksi.
+    if (apiUrl) {
+      // Ambil path-nya dulu: kalau src sudah absolut (VITE_API_URL diisi), hanya
+      // path yang diperlukan supaya URL backend-nya tetap terbentuk benar.
+      const mediaPath = String(hasil.hasilUrl).replace(/^https?:\/\/[^/]+/, '');
+      const lintasOrigin = await session.evaluate(`(async () => {
+        const url = ${JSON.stringify(`${apiUrl}${mediaPath}`)};
+        return await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve('dimuat ' + img.naturalWidth + 'x' + img.naturalHeight);
+          img.onerror = () => resolve('DITOLAK');
+          img.src = url;
+          setTimeout(() => resolve('timeout'), 15000);
+        });
+      })()`);
+
+      reporter.contains(
+        'gambar bisa dimuat lintas origin (kondisi produksi)',
+        lintasOrigin,
+        'dimuat'
+      );
+    }
 
     // contentId terbaru dari API -> dipakai memastikan tombol hapus benar-benar
     // menghapus data (bukan hanya menyembunyikan kartu di UI).

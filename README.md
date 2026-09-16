@@ -229,7 +229,7 @@ Yang diuji:
 | Spec | Cakupan |
 |------|---------|
 | `chat.spec.cjs` | buat sesi, badge kuota, kirim pesan, balasan AI, label provider, markdown dirender, kuota berkurang, bersihkan sesi |
-| `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
+| `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
 | `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
@@ -425,6 +425,15 @@ VITE_FIREBASE_APP_ID=...
 > Selain itu `FRONTEND_URL` di Railway harus memuat domain Vercel yang **sedang
 > dipakai**; kalau tidak, browser memblokir setiap panggilan API sebagai CORS.
 > Beberapa domain boleh ditulis sekaligus, dipisah koma.
+>
+> **Berkas `/uploads` harus boleh dimuat lintas origin.** Karena frontend
+> (Vercel) dan backend (Railway) adalah dua origin berbeda, `helmet()` yang
+> menyetel `Cross-Origin-Resource-Policy: same-origin` membuat browser menolak
+> gambar dengan `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` — hasil generate tampil
+> rusak (hanya teks `alt`) padahal permintaannya 200 dan berkasnya ada. Mount
+> `/uploads` di `server.js` menimpanya menjadi `cross-origin`, dan ada test yang
+> mengunci header itu. Di lokal bug ini tidak pernah muncul karena Vite
+> mem-proxy `/uploads`, sehingga halaman dan gambarnya satu origin.
 >
 > Database produksi memakai user Atlas di database `admin`, jadi connection
 > string-nya perlu `authSource=admin` **dan** nama database di depan `?`:
