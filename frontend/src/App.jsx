@@ -18,6 +18,7 @@ import PendingApproval from './pages/PendingApproval'
 // Components
 import ProtectedRoute from './components/ProtectedRoute'
 import GuestRoute from './components/GuestRoute'
+import Aurora from './components/Aurora'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -53,14 +54,20 @@ function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-dark-800">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/10 border-t-cyan-300" />
+          <p className="hud animate-pulse-glow">memuat sesi…</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-dark-50">
+    <div className="relative min-h-screen">
+      {/* Latar dipasang sekali di akar agar blob aurora tidak dibuat ulang tiap navigasi. */}
+      <Aurora />
+
       <Routes>
         {/* Public Routes */}
         <Route path="/login" element={

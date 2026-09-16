@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { adminAPI } from '../../config/api'
 import AdminLayout from '../../components/AdminLayout'
 import QRCode from '../../components/QRCode'
+import { GlassPanel, PageHeader, SectionTitle } from '../../components/ui'
 
 const AdminMembers = () => {
   const [pendingMembers, setPendingMembers] = useState([])
@@ -19,7 +20,7 @@ const AdminMembers = () => {
         adminAPI.getPendingMembers(),
         adminAPI.getApprovedMembers()
       ])
-      
+
       setPendingMembers(pendingRes.data.members)
       setApprovedMembers(approvedRes.data.members)
       setLoading(false)
@@ -45,7 +46,7 @@ const AdminMembers = () => {
 
   const handleReject = async (uid) => {
     if (!window.confirm('Reject this member?')) return
-    
+
     try {
       await adminAPI.rejectMember(uid)
       fetchMembers()
@@ -57,8 +58,11 @@ const AdminMembers = () => {
   if (loading) {
     return (
       <AdminLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+        <div className="flex min-h-[400px] items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/10 border-t-cyan-300" />
+            <p className="hud animate-pulse-glow">memuat daftar member…</p>
+          </div>
         </div>
       </AdminLayout>
     )
@@ -66,66 +70,76 @@ const AdminMembers = () => {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-dark-800">Member Management</h1>
-          <p className="text-dark-500 mt-1">
-            Manage member approvals and view member details
-          </p>
-        </div>
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="kontrol"
+          title="Member Management"
+          description="Setujui member baru dan lihat rincian kuota serta kode undangannya."
+        />
 
-        {/* Pending Members */}
-        <div className="bg-white dark-glass rounded-xl">
-          <div className="p-6 border-b border-dark-200">
-            <h3 className="text-lg font-bold text-dark-800">
-              Pending Members ({pendingMembers.length})
-            </h3>
+        {/* ---------------------------- Menunggu review --------------------------- */}
+        <GlassPanel className="overflow-hidden">
+          <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] p-5 sm:p-6">
+            <SectionTitle className="mb-0">Pending Members ({pendingMembers.length})</SectionTitle>
+            <span className={`chip ${pendingMembers.length > 0 ? 'chip-warn' : 'chip-ok'}`}>
+              {pendingMembers.length > 0 ? 'perlu tindakan' : 'bersih'}
+            </span>
           </div>
 
           {pendingMembers.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[40rem] text-sm">
                 <thead>
-                  <tr className="bg-dark-50">
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">User</th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">Email</th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">Joined</th>
-                    <th className="text-center p-4 text-xs font-semibold text-dark-500 uppercase">Actions</th>
+                  <tr className="bg-white/[0.03]">
+                    <th className="hud p-4 text-left">user</th>
+                    <th className="hud p-4 text-left">email</th>
+                    <th className="hud p-4 text-left">joined</th>
+                    <th className="hud p-4 text-center">actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pendingMembers.map((member) => (
-                    <tr key={member._id} className="border-b border-dark-200">
+                    <tr
+                      key={member._id}
+                      className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
+                    >
                       <td className="p-4">
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-3">
                           {member.photoURL ? (
-                            <img src={member.photoURL} alt={member.displayName} className="w-10 h-10 rounded-full mr-3" />
+                            <img
+                              src={member.photoURL}
+                              alt={member.displayName}
+                              className="h-10 w-10 rounded-xl object-cover ring-1 ring-white/15"
+                            />
                           ) : (
-                            <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center mr-3">
-                              <span className="text-white font-bold">{member.displayName?.charAt(0) || '?'}</span>
-                            </div>
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-aurora-cyan to-aurora-violet font-semibold text-ink-950">
+                              {member.displayName?.charAt(0) || '?'}
+                            </span>
                           )}
-                          <span className="font-medium text-dark-700">{member.displayName}</span>
+                          <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-dark-600">{member.email}</td>
-                      <td className="p-4 text-dark-500 text-sm">
+                      <td className="p-4 text-slate-400">{member.email}</td>
+                      <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="p-4 text-center space-x-2">
-                        <button
-                          onClick={() => handleApprove(member.uid)}
-                          className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-lg text-sm transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleReject(member.uid)}
-                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition-colors"
-                        >
-                          Reject
-                        </button>
+                      <td className="p-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleApprove(member.uid)}
+                            className="btn border border-emerald-300/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-400/20"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(member.uid)}
+                            className="btn btn-danger px-3 py-1.5 text-xs"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -133,61 +147,69 @@ const AdminMembers = () => {
               </table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <p className="text-dark-500">No pending members</p>
+            <div className="py-12 text-center">
+              <p className="text-sm text-slate-500">No pending members</p>
             </div>
           )}
-        </div>
+        </GlassPanel>
 
-        {/* Approved Members with Referral Codes */}
-        <div className="bg-white dark-glass rounded-xl">
-          <div className="p-6 border-b border-dark-200">
-            <h3 className="text-lg font-bold text-dark-800">
+        {/* ------------------------------ Member aktif --------------------------- */}
+        <GlassPanel className="overflow-hidden">
+          <div className="border-b border-white/[0.06] p-5 sm:p-6">
+            <SectionTitle className="mb-0" hint="Klik ikon QR untuk membagikan kode undangan member.">
               Approved Members ({approvedMembers.length})
-            </h3>
+            </SectionTitle>
           </div>
 
           {approvedMembers.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[42rem] text-sm">
                 <thead>
-                  <tr className="bg-dark-50">
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">User</th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">Referral Code</th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">Quota</th>
-                    <th className="text-center p-4 text-xs font-semibold text-dark-500 uppercase">QR</th>
+                  <tr className="bg-white/[0.03]">
+                    <th className="hud p-4 text-left">user</th>
+                    <th className="hud p-4 text-left">kode referral</th>
+                    <th className="hud p-4 text-left">kuota</th>
+                    <th className="hud p-4 text-center">qr</th>
                   </tr>
                 </thead>
                 <tbody>
                   {approvedMembers.map((member) => (
-                    <tr key={member._id} className="border-b border-dark-200">
+                    <tr
+                      key={member._id}
+                      className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
+                    >
                       <td className="p-4">
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-3">
                           {member.photoURL ? (
-                            <img src={member.photoURL} alt={member.displayName} className="w-10 h-10 rounded-full mr-3" />
+                            <img
+                              src={member.photoURL}
+                              alt={member.displayName}
+                              className="h-10 w-10 rounded-xl object-cover ring-1 ring-white/15"
+                            />
                           ) : (
-                            <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center mr-3">
-                              <span className="text-white font-bold">{member.displayName?.charAt(0) || '?'}</span>
-                            </div>
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-300 to-teal-500 font-semibold text-ink-950">
+                              {member.displayName?.charAt(0) || '?'}
+                            </span>
                           )}
-                          <span className="font-medium text-dark-700">{member.displayName}</span>
+                          <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
                       <td className="p-4">
-                        <code className="bg-dark-100 px-2 py-1 rounded text-xs font-mono">
+                        <code className="rounded-lg border border-white/10 bg-white/[0.05] px-2 py-1 font-mono text-xs text-cyan-200">
                           {member.referralCode || 'N/A'}
                         </code>
                       </td>
-                      <td className="p-4 text-dark-600 text-sm">
-                        Chat: {member.quota?.chat || 0} | 
-                        Img: {member.quota?.imageGeneration || 0} | 
+                      <td className="p-4 font-mono text-xs text-slate-400">
+                        Chat: {member.quota?.chat || 0} | Img: {member.quota?.imageGeneration || 0} |
                         Vid: {member.quota?.videoGeneration || 0}
                       </td>
                       <td className="p-4 text-center">
                         <button
+                          type="button"
                           onClick={() => setSelectedMember(member)}
-                          className="text-primary-600 hover:text-primary-700 p-2"
                           title="Show QR Code"
+                          aria-label="Tampilkan QR code"
+                          className="btn btn-ghost px-2.5 py-1.5 text-xs"
                         >
                           📱
                         </button>
@@ -198,54 +220,53 @@ const AdminMembers = () => {
               </table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <p className="text-dark-500">No approved members</p>
+            <div className="py-12 text-center">
+              <p className="text-sm text-slate-500">No approved members</p>
             </div>
           )}
+        </GlassPanel>
 
-          {/* QR Code Modal */}
-          {selectedMember && (
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-              onClick={() => setSelectedMember(null)}
+        {/* --------------------------------- Modal QR ---------------------------- */}
+        {selectedMember && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4 backdrop-blur-sm"
+            onClick={() => setSelectedMember(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Referral QR Code"
+          >
+            <GlassPanel
+              className="w-full max-w-sm p-8 text-center"
+              onClick={(event) => event.stopPropagation()}
             >
-              <div 
-                className="bg-white rounded-2xl p-8 text-center max-w-sm w-full"
-                onClick={e => e.stopPropagation()}
-              >
-                <h3 className="text-xl font-bold text-dark-800 mb-4">
-                  Referral QR Code
-                </h3>
-                
-                <div className="mb-4">
-                  <QRCode
-                    value={selectedMember.referralCode || selectedMember.email}
-                    size={200}
-                    onError={() => {}}
-                  />
-                </div>
-                
-                <p className="text-dark-500 mb-2">
-                  Referral Code:
-                </p>
-                <code className="bg-dark-100 px-3 py-1 rounded font-mono mb-4 block">
-                  {selectedMember.referralCode}
-                </code>
-                
-                <p className="text-sm text-dark-400">
-                  Scan untuk undang orang lain
-                </p>
-                
-                <button
-                  onClick={() => setSelectedMember(null)}
-                  className="mt-4 text-primary-600 hover:text-primary-700"
-                >
-                  Close
-                </button>
+              <p className="hud mb-2">kode undangan</p>
+              <h3 className="text-grad mb-5 text-xl font-bold">Referral QR Code</h3>
+
+              <div className="mb-5 flex justify-center">
+                <QRCode
+                  value={selectedMember.referralCode || selectedMember.email}
+                  size={192}
+                  onError={() => {}}
+                />
               </div>
-            </div>
-          )}
-        </div>
+
+              <p className="hud mb-2">referral code</p>
+              <code className="mb-4 block break-all rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 font-mono text-sm text-cyan-200">
+                {selectedMember.referralCode}
+              </code>
+
+              <p className="text-xs text-slate-500">Scan untuk undang orang lain</p>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMember(null)}
+                className="btn btn-ghost mt-6 w-full"
+              >
+                Close
+              </button>
+            </GlassPanel>
+          </div>
+        )}
       </div>
     </AdminLayout>
   )

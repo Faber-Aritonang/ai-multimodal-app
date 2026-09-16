@@ -19,7 +19,9 @@ const READ_STATE = `(() => {
   const hasil = document.querySelector('[data-testid="latest-result"]');
   const img = hasil ? hasil.querySelector('img[alt]') : null;
   const figs = Array.from(document.querySelectorAll('[data-testid="history-item"]'));
-  const err = Array.from(document.querySelectorAll('.bg-red-50 p')).map((p) => p.innerText.trim())[0] || null;
+  // Kotak error ditandai data-testid, bukan kelas warna (lihat catatan yang sama
+  // di spec text-to-image).
+  const err = Array.from(document.querySelectorAll('[data-testid="error-message"] p')).map((p) => p.innerText.trim())[0] || null;
   return {
     kuota: kuota ? kuota.innerText.trim() : null,
     adaPreview: Boolean(preview),

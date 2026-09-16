@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react'
 import { adminAPI } from '../../config/api'
-import Layout from '../../components/AdminLayout'
+import AdminLayout from '../../components/AdminLayout'
+import { GlassPanel, PageHeader, SectionTitle, StatTile } from '../../components/ui'
+
+// Ditulis lengkap (bukan `rise-${index}`) supaya kelasnya ikut masuk ke CSS build.
+const RISE_STEPS = ['rise-1', 'rise-2', 'rise-3', 'rise-4']
+
+const STATS = [
+  { key: 'totalUsers', label: 'total users', icon: '👥', accent: 'cyan' },
+  { key: 'approvedMembers', label: 'approved', icon: '✅', accent: 'teal' },
+  { key: 'pendingMembers', label: 'pending', icon: '⏳', accent: 'violet' },
+  { key: 'totalMedia', label: 'media dibuat', icon: '🎨', accent: 'fuchsia' }
+]
 
 const AdminDashboard = () => {
   const [analytics, setAnalytics] = useState(null)
@@ -19,7 +30,7 @@ const AdminDashboard = () => {
         adminAPI.getPendingMembers(),
         adminAPI.getApprovedMembers()
       ])
-      
+
       setAnalytics(analyticsRes.data.analytics)
       setPendingMembers(pendingRes.data.members)
       setApprovedMembers(approvedRes.data.members)
@@ -46,7 +57,7 @@ const AdminDashboard = () => {
 
   const handleReject = async (uid) => {
     if (!window.confirm('Reject this member? This action cannot be undone.')) return
-    
+
     try {
       await adminAPI.rejectMember(uid)
       fetchAdminData()
@@ -57,156 +68,127 @@ const AdminDashboard = () => {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+      <AdminLayout>
+        <div className="flex min-h-[400px] items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/10 border-t-fuchsia-300" />
+            <p className="hud animate-pulse-glow">memuat data admin…</p>
+          </div>
         </div>
-      </Layout>
+      </AdminLayout>
     )
   }
 
   return (
-    <Layout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-dark-800">Admin Dashboard</h1>
-          <p className="text-dark-500 mt-1">
-            Kelola keanggotaan dan monitoring aplikasi
-          </p>
+    <AdminLayout>
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="kontrol"
+          title="Admin Dashboard"
+          description="Kelola keanggotaan dan pantau pemakaian aplikasi."
+          actions={
+            <button type="button" onClick={fetchAdminData} className="btn btn-ghost text-xs">
+              Refresh
+            </button>
+          }
+        />
+
+        {/* ------------------------------- Ringkasan ------------------------------ */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {STATS.map((stat, index) => (
+            <div key={stat.key} className={`rise ${RISE_STEPS[index] || ''}`}>
+              <StatTile
+                label={`${stat.icon} ${stat.label}`}
+                value={analytics?.[stat.key] || 0}
+                accent={stat.accent}
+              />
+            </div>
+          ))}
         </div>
 
-        {/* Analytics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white dark-glass rounded-xl p-6 text-center">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-3">
-              <span className="text-blue-600 text-xl">👥</span>
-            </div>
-            <h3 className="text-2xl font-bold text-blue-600">
-              {analytics?.totalUsers || 0}
-            </h3>
-            <p className="text-sm text-dark-500 mt-1">Total Users</p>
-          </div>
-
-          <div className="bg-white dark-glass rounded-xl p-6 text-center">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-3">
-              <span className="text-green-600 text-xl">✅</span>
-            </div>
-            <h3 className="text-2xl font-bold text-green-600">
-              {analytics?.approvedMembers || 0}
-            </h3>
-            <p className="text-sm text-dark-500 mt-1">Approved Members</p>
-          </div>
-
-          <div className="bg-white dark-glass rounded-xl p-6 text-center">
-            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mx-auto mb-3">
-              <span className="text-yellow-600 text-xl">⏳</span>
-            </div>
-            <h3 className="text-2xl font-bold text-yellow-600">
-              {analytics?.pendingMembers || 0}
-            </h3>
-            <p className="text-sm text-dark-500 mt-1">Pending Approval</p>
-          </div>
-
-          <div className="bg-white dark-glass rounded-xl p-6 text-center">
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-3">
-              <span className="text-purple-600 text-xl">🎨</span>
-            </div>
-            <h3 className="text-2xl font-bold text-purple-600">
-              {analytics?.totalMedia || 0}
-            </h3>
-            <p className="text-sm text-dark-500 mt-1">Total Media Generated</p>
-          </div>
-        </div>
-
-        {/* Media Breakdown */}
+        {/* ---------------------------- Rincian media ---------------------------- */}
         {analytics?.mediaByType && analytics.mediaByType.length > 0 && (
-          <div className="bg-white dark-glass rounded-xl p-6">
-            <h3 className="text-lg font-bold text-dark-800 mb-4">Media Breakdown</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <GlassPanel className="p-5 sm:p-6">
+            <SectionTitle hint="Jumlah berkas media per jenis alat.">Media Breakdown</SectionTitle>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               {analytics.mediaByType.map((item, index) => (
-                <div key={index} className="flex justify-between items-center p-3 bg-dark-50 rounded-lg">
-                  <span className="text-dark-700 font-medium">{item._id}</span>
-                  <span className="text-primary-600 font-bold">{item.count}</span>
+                <div
+                  key={index}
+                  className="glass-inset flex items-center justify-between gap-3 px-3.5 py-2.5"
+                >
+                  <span className="truncate text-sm text-slate-300">{item._id}</span>
+                  <span className="font-mono text-sm font-semibold text-cyan-300">{item.count}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </GlassPanel>
         )}
 
-        {/* Pending Members */}
-        <div className="bg-white dark-glass rounded-xl">
-          <div className="p-6 border-b border-dark-200 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-dark-800">
+        {/* --------------------------- Permintaan akses -------------------------- */}
+        <GlassPanel className="overflow-hidden">
+          <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] p-5 sm:p-6">
+            <SectionTitle className="mb-0" hint="Setujui untuk membuka seluruh alat gambar.">
               Pending Member Requests ({pendingMembers.length})
-            </h3>
-            <button
-              onClick={fetchAdminData}
-              className="text-sm text-primary-600 hover:text-primary-700"
-            >
-              Refresh
-            </button>
+            </SectionTitle>
+            <span className={`chip ${pendingMembers.length > 0 ? 'chip-warn' : 'chip-ok'}`}>
+              {pendingMembers.length > 0 ? 'perlu tindakan' : 'bersih'}
+            </span>
           </div>
 
           {pendingMembers.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[40rem] text-sm">
                 <thead>
-                  <tr className="bg-dark-50">
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      User
-                    </th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Email
-                    </th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Joined
-                    </th>
-                    <th className="text-center p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Actions
-                    </th>
+                  <tr className="bg-white/[0.03]">
+                    <th className="hud p-4 text-left">user</th>
+                    <th className="hud p-4 text-left">email</th>
+                    <th className="hud p-4 text-left">joined</th>
+                    <th className="hud p-4 text-center">actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pendingMembers.map((member) => (
-                    <tr key={member._id} className="border-b border-dark-200">
+                    <tr
+                      key={member._id}
+                      className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
+                    >
                       <td className="p-4">
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-3">
                           {member.photoURL ? (
-                            <img 
-                              src={member.photoURL} 
+                            <img
+                              src={member.photoURL}
                               alt={member.displayName}
-                              className="w-10 h-10 rounded-full mr-3"
+                              className="h-10 w-10 rounded-xl object-cover ring-1 ring-white/15"
                             />
                           ) : (
-                            <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center mr-3">
-                              <span className="text-white font-bold">
-                                {member.displayName?.charAt(0) || '?'}
-                              </span>
-                            </div>
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-aurora-cyan to-aurora-violet font-semibold text-ink-950">
+                              {member.displayName?.charAt(0) || '?'}
+                            </span>
                           )}
-                          <span className="font-medium text-dark-700">
-                            {member.displayName}
-                          </span>
+                          <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-dark-600">{member.email}</td>
-                      <td className="p-4 text-dark-500 text-sm">
+                      <td className="p-4 text-slate-400">{member.email}</td>
+                      <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="p-4 text-center space-x-2">
-                        <button
-                          onClick={() => handleApprove(member.uid)}
-                          className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-lg text-sm transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleReject(member.uid)}
-                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition-colors"
-                        >
-                          Reject
-                        </button>
+                      <td className="p-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleApprove(member.uid)}
+                            className="btn border border-emerald-300/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-400/20"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(member.uid)}
+                            className="btn btn-danger px-3 py-1.5 text-xs"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -214,69 +196,62 @@ const AdminDashboard = () => {
               </table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-4">🎉</div>
-              <p className="text-dark-500">No pending member requests</p>
+            <div className="py-12 text-center">
+              <div className="mb-3 text-4xl">🎉</div>
+              <p className="text-sm text-slate-500">No pending member requests</p>
             </div>
           )}
-        </div>
+        </GlassPanel>
 
-        {/* Approved Members */}
-        <div className="bg-white dark-glass rounded-xl">
-          <div className="p-6 border-b border-dark-200">
-            <h3 className="text-lg font-bold text-dark-800">
+        {/* ------------------------------ Member aktif --------------------------- */}
+        <GlassPanel className="overflow-hidden">
+          <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] p-5 sm:p-6">
+            <SectionTitle className="mb-0" hint="Angka di kolom kuota: chat / gambar / video.">
               Approved Members ({approvedMembers.length})
-            </h3>
+            </SectionTitle>
+            <span className="chip chip-ok">aktif</span>
           </div>
 
           {approvedMembers.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[42rem] text-sm">
                 <thead>
-                  <tr className="bg-dark-50">
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      User
-                    </th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Email
-                    </th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Joined
-                    </th>
-                    <th className="text-left p-4 text-xs font-semibold text-dark-500 uppercase">
-                      Quota (Chat/Img/Video)
-                    </th>
+                  <tr className="bg-white/[0.03]">
+                    <th className="hud p-4 text-left">user</th>
+                    <th className="hud p-4 text-left">email</th>
+                    <th className="hud p-4 text-left">joined</th>
+                    <th className="hud p-4 text-left">kuota</th>
                   </tr>
                 </thead>
                 <tbody>
                   {approvedMembers.map((member) => (
-                    <tr key={member._id} className="border-b border-dark-200">
+                    <tr
+                      key={member._id}
+                      className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
+                    >
                       <td className="p-4">
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-3">
                           {member.photoURL ? (
-                            <img 
-                              src={member.photoURL} 
+                            <img
+                              src={member.photoURL}
                               alt={member.displayName}
-                              className="w-10 h-10 rounded-full mr-3"
+                              className="h-10 w-10 rounded-xl object-cover ring-1 ring-white/15"
                             />
                           ) : (
-                            <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center mr-3">
-                              <span className="text-white font-bold">
-                                {member.displayName?.charAt(0) || '?'}
-                              </span>
-                            </div>
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-300 to-teal-500 font-semibold text-ink-950">
+                              {member.displayName?.charAt(0) || '?'}
+                            </span>
                           )}
-                          <span className="font-medium text-dark-700">
-                            {member.displayName}
-                          </span>
+                          <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-dark-600">{member.email}</td>
-                      <td className="p-4 text-dark-500 text-sm">
+                      <td className="p-4 text-slate-400">{member.email}</td>
+                      <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="p-4 text-dark-600 text-sm">
-                        {member.quota?.chat || 0}/{member.quota?.imageGeneration || 0}/{member.quota?.videoGeneration || 0}
+                      <td className="p-4 font-mono text-xs text-cyan-300">
+                        {member.quota?.chat || 0}/{member.quota?.imageGeneration || 0}/
+                        {member.quota?.videoGeneration || 0}
                       </td>
                     </tr>
                   ))}
@@ -284,14 +259,14 @@ const AdminDashboard = () => {
               </table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-4">👤</div>
-              <p className="text-dark-500">No approved members</p>
+            <div className="py-12 text-center">
+              <div className="mb-3 text-4xl">👤</div>
+              <p className="text-sm text-slate-500">No approved members</p>
             </div>
           )}
-        </div>
+        </GlassPanel>
       </div>
-    </Layout>
+    </AdminLayout>
   )
 }
 

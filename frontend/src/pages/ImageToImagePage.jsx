@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import MediaImage from '../components/MediaImage'
 import Layout from '../components/Layout'
+import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
  * Batas dari provider: semua gambar input untuk FLUX.2 [klein] harus < 512x512.
@@ -202,34 +203,29 @@ const ImageToImagePage = ({ user, setUser }) => {
 
   return (
     <Layout user={user} setUser={setUser}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-dark-800 mb-1">Image to Image</h1>
-              <p className="text-dark-500">
-                Upload a picture, describe the change, and let the AI rework it.
-              </p>
-            </div>
-
-            {remainingImages !== null && (
-              <div className="text-right">
-                <p className="text-xs text-dark-500">Images left</p>
-                <p data-testid="image-quota" className="text-2xl font-bold text-primary-600">
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="alat 04 · transformasi"
+          title="Image to Image"
+          description="Unggah gambar, tuliskan perubahannya, lalu biarkan AI mengolahnya."
+          actions={
+            remainingImages !== null && (
+              <div className="glass-panel flex items-center gap-3 px-4 py-2.5">
+                <span className="hud">sisa gambar</span>
+                <span data-testid="image-quota" className="font-mono text-xl font-semibold text-cyan-300">
                   {remainingImages}
-                </p>
+                </span>
               </div>
-            )}
-          </div>
-        </div>
+            )
+          }
+        />
 
-        {/* Upload + prompt */}
-        <div className="bg-white dark-glass rounded-2xl p-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Upload */}
+        {/* -------------------------- Sumber + perintah --------------------------- */}
+        <GlassPanel className="rise p-5 sm:p-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Unggah */}
             <div>
-              <span className="block text-sm font-medium text-dark-700 mb-2">Source image</span>
+              <span className="hud mb-2 block">gambar sumber</span>
 
               <div
                 data-testid="drop-zone"
@@ -244,8 +240,10 @@ const ImageToImagePage = ({ user, setUser }) => {
                   handleFile(event.dataTransfer.files?.[0])
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${
-                  dragging ? 'border-primary-500 bg-primary-50' : 'border-dark-200 hover:bg-dark-50'
+                className={`cursor-pointer rounded-xl border-2 border-dashed p-4 text-center transition-all duration-200 ${
+                  dragging
+                    ? 'border-cyan-300/60 bg-cyan-300/10'
+                    : 'border-white/15 bg-white/[0.02] hover:border-cyan-300/35 hover:bg-cyan-300/[0.05]'
                 }`}
               >
                 {image ? (
@@ -253,12 +251,15 @@ const ImageToImagePage = ({ user, setUser }) => {
                     data-testid="input-preview"
                     src={image.dataUrl}
                     alt="Selected source"
-                    className="w-full max-h-56 object-contain rounded-lg"
+                    className="max-h-56 w-full rounded-lg object-contain"
                   />
                 ) : (
-                  <p className="text-sm text-dark-500 py-8">
-                    {loadingImage ? 'Preparing image…' : 'Click or drop an image here (PNG, JPEG, WEBP)'}
-                  </p>
+                  <div className="py-8">
+                    <p className="text-sm text-slate-300">
+                      {loadingImage ? 'Preparing image…' : 'Klik atau jatuhkan gambar di sini'}
+                    </p>
+                    <p className="mt-1 font-mono text-[10px] text-slate-500">PNG · JPEG · WEBP · maks 10 MB</p>
+                  </div>
                 )}
               </div>
 
@@ -274,7 +275,7 @@ const ImageToImagePage = ({ user, setUser }) => {
               />
 
               {image && (
-                <p className="text-xs text-dark-400 mt-2">
+                <p className="mt-2 font-mono text-[10px] text-slate-500">
                   {image.name} · processed at {image.width} × {image.height}
                   {image.originalWidth > MAX_EDGE || image.originalHeight > MAX_EDGE
                     ? ` (resized from ${image.originalWidth} × ${image.originalHeight}; the model accepts up to ${MAX_EDGE}px)`
@@ -282,15 +283,13 @@ const ImageToImagePage = ({ user, setUser }) => {
                 </p>
               )}
 
-              {imageError && (
-                <p className="text-xs text-red-600 mt-2">{imageError}</p>
-              )}
+              {imageError && <p className="mt-2 text-xs text-rose-300">{imageError}</p>}
             </div>
 
-            {/* Prompt */}
+            {/* Prompt + ukuran */}
             <div className="flex flex-col">
-              <label htmlFor="prompt" className="block text-sm font-medium text-dark-700 mb-2">
-                What should change?
+              <label htmlFor="prompt" className="hud mb-2 block">
+                apa yang ingin diubah?
               </label>
               <textarea
                 id="prompt"
@@ -306,42 +305,48 @@ const ImageToImagePage = ({ user, setUser }) => {
                 maxLength={MAX_PROMPT_LENGTH}
                 rows={4}
                 placeholder="Turn it into a watercolor painting at sunset"
-                className="w-full px-4 py-3 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                className="field resize-none"
               />
-              <p className="text-xs text-dark-400 mt-1">
+              <p className="mt-1.5 font-mono text-[10px] text-slate-500">
                 {prompt.length}/{MAX_PROMPT_LENGTH} characters · Ctrl/⌘ + Enter to transform
               </p>
 
-              <span className="block text-sm font-medium text-dark-700 mt-4 mb-2">Output size</span>
-              <div className="flex gap-2">
+              <span className="hud mb-2 mt-5 block">ukuran hasil</span>
+              <div className="grid grid-cols-3 gap-2">
                 {SIZES.map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => setSize(option.value)}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                    className={`rounded-xl border px-3 py-2.5 text-center text-sm transition-all duration-200 ${
+                      // `border-primary-500` sengaja dipertahankan: spec browser
+                      // mendeteksi preset aktif lewat kelas itu.
                       size === option.value
-                        ? 'border-primary-500 bg-primary-50 text-primary-700'
-                        : 'border-dark-200 text-dark-600 hover:bg-dark-50'
+                        ? 'border-primary-500 bg-cyan-300/10 text-cyan-100 shadow-glow-cyan'
+                        : 'border-white/10 bg-white/[0.02] text-slate-400 hover:border-white/20 hover:text-slate-200'
                     }`}
                   >
                     <span className="block font-medium">{option.label}</span>
-                    <span className="block text-xs text-dark-400">{option.hint}</span>
+                    <span className="mt-0.5 block font-mono text-[10px] text-slate-500">{option.hint}</span>
                   </button>
                 ))}
               </div>
+
+              <p className="mt-4 text-xs text-slate-500">
+                Gambar diperkecil otomatis ke maksimum {MAX_EDGE}px sebelum dikirim, sesuai batas provider.
+              </p>
             </div>
           </div>
 
           {outOfQuota && (
-            <p className="text-xs text-red-600">
+            <p className="mt-4 text-xs text-rose-300">
               Image quota exhausted. Ask an admin to increase it before transforming more pictures.
             </p>
           )}
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-700 text-sm">{error}</p>
+            <div data-testid="error-message" className="alert alert-danger mt-4" role="alert">
+              <p>{error}</p>
             </div>
           )}
 
@@ -350,47 +355,49 @@ const ImageToImagePage = ({ user, setUser }) => {
             data-testid="generate-button"
             onClick={handleGenerate}
             disabled={!canGenerate}
-            className="w-full md:w-auto bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white font-medium rounded-lg px-6 py-3 transition-colors flex items-center justify-center gap-2"
+            className="btn btn-primary mt-5 w-full py-3 md:w-auto"
           >
             {generating ? (
               <>
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
                 Transforming...
               </>
             ) : (
               'Transform image'
             )}
           </button>
-        </div>
+        </GlassPanel>
 
-        {/* Latest result */}
+        {/* ------------------------------ Hasil terbaru ---------------------------- */}
         {result?.outputUrl && (
-          <div data-testid="latest-result" className="bg-white dark-glass rounded-2xl p-6">
-            <h2 className="text-lg font-bold text-dark-800 mb-4">Latest result</h2>
+          <GlassPanel data-testid="latest-result" className="rise rise-1 p-5 sm:p-6">
+            <SectionTitle action={<span className="chip chip-ok">baru</span>}>
+              Latest result
+            </SectionTitle>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {result.inputFile && (
                 <figure>
                   <MediaImage
                     url={result.inputFile}
                     alt="Before"
-                    className="w-full rounded-xl border border-dark-200"
+                    className="w-full rounded-xl border border-white/10"
                   />
-                  <figcaption className="text-xs text-dark-400 mt-1">Before</figcaption>
+                  <figcaption className="hud mt-2">before</figcaption>
                 </figure>
               )}
               <figure>
                 <MediaImage
                   url={result.outputUrl}
                   alt={result.prompt}
-                  className="w-full rounded-xl shadow-md border border-dark-200"
+                  className="w-full rounded-xl border border-white/10"
                 />
-                <figcaption className="text-xs text-dark-400 mt-1">After</figcaption>
+                <figcaption className="hud mt-2">after</figcaption>
               </figure>
             </div>
 
-            <p className="text-sm text-dark-500 mt-3">{result.prompt}</p>
-            <p className="text-xs text-dark-400 mt-1">
+            <p className="mt-3 text-sm text-slate-300">{result.prompt}</p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500">
               {result.metadata?.resolution}
               {result.metadata?.requestedResolution &&
               result.metadata.requestedResolution !== result.metadata.resolution
@@ -405,27 +412,30 @@ const ImageToImagePage = ({ user, setUser }) => {
               download
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-3 text-sm font-medium text-primary-600 hover:text-primary-700"
+              className="btn btn-ghost mt-4 text-xs"
             >
               Download result
             </a>
-          </div>
+          </GlassPanel>
         )}
 
-        {/* History */}
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <h2 className="text-lg font-bold text-dark-800 mb-4">Your transformations</h2>
+        {/* --------------------------------- Riwayat ------------------------------- */}
+        <GlassPanel className="rise rise-2 p-5 sm:p-6">
+          <SectionTitle hint="12 transformasi terakhir Anda.">Your transformations</SectionTitle>
 
           {historyLoading ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {[1, 2, 3, 4].map((item) => (
-                <div key={item} className="aspect-square bg-dark-100 rounded-xl animate-pulse"></div>
+                <div
+                  key={item}
+                  className="aspect-square animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]"
+                />
               ))}
             </div>
           ) : history.length === 0 ? (
-            <p className="text-dark-400 text-sm">No transformations yet. Upload a picture to start.</p>
+            <p className="text-sm text-slate-500">No transformations yet. Upload a picture to start.</p>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {history.map((item) => (
                 <figure key={item.contentId} data-testid="history-item" className="group">
                   <div className="relative">
@@ -434,25 +444,28 @@ const ImageToImagePage = ({ user, setUser }) => {
                         url={item.outputUrl}
                         alt={item.prompt}
                         compact
-                        className="w-full aspect-square object-cover rounded-xl border border-dark-200"
+                        className="aspect-square w-full rounded-xl border border-white/10 object-cover"
                       />
                     ) : (
-                      <div className="w-full aspect-square rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xs text-red-500 p-2 text-center">
+                      <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 p-2 text-center text-xs text-rose-200">
                         {item.status === 'failed' ? 'Transformation failed' : 'No preview'}
                       </div>
                     )}
+
                     <button
                       type="button"
                       onClick={() => handleDelete(item.contentId)}
-                      className="absolute top-2 right-2 bg-white/90 hover:bg-white text-red-600 rounded-lg w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Delete"
+                      aria-label="Hapus hasil"
+                      className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-950/80 text-rose-300 transition-all hover:border-rose-400/50 hover:bg-rose-500/20 md:opacity-0 md:group-hover:opacity-100"
                     >
                       ×
                     </button>
                   </div>
-                  <figcaption className="text-xs text-dark-500 mt-2 line-clamp-2">{item.prompt}</figcaption>
+
+                  <figcaption className="mt-2 line-clamp-2 text-xs text-slate-400">{item.prompt}</figcaption>
                   {(item.metadata?.resolution || item.metadata?.provider) && (
-                    <p className="text-xs text-dark-400 mt-1">
+                    <p className="mt-1 font-mono text-[10px] text-slate-500">
                       {item.metadata?.resolution}
                       {item.metadata?.provider ? ` · via ${item.metadata.provider}` : ''}
                     </p>
@@ -461,7 +474,7 @@ const ImageToImagePage = ({ user, setUser }) => {
               ))}
             </div>
           )}
-        </div>
+        </GlassPanel>
       </div>
     </Layout>
   )

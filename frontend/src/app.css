@@ -2,28 +2,392 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Tema visual: "Aurora Glass".
+ *
+ * Dua lapisan yang sengaja dipisah supaya mudah dirawat:
+ *   1. `.aurora-*`  -> cahaya latar (blob buram + garis grid + noise). Murni dekoratif.
+ *   2. `.glass-*` / `.btn-*` / `.field` / `.chip` -> permukaan kaca tempat konten berada.
+ *
+ * Semua warna permukaan memakai rgba di atas latar gelap, bukan warna solid, karena
+ * itu yang membuat efek kaca terlihat: bagian yang gelap ikut transparan sehingga
+ * blob aurora di belakangnya masih samar terlihat.
+ */
+
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-dark-50 text-dark-800 antialiased;
+    @apply bg-ink-950 text-slate-200 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::selection {
+    background: rgba(34, 211, 238, 0.3);
+    color: #fff;
+  }
+
+  /* Fokus keyboard harus selalu terlihat di latar gelap. */
+  :focus-visible {
+    outline: 2px solid rgba(34, 211, 238, 0.85);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbar ramping bergradien; di Firefox memakai API standar. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.4), rgba(139, 92, 246, 0.4));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
   }
 }
 
 @layer components {
-  .glass-effect {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+  /* ---------------------------------- Latar --------------------------------- */
+
+  .aurora-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(90px);
+    opacity: 0.5;
+    will-change: transform;
   }
-  
-  .dark-glass {
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+
+  .aurora-blob--cyan {
+    width: 44rem;
+    height: 44rem;
+    top: -16rem;
+    left: -13rem;
+    background: radial-gradient(circle at 35% 35%, rgba(34, 211, 238, 0.6), transparent 65%);
+    animation: drift 28s ease-in-out infinite;
   }
+
+  .aurora-blob--violet {
+    width: 40rem;
+    height: 40rem;
+    top: -10rem;
+    right: -12rem;
+    background: radial-gradient(circle at 50% 40%, rgba(139, 92, 246, 0.55), transparent 65%);
+    animation: drift 34s ease-in-out infinite reverse;
+  }
+
+  .aurora-blob--fuchsia {
+    width: 52rem;
+    height: 34rem;
+    bottom: -20rem;
+    left: 18%;
+    background: radial-gradient(ellipse at 50% 50%, rgba(217, 70, 239, 0.3), transparent 68%);
+    animation: drift 40s ease-in-out infinite;
+  }
+
+  /* Garis grid tipis, memudar ke bawah supaya tepi layar tetap bersih. */
+  .aurora-grid {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+    background-size: 58px 58px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 35%, transparent 78%);
+    mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 35%, transparent 78%);
+  }
+
+  .aurora-noise {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+  }
+
+  /* ------------------------------- Permukaan kaca ---------------------------- */
+
+  .glass-panel {
+    position: relative;
+    border-radius: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012)),
+      rgba(9, 14, 26, 0.66);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
+      0 24px 60px -32px rgba(2, 6, 23, 0.95);
+  }
+
+  /* Kilau tipis di tepi atas: meniru pantulan cahaya pada kaca. */
+  .glass-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 42%);
+    opacity: 0.55;
+  }
+
+  .glass-panel > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Panel yang bisa di-klik: naik sedikit dan tepinya menyala saat hover. */
+  .glass-interactive {
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .glass-interactive:hover {
+    transform: translateY(-3px);
+    border-color: rgba(34, 211, 238, 0.38);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
+      0 0 0 1px rgba(34, 211, 238, 0.16),
+      0 30px 70px -30px rgba(34, 211, 238, 0.4);
+  }
+
+  .glass-inset {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(2, 6, 23, 0.45);
+  }
+
+  /* Sidebar/topbar: lebih gelap dari panel konten supaya hierarkinya terbaca. */
+  .glass-bar {
+    border-color: rgba(148, 163, 184, 0.12);
+    background: linear-gradient(180deg, rgba(11, 17, 32, 0.92), rgba(7, 12, 24, 0.82));
+    backdrop-filter: blur(20px) saturate(130%);
+    -webkit-backdrop-filter: blur(20px) saturate(130%);
+  }
+
+  .divider-glow {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.45), rgba(139, 92, 246, 0.35), transparent);
+  }
+
+  /* --------------------------------- Kontrol -------------------------------- */
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold;
+    transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    @apply disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .btn-primary {
+    color: #04121a;
+    background-image: linear-gradient(115deg, #67e8f9, #22d3ee 45%, #a78bfa);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 12px 34px -14px rgba(34, 211, 238, 0.8);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.07);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      0 18px 44px -14px rgba(34, 211, 238, 0.9);
+  }
+
+  .btn-ghost {
+    color: #dbe4f3;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    border-color: rgba(34, 211, 238, 0.45);
+    background: rgba(34, 211, 238, 0.09);
+    color: #fff;
+  }
+
+  .btn-danger {
+    color: #fda4af;
+    border: 1px solid rgba(244, 63, 94, 0.34);
+    background: rgba(244, 63, 94, 0.1);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    border-color: rgba(244, 63, 94, 0.6);
+    background: rgba(244, 63, 94, 0.18);
+    color: #ffe4e6;
+  }
+
+  .field {
+    @apply w-full rounded-xl px-3.5 py-2.5 text-sm text-slate-100;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(2, 6, 23, 0.55);
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+  }
+
+  .field::placeholder {
+    color: rgba(148, 163, 184, 0.7);
+  }
+
+  .field:focus {
+    border-color: rgba(34, 211, 238, 0.55);
+    background: rgba(2, 6, 23, 0.78);
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.16);
+  }
+
+  /* Select gelap: `option` di beberapa browser mewarisi warna sistem, jadi
+     warna latar daftar diatur eksplisit lewat `option`. */
+  .field option {
+    background: #0b1120;
+    color: #e2e8f0;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] tracking-wide;
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+  }
+
+  .chip-ok {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.12);
+    color: #6ee7b7;
+  }
+
+  .chip-warn {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.12);
+    color: #fcd34d;
+  }
+
+  .chip-danger {
+    border-color: rgba(244, 63, 94, 0.35);
+    background: rgba(244, 63, 94, 0.12);
+    color: #fda4af;
+  }
+
+  .chip-accent {
+    border-color: rgba(34, 211, 238, 0.35);
+    background: rgba(34, 211, 238, 0.12);
+    color: #67e8f9;
+  }
+
+  /* -------------------------------- Tipografi ------------------------------- */
+
+  /* Label gaya HUD: huruf kecil semua, jarak antar-huruf lebar, font mono. */
+  .hud {
+    @apply font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400;
+  }
+
+  .text-grad {
+    background: linear-gradient(100deg, #f1f5f9 0%, #67e8f9 48%, #c4b5fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .link-accent {
+    @apply text-cyan-300 underline-offset-4 transition-colors hover:text-cyan-200 hover:underline;
+  }
+
+  /* --------------------------------- Pesan ---------------------------------- */
+
+  .alert {
+    @apply rounded-xl border px-4 py-3 text-sm;
+  }
+
+  .alert-danger {
+    border-color: rgba(244, 63, 94, 0.34);
+    background: rgba(244, 63, 94, 0.1);
+    color: #fecdd3;
+  }
+
+  .alert-warn {
+    border-color: rgba(251, 191, 36, 0.32);
+    background: rgba(251, 191, 36, 0.1);
+    color: #fde68a;
+  }
+
+  .alert-info {
+    border-color: rgba(34, 211, 238, 0.28);
+    background: rgba(34, 211, 238, 0.08);
+    color: #a5f3fc;
+  }
+
+  .alert-ok {
+    border-color: rgba(16, 185, 129, 0.32);
+    background: rgba(16, 185, 129, 0.1);
+    color: #a7f3d0;
+  }
+
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Animasi masuk berurutan untuk daftar kartu. */
+  .rise {
+    animation: riseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .rise-1 { animation-delay: 0.04s; }
+  .rise-2 { animation-delay: 0.08s; }
+  .rise-3 { animation-delay: 0.12s; }
+  .rise-4 { animation-delay: 0.16s; }
+  .rise-5 { animation-delay: 0.2s; }
+  .rise-6 { animation-delay: 0.24s; }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2.5rem, -2rem, 0) scale(1.08);
+  }
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Animasi dekoratif dimatikan bila pengguna memilih mengurangi gerakan.
+ * Blob-nya tetap tampil, hanya diam di tempat.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob,
+  .rise {
+    animation: none !important;
+  }
+
+  .glass-interactive:hover {
+    transform: none;
   }
 }

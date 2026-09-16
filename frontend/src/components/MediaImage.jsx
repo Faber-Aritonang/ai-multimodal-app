@@ -56,8 +56,8 @@ const MediaImage = ({ url, alt, className, compact = false }) => {
         title={PESAN_GAGAL}
         className={
           compact
-            ? 'w-full aspect-square rounded-xl border border-amber-200 bg-amber-50 p-2 flex items-center justify-center text-center text-[11px] leading-snug text-amber-800'
-            : 'w-full max-w-xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800'
+            ? 'flex aspect-square w-full items-center justify-center rounded-xl border border-amber-300/30 bg-amber-300/[0.08] p-2 text-center text-[11px] leading-snug text-amber-200'
+            : 'w-full max-w-xl rounded-xl border border-amber-300/30 bg-amber-300/[0.08] p-4 text-sm text-amber-200'
         }
       >
         {compact ? 'Berkas gambar sudah tidak ada di server' : PESAN_GAGAL}

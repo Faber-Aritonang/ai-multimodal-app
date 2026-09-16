@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { signInWithGoogle } from '../config/firebase'
 import { authAPI } from '../config/api'
-import { GoogleIcon } from '../components/icons'
+import { GoogleIcon, UserIcon } from '../components/icons'
+import { GlassPanel, Alert } from '../components/ui'
 
 const RegisterPage = ({ setUser }) => {
   const navigate = useNavigate()
@@ -47,15 +48,15 @@ const RegisterPage = ({ setUser }) => {
   const handleGoogleRegister = async () => {
     setLoading(true)
     setError('')
-    
+
     try {
       // 1. Sign in with Firebase
       const result = await signInWithGoogle()
-      
+
       if (!result.success) {
         throw new Error(result.error)
       }
-      
+
       // 2. Register ke backend
       const registerResponse = await authAPI.register({
         email: result.user.email,
@@ -64,20 +65,20 @@ const RegisterPage = ({ setUser }) => {
         firebaseToken: result.token,
         referralCode: formData.referralCode || undefined
       })
-      
+
       if (registerResponse.data.success) {
         const { token, user } = registerResponse.data
         localStorage.setItem('authToken', token)
         localStorage.setItem('user', JSON.stringify(user))
         setUser(user)
-        
+
         // Redirect ke pending approval
         navigate('/pending-approval')
       }
-      
+
     } catch (err) {
       console.error('Register error:', err)
-      
+
       if (err.response?.data?.message?.includes('already registered')) {
         navigate('/login')
       } else {
@@ -96,124 +97,136 @@ const RegisterPage = ({ setUser }) => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 to-primary-800">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-dark-800 mb-2">AI Multimodal App</h1>
-          <p className="text-dark-500">Register your account</p>
+    <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <GlassPanel className="w-full max-w-xl p-6 sm:p-8">
+        <div className="mb-7 flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-aurora-cyan to-aurora-violet font-mono text-sm font-bold text-ink-950">
+            AI
+          </span>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold text-slate-100">AI Multimodal App</p>
+            <p className="hud">pendaftaran</p>
+          </div>
         </div>
 
+        <p className="hud mb-2">langkah 1 dari 2</p>
+        <h1 className="text-grad mb-1 text-2xl font-bold tracking-tight">Buat akun Anda</h1>
+        <p className="mb-6 text-sm text-slate-400">
+          Lengkapi data di bawah, lalu lanjutkan dengan Google.
+        </p>
+
         {referrer && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex items-center gap-3">
+          <div className="alert alert-ok mb-4 flex items-center gap-3">
             {referrer.photoURL ? (
               <img
                 src={referrer.photoURL}
                 alt={referrer.displayName}
-                className="w-10 h-10 rounded-full"
+                className="h-10 w-10 rounded-xl object-cover ring-1 ring-emerald-300/30"
               />
             ) : (
-              <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold">
-                  {referrer.displayName?.charAt(0) || '?'}
-                </span>
-              </div>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 font-semibold text-ink-950">
+                {referrer.displayName?.charAt(0) || '?'}
+              </span>
             )}
-            <p className="text-green-800 text-sm">
-              You were invited by <strong>{referrer.displayName}</strong>.
+            <p>
+              You were invited by <strong className="font-semibold">{referrer.displayName}</strong>.
             </p>
           </div>
         )}
 
         {referrerError && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-            <p className="text-yellow-800 text-sm">{referrerError}</p>
-          </div>
+          <Alert tone="warn" className="mb-4">
+            {referrerError}
+          </Alert>
         )}
-        
-        <div className="space-y-4 mb-6">
+
+        <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-dark-700 mb-1">
-              Display Name
+            <label htmlFor="displayName" className="hud mb-1.5 block">
+              display name
             </label>
             <input
+              id="displayName"
               type="text"
               name="displayName"
               value={formData.displayName}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="field"
               placeholder="John Doe"
               required
             />
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium text-dark-700 mb-1">
-              Email
+            <label htmlFor="email" className="hud mb-1.5 block">
+              email
             </label>
             <input
+              id="email"
               type="email"
               name="email"
               value={formData.email}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="field"
               placeholder="john@example.com"
               required
             />
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium text-dark-700 mb-1">
-              Referral Code (optional)
+            <label htmlFor="referralCode" className="hud mb-1.5 block">
+              kode undangan (opsional)
             </label>
             <input
+              id="referralCode"
               type="text"
               name="referralCode"
               value={formData.referralCode}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              placeholder="Enter referral code"
+              className="field font-mono uppercase tracking-widest"
+              placeholder="MASUKKAN KODE"
             />
           </div>
         </div>
-        
+
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <p className="text-red-700 text-sm">{error}</p>
-          </div>
+          <Alert tone="danger" className="mt-4">
+            {error}
+          </Alert>
         )}
-        
+
         <button
+          type="button"
           onClick={handleGoogleRegister}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 bg-white border border-dark-200 rounded-lg px-4 py-3 hover:bg-dark-50 transition-colors disabled:opacity-50"
+          className="btn btn-primary mt-6 w-full py-3"
         >
           {loading ? (
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary-500 border-t-transparent"></div>
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
           ) : (
-            <GoogleIcon className="w-5 h-5" />
+            <GoogleIcon className="h-5 w-5" />
           )}
-          <span className="text-dark-700 font-medium">
-            {loading ? 'Registering...' : 'Sign up with Google'}
-          </span>
+          <span>{loading ? 'Registering...' : 'Sign up with Google'}</span>
         </button>
-        
-        <div className="mt-6 text-center">
+
+        <div className="mt-4 text-center">
           <button
+            type="button"
             onClick={() => navigate('/login')}
-            className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+            className="link-accent text-sm font-medium"
           >
             Already have an account? Sign in
           </button>
         </div>
-        
-        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-blue-800 text-sm">
-            <strong>Note:</strong> Your account will be pending admin approval.
-            You&apos;ll be able to use the chat feature immediately, but other AI features
-            will be unlocked once approved.
+
+        <div className="alert alert-info mt-6 flex items-start gap-3">
+          <UserIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <p>
+            <strong className="font-semibold">Catatan:</strong> akun Anda menunggu persetujuan admin.
+            Fitur chat bisa dipakai lebih dulu; alat gambar terbuka setelah disetujui.
           </p>
         </div>
-      </div>
+      </GlassPanel>
     </div>
   )
 }

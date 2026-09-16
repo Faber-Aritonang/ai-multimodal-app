@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
 import QRCode from '../components/QRCode'
+import { GlassPanel, PageHeader, SectionTitle, StatTile } from '../components/ui'
+
+const QUOTA_ITEMS = [
+  { label: 'chat', key: 'chat', icon: '💬', accent: 'cyan' },
+  { label: 'gambar', key: 'imageGeneration', icon: '🎨', accent: 'violet' },
+  { label: 'video', key: 'videoGeneration', icon: '🎬', accent: 'teal' },
+  { label: 'total', key: 'total', icon: '📊', accent: 'fuchsia' }
+]
 
 const ProfilePage = ({ user, setUser }) => {
   const [quota, setQuota] = useState(null)
@@ -70,88 +78,100 @@ const ProfilePage = ({ user, setUser }) => {
 
   // Data server bila sudah termuat, kalau belum pakai objek user dari login.
   const account = profile || user
-
-  const quotaItems = [
-    { label: 'Chat', key: 'chat', icon: '💬' },
-    { label: 'Images', key: 'imageGeneration', icon: '🎨' },
-    { label: 'Videos', key: 'videoGeneration', icon: '🎬' },
-    { label: 'Total', key: 'total', icon: '📊' }
-  ]
+  const approved = Boolean(account?.isApproved)
 
   return (
     <Layout user={user} setUser={setUser}>
-      <div className="space-y-6">
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <h1 className="text-2xl font-bold text-dark-800 mb-4">Profile</h1>
-          
-          <div className="flex items-center space-x-4">
-            {user?.photoURL ? (
-              <img 
-                src={user.photoURL} 
-                alt="Profile" 
-                className="w-20 h-20 rounded-full"
-              />
-            ) : (
-              <div className="w-20 h-20 bg-primary-500 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-2xl">
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="akun"
+          title="Profile"
+          description="Identitas, kuota, dan kode undangan Anda."
+        />
+
+        {/* -------------------------------- Identitas ------------------------------- */}
+        <GlassPanel className="rise p-6 sm:p-7">
+          <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+            <div className="relative">
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt="Profile"
+                  className="h-20 w-20 rounded-2xl object-cover ring-1 ring-white/15"
+                />
+              ) : (
+                <div className="grid h-20 w-20 place-items-center rounded-2xl bg-gradient-to-br from-aurora-cyan to-aurora-violet text-2xl font-bold text-ink-950">
                   {user?.displayName?.charAt(0) || '?'}
+                </div>
+              )}
+              {/* Titik status menempel pada avatar, jadi jelas tanpa membaca teks. */}
+              <span
+                className={`absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-ink-950 ${
+                  approved ? 'bg-emerald-400' : 'bg-amber-400'
+                }`}
+              />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <h2 data-testid="profile-name" className="truncate text-xl font-bold text-slate-100">
+                {user?.displayName}
+              </h2>
+              <p data-testid="profile-email" className="truncate text-sm text-slate-400">
+                {user?.email}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`chip ${approved ? 'chip-ok' : 'chip-warn'}`}>
+                  {approved ? 'Approved Member' : 'Pending Approval'}
                 </span>
+                <span className="chip">{account?.role || 'guest'}</span>
               </div>
-            )}
-            
-            <div>
-              <h2 data-testid="profile-name" className="text-xl font-bold text-dark-800">{user?.displayName}</h2>
-              <p data-testid="profile-email" className="text-dark-500">{user?.email}</p>
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-2">
-                {user?.isApproved ? 'Approved Member' : 'Pending Approval'}
-              </span>
             </div>
           </div>
-        </div>
+        </GlassPanel>
 
-        {/* Referral */}
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <h3 className="text-xl font-bold text-dark-800 mb-1">Invite friends</h3>
-          <p className="text-sm text-dark-500 mb-4">
-            Bagikan kode referral Anda. Setiap orang yang mendaftar memakai kode ini
-            akan tercatat sebagai referral Anda.
-          </p>
+        {/* --------------------------------- Referral ------------------------------ */}
+        <GlassPanel className="rise rise-1 p-6 sm:p-7">
+          <SectionTitle hint="Setiap orang yang mendaftar memakai kode ini akan tercatat sebagai referral Anda.">
+            Invite friends
+          </SectionTitle>
 
           {referralLoading ? (
-            <div className="h-24 bg-dark-100 rounded-xl animate-pulse"></div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="h-24 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
+              <div className="h-24 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" />
+            </div>
           ) : (
-            <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex flex-col gap-6 md:flex-row">
               <div className="flex-1 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-dark-500 mb-1">Kode referral</p>
-                    <code data-testid="referral-code" className="bg-dark-100 px-3 py-2 rounded-lg font-mono text-sm block">
-                      {referralCode || 'Belum tersedia'}
-                    </code>
-                  </div>
-                  <div>
-                    <p className="text-xs text-dark-500 mb-1">Total referral</p>
-                    <p data-testid="referral-total" className="text-2xl font-bold text-primary-600">
-                      {referral?.totalReferrals ?? 0}
-                    </p>
-                  </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatTile
+                    label="kode referral"
+                    value={referralCode || 'Belum tersedia'}
+                    accent="cyan"
+                    valueProps={{
+                      'data-testid': 'referral-code',
+                      className: 'mt-2 block break-all font-mono text-base font-semibold text-cyan-300'
+                    }}
+                  />
+                  <StatTile
+                    label="total referral"
+                    value={referral?.totalReferrals ?? 0}
+                    accent="violet"
+                    valueProps={{ 'data-testid': 'referral-total' }}
+                  />
                 </div>
 
                 <div>
-                  <p className="text-xs text-dark-500 mb-1">Link undangan</p>
+                  <p className="hud mb-2">link undangan</p>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       readOnly
                       data-testid="referral-link"
                       value={referralLink}
-                      className="flex-1 px-3 py-2 border border-dark-200 rounded-lg text-sm bg-dark-50"
+                      className="field flex-1 font-mono text-xs"
                     />
-                    <button
-                      type="button"
-                      onClick={handleCopy}
-                      className="bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium rounded-lg px-4 transition-colors"
-                    >
+                    <button type="button" onClick={handleCopy} className="btn btn-ghost flex-shrink-0">
                       {copied ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
@@ -159,23 +179,17 @@ const ProfilePage = ({ user, setUser }) => {
 
                 {referral?.referrals?.length > 0 && (
                   <div>
-                    <p className="text-xs text-dark-500 mb-2">Member yang Anda undang</p>
+                    <p className="hud mb-2">member yang Anda undang</p>
                     <ul className="space-y-2">
                       {referral.referrals.map((member) => (
                         <li
                           key={member._id}
-                          className="flex items-center justify-between text-sm border border-dark-200 rounded-lg px-3 py-2"
+                          className="glass-inset flex items-center justify-between gap-3 px-3 py-2"
                         >
-                          <span className="text-dark-700 truncate">
+                          <span className="truncate text-sm text-slate-200">
                             {member.displayName || 'Member'}
                           </span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${
-                              member.isApproved
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}
-                          >
+                          <span className={`chip ${member.isApproved ? 'chip-ok' : 'chip-warn'}`}>
                             {member.isApproved ? 'Approved' : 'Pending'}
                           </span>
                         </li>
@@ -186,57 +200,59 @@ const ProfilePage = ({ user, setUser }) => {
               </div>
 
               {referralCode && (
-                <div data-testid="referral-qr" className="md:w-52 shrink-0 text-center">
-                  <QRCode value={referralCode} size={180} />
-                  <p className="text-xs text-dark-400 mt-2">Scan untuk mendaftar</p>
+                <div data-testid="referral-qr" className="flex-shrink-0 text-center md:w-52">
+                  <div className="glass-inset inline-block p-3">
+                    <QRCode value={referralCode} size={168} />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Scan untuk mendaftar</p>
                 </div>
               )}
             </div>
           )}
-        </div>
-        
+        </GlassPanel>
+
+        {/* ---------------------------------- Kuota -------------------------------- */}
         {!loading && quota && (
-          <div className="bg-white dark-glass rounded-2xl p-6">
-            <h3 className="text-xl font-bold text-dark-800 mb-4">Remaining Quotas</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {quotaItems.map((item) => (
-                <div key={item.key} className="text-center p-4 bg-dark-50 rounded-lg">
-                  <div className="text-2xl mb-1">{item.icon}</div>
-                  <p className="text-sm text-dark-500">{item.label}</p>
-                  <p data-testid="quota-value" data-quota-key={item.key} className="text-2xl font-bold text-primary-600">
-                    {quota[item.key] ?? 0}
-                  </p>
-                </div>
+          <GlassPanel className="rise rise-2 p-6 sm:p-7">
+            <SectionTitle hint="Sisa jatah pemakaian akun Anda.">Remaining Quotas</SectionTitle>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {QUOTA_ITEMS.map((item) => (
+                <StatTile
+                  key={item.key}
+                  label={`${item.icon} ${item.label}`}
+                  value={quota[item.key] ?? 0}
+                  accent={item.accent}
+                  valueProps={{ 'data-testid': 'quota-value', 'data-quota-key': item.key }}
+                />
               ))}
             </div>
-          </div>
+          </GlassPanel>
         )}
-        
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <h3 className="text-xl font-bold text-dark-800 mb-4">Account Info</h3>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-dark-500">Role</p>
-                <p className="font-medium text-dark-700">{account?.role || 'Guest'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-dark-500">Member Since</p>
-                <p data-testid="member-since" className="font-medium text-dark-700">
-                  {account?.createdAt 
-                    ? new Date(account.createdAt).toLocaleDateString() 
-                    : 'N/A'}
-                </p>
-              </div>
+
+        {/* ------------------------------ Informasi akun ---------------------------- */}
+        <GlassPanel className="rise rise-3 p-6 sm:p-7">
+          <SectionTitle>Account Info</SectionTitle>
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <div className="glass-inset p-4">
+              <dt className="hud mb-1">role</dt>
+              <dd className="text-sm font-medium text-slate-100">{account?.role || 'Guest'}</dd>
             </div>
-            <div>
-              <p className="text-sm text-dark-500">Status</p>
-              <p className="font-medium text-dark-700">
-                {account?.isApproved ? 'Approved' : 'Pending Approval by Admin'}
-              </p>
+            <div className="glass-inset p-4">
+              <dt className="hud mb-1">member since</dt>
+              <dd data-testid="member-since" className="text-sm font-medium text-slate-100">
+                {account?.createdAt
+                  ? new Date(account.createdAt).toLocaleDateString()
+                  : 'N/A'}
+              </dd>
             </div>
-          </div>
-        </div>
+            <div className="glass-inset p-4">
+              <dt className="hud mb-1">status</dt>
+              <dd className="text-sm font-medium text-slate-100">
+                {approved ? 'Approved' : 'Pending Approval by Admin'}
+              </dd>
+            </div>
+          </dl>
+        </GlassPanel>
       </div>
     </Layout>
   )

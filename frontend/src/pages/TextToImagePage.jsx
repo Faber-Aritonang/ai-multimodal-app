@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
 import MediaImage from '../components/MediaImage'
+import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 const SIZES = [
   { value: '1024x1024', label: 'Square', hint: '1024 × 1024' },
@@ -88,34 +89,30 @@ const TextToImagePage = ({ user, setUser }) => {
 
   return (
     <Layout user={user} setUser={setUser}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-dark-800 mb-1">Text to Image</h1>
-              <p className="text-dark-500">
-                Describe what you want to see and let the AI draw it for you.
-              </p>
-            </div>
-
-            {remainingImages !== null && (
-              <div className="text-right">
-                <p className="text-xs text-dark-500">Images left</p>
-                <p data-testid="image-quota" className="text-2xl font-bold text-primary-600">
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="alat 03 · gambar"
+          title="Text to Image"
+          description="Tuliskan deskripsi yang Anda inginkan, lalu AI akan menggambarnya."
+          actions={
+            remainingImages !== null && (
+              <div className="glass-panel flex items-center gap-3 px-4 py-2.5">
+                <span className="hud">sisa gambar</span>
+                <span data-testid="image-quota" className="font-mono text-xl font-semibold text-cyan-300">
                   {remainingImages}
-                </p>
+                </span>
               </div>
-            )}
-          </div>
-        </div>
+            )
+          }
+        />
 
-        {/* Generator */}
-        <div className="bg-white dark-glass rounded-2xl p-6 space-y-4">
-          <div>
-            <label htmlFor="prompt" className="block text-sm font-medium text-dark-700 mb-2">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+          {/* ------------------------------- Formulir ------------------------------- */}
+          <GlassPanel className="rise h-fit p-5 sm:p-6 lg:sticky lg:top-24">
+            <SectionTitle hint="Semakin spesifik deskripsinya, semakin dekat hasilnya.">
               Prompt
-            </label>
+            </SectionTitle>
+
             <textarea
               id="prompt"
               value={prompt}
@@ -129,50 +126,50 @@ const TextToImagePage = ({ user, setUser }) => {
               maxLength={MAX_PROMPT_LENGTH}
               rows={4}
               placeholder="A futuristic city skyline at sunset, cinematic lighting, ultra detailed"
-              className="w-full px-4 py-3 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+              className="field resize-none"
             />
-            <p className="text-xs text-dark-400 mt-1">
+            <p className="mt-1.5 font-mono text-[10px] text-slate-500">
               {prompt.length}/{MAX_PROMPT_LENGTH} characters · Ctrl/⌘ + Enter to generate
             </p>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <span className="block text-sm font-medium text-dark-700 mb-2">Size</span>
-              <div className="flex gap-2">
+            <div className="mt-5">
+              <span className="hud mb-2 block">ukuran</span>
+              <div className="grid grid-cols-3 gap-2">
                 {SIZES.map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => setSize(option.value)}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                    className={`rounded-xl border px-3 py-2.5 text-center text-sm transition-all duration-200 ${
+                      // `border-primary-500` sengaja dipertahankan: spec browser
+                      // mendeteksi pilihan aktif lewat kelas itu.
                       size === option.value
-                        ? 'border-primary-500 bg-primary-50 text-primary-700'
-                        : 'border-dark-200 text-dark-600 hover:bg-dark-50'
+                        ? 'border-primary-500 bg-cyan-300/10 text-cyan-100 shadow-glow-cyan'
+                        : 'border-white/10 bg-white/[0.02] text-slate-400 hover:border-white/20 hover:text-slate-200'
                     }`}
                   >
                     <span className="block font-medium">{option.label}</span>
-                    <span className="block text-xs text-dark-400">{option.hint}</span>
+                    <span className="mt-0.5 block font-mono text-[10px] text-slate-500">{option.hint}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div>
+            <div className="mt-5">
               {/* Parameter quality hanya dikenal model DALL-E; provider gratis mengabaikannya */}
-              <span className="block text-sm font-medium text-dark-700 mb-2">
-                Quality <span className="font-normal text-dark-400">(DALL·E only)</span>
+              <span className="hud mb-2 block">
+                quality <span className="normal-case tracking-normal text-slate-500">(DALL·E only)</span>
               </span>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {['standard', 'hd'].map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => setQuality(option)}
-                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                       quality === option
-                        ? 'border-primary-500 bg-primary-50 text-primary-700'
-                        : 'border-dark-200 text-dark-600 hover:bg-dark-50'
+                        ? 'border-primary-500 bg-cyan-300/10 text-cyan-100'
+                        : 'border-white/10 bg-white/[0.02] text-slate-400 hover:border-white/20 hover:text-slate-200'
                     }`}
                   >
                     {option === 'hd' ? 'HD (slower)' : 'Standard'}
@@ -180,124 +177,137 @@ const TextToImagePage = ({ user, setUser }) => {
                 ))}
               </div>
             </div>
-          </div>
 
-          <p className="text-xs text-dark-400">
-            The size above is a request sent to the provider. Free providers may return a
-            different size — the actual resolution is shown on the result.
-          </p>
+            <p className="mt-4 text-xs text-slate-500">
+              Ukuran di atas hanya permintaan ke provider. Provider gratis sering mengembalikan
+              ukuran berbeda — resolusi aslinya ditampilkan pada hasil.
+            </p>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={generating || !prompt.trim()}
-            className="w-full md:w-auto bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white font-medium rounded-lg px-6 py-3 transition-colors flex items-center justify-center gap-2"
-          >
-            {generating ? (
-              <>
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                Generating...
-              </>
-            ) : (
-              'Generate image'
+            {error && (
+              <div data-testid="error-message" className="alert alert-danger mt-4" role="alert">
+                <p>{error}</p>
+              </div>
             )}
-          </button>
-        </div>
 
-        {/* Latest result */}
-        {result?.outputUrl && (
-          <div data-testid="latest-result" className="bg-white dark-glass rounded-2xl p-6">
-            <h2 className="text-lg font-bold text-dark-800 mb-4">Latest result</h2>
-            <MediaImage
-              url={result.outputUrl}
-              alt={result.prompt}
-              className="w-full max-w-xl rounded-xl shadow-md"
-            />
-            <p className="text-sm text-dark-500 mt-3">{result.prompt}</p>
-            <p className="text-xs text-dark-400 mt-1">
-              {/* Ukuran asli dibaca dari header file gambar. Provider gratis sering
-                  mengabaikan ukuran yang diminta (mis. minta 1792x1024, dapat
-                  1015x580), jadi keduanya ditampilkan agar tidak menyesatkan. */}
-              {result.metadata?.resolution}
-              {result.metadata?.requestedResolution &&
-              result.metadata.requestedResolution !== result.metadata.resolution
-                ? ` (requested ${result.metadata.requestedResolution})`
-                : ''}
-              {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
-            </p>
-            <a
-              href={resolveMediaUrl(result.outputUrl)}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-3 text-sm font-medium text-primary-600 hover:text-primary-700"
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating || !prompt.trim()}
+              className="btn btn-primary mt-5 w-full py-3"
             >
-              Download image
-            </a>
-          </div>
-        )}
+              {generating ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
+                  Generating...
+                </>
+              ) : (
+                'Generate image'
+              )}
+            </button>
+          </GlassPanel>
 
-        {/* History */}
-        <div className="bg-white dark-glass rounded-2xl p-6">
-          <h2 className="text-lg font-bold text-dark-800 mb-4">Your generations</h2>
+          <div className="space-y-5">
+            {/* ------------------------------ Hasil terbaru ---------------------------- */}
+            {result?.outputUrl && (
+              <GlassPanel data-testid="latest-result" className="rise rise-1 p-5 sm:p-6">
+                <SectionTitle action={<span className="chip chip-ok">baru</span>}>
+                  Latest result
+                </SectionTitle>
 
-          {historyLoading ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="aspect-square bg-dark-100 rounded-xl animate-pulse"></div>
-              ))}
-            </div>
-          ) : history.length === 0 ? (
-            <p className="text-dark-400 text-sm">
-              No images yet. Generate your first one above!
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {history.map((item) => (
-                <figure key={item.contentId} data-testid="history-item" className="group">
-                  <div className="relative">
-                    {item.outputUrl ? (
-                      <MediaImage
-                        url={item.outputUrl}
-                        alt={item.prompt}
-                        compact
-                        className="w-full aspect-square object-cover rounded-xl border border-dark-200"
-                      />
-                    ) : (
-                      <div className="w-full aspect-square rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xs text-red-500 p-2 text-center">
-                        {item.status === 'failed' ? 'Generation failed' : 'No preview'}
+                <MediaImage
+                  url={result.outputUrl}
+                  alt={result.prompt}
+                  className="w-full rounded-xl border border-white/10"
+                />
+
+                <p className="mt-3 text-sm text-slate-300">{result.prompt}</p>
+                <p className="mt-1 font-mono text-[11px] text-slate-500">
+                  {/* Ukuran asli dibaca dari header file gambar. Provider gratis sering
+                      mengabaikan ukuran yang diminta (mis. minta 1792x1024, dapat
+                      1015x580), jadi keduanya ditampilkan agar tidak menyesatkan. */}
+                  {result.metadata?.resolution}
+                  {result.metadata?.requestedResolution &&
+                  result.metadata.requestedResolution !== result.metadata.resolution
+                    ? ` (requested ${result.metadata.requestedResolution})`
+                    : ''}
+                  {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
+                </p>
+
+                <a
+                  href={resolveMediaUrl(result.outputUrl)}
+                  download
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-ghost mt-4 text-xs"
+                >
+                  Download image
+                </a>
+              </GlassPanel>
+            )}
+
+            {/* --------------------------------- Riwayat ------------------------------- */}
+            <GlassPanel className="rise rise-2 p-5 sm:p-6">
+              <SectionTitle hint="12 gambar terakhir yang Anda buat.">Your generations</SectionTitle>
+
+              {historyLoading ? (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="aspect-square animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]"
+                    />
+                  ))}
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No images yet. Generate your first one above!
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {history.map((item) => (
+                    <figure key={item.contentId} data-testid="history-item" className="group">
+                      <div className="relative">
+                        {item.outputUrl ? (
+                          <MediaImage
+                            url={item.outputUrl}
+                            alt={item.prompt}
+                            compact
+                            className="aspect-square w-full rounded-xl border border-white/10 object-cover"
+                          />
+                        ) : (
+                          <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 p-2 text-center text-xs text-rose-200">
+                            {item.status === 'failed' ? 'Generation failed' : 'No preview'}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item.contentId)}
+                          title="Delete"
+                          aria-label="Hapus gambar"
+                          className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-950/80 text-rose-300 transition-all hover:border-rose-400/50 hover:bg-rose-500/20 md:opacity-0 md:group-hover:opacity-100"
+                        >
+                          ×
+                        </button>
                       </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.contentId)}
-                      className="absolute top-2 right-2 bg-white/90 hover:bg-white text-red-600 rounded-lg w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Delete"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <figcaption className="text-xs text-dark-500 mt-2 line-clamp-2">
-                    {item.prompt}
-                  </figcaption>
-                  {/* Resolusi asli + provider yang dipakai, supaya riwayat tidak
-                      menyembunyikan bahwa ukuran hasil bisa beda dari permintaan */}
-                  {(item.metadata?.resolution || item.metadata?.provider) && (
-                    <p className="text-xs text-dark-400 mt-1">
-                      {item.metadata?.resolution}
-                      {item.metadata?.provider ? ` · via ${item.metadata.provider}` : ''}
-                    </p>
-                  )}
-                </figure>
-              ))}
-            </div>
-          )}
+
+                      <figcaption className="mt-2 line-clamp-2 text-xs text-slate-400">
+                        {item.prompt}
+                      </figcaption>
+                      {/* Resolusi asli + provider yang dipakai, supaya riwayat tidak
+                          menyembunyikan bahwa ukuran hasil bisa beda dari permintaan */}
+                      {(item.metadata?.resolution || item.metadata?.provider) && (
+                        <p className="mt-1 font-mono text-[10px] text-slate-500">
+                          {item.metadata?.resolution}
+                          {item.metadata?.provider ? ` · via ${item.metadata.provider}` : ''}
+                        </p>
+                      )}
+                    </figure>
+                  ))}
+                </div>
+              )}
+            </GlassPanel>
+          </div>
         </div>
       </div>
     </Layout>

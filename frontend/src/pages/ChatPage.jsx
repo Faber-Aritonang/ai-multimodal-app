@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
+import { SendIcon } from '../components/icons'
 
 // Renderer markdown (+ remark-gfm) berat (±160 kB mentah). Halaman chat berada
 // di balik login, jadi pustakanya dimuat terpisah agar tidak membebani bundel
@@ -186,92 +187,151 @@ const ChatPage = ({ user, setUser }) => {
     navigate('/chat')
   }
 
+  const isActiveSession = (session) => session.sessionId === currentSession?.sessionId
+
+  /**
+   * Daftar riwayat sesi. Dipakai dua kali dengan bentuk berbeda: panel penuh di
+   * layar lebar, dan strip gulir horizontal di layar sempit — supaya navigasi
+   * tetap terjangkau tanpa harus menyembunyikan riwayat.
+   */
+  const SessionList = ({ variant = 'panel' }) => {
+    if (sessions.length === 0) {
+      return (
+        <p className={`text-center text-xs text-slate-500 ${variant === 'panel' ? 'p-6' : 'py-3'}`}>
+          Belum ada percakapan
+        </p>
+      )
+    }
+
+    if (variant === 'strip') {
+      return (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {sessions.map((session) => (
+            <button
+              key={session.sessionId}
+              type="button"
+              onClick={() => navigate(`/chat/${session.sessionId}`)}
+              className={`flex-shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                isActiveSession(session)
+                  ? 'border-cyan-300/35 bg-cyan-300/10 text-cyan-100'
+                  : 'border-white/10 bg-white/[0.03] text-slate-400'
+              }`}
+            >
+              <span className="block max-w-[10rem] truncate font-medium">
+                {session.title || 'New Chat'}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                {new Date(session.updatedAt).toLocaleDateString()}
+              </span>
+            </button>
+          ))}
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-1.5">
+        {sessions.map((session) => (
+          <button
+            key={session.sessionId}
+            type="button"
+            onClick={() => navigate(`/chat/${session.sessionId}`)}
+            className={`w-full rounded-xl border px-3 py-2.5 text-left transition-all duration-200 ${
+              isActiveSession(session)
+                ? 'border-cyan-300/30 bg-cyan-300/[0.08] text-white'
+                : 'border-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.05] hover:text-slate-100'
+            }`}
+          >
+            <p className="truncate text-sm font-medium">{session.title || 'New Chat'}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-slate-500">
+              {new Date(session.updatedAt).toLocaleDateString()}
+            </p>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <Layout user={user} setUser={setUser}>
-      <div className="flex gap-4 h-[calc(100vh-120px)]">
-        {/* Sidebar */}
-        <div className="w-72 bg-white dark-glass rounded-xl border border-dark-200 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-dark-200 flex items-center justify-between">
-            <h3 className="font-bold text-dark-800">Chat History</h3>
+      {/* `grid-cols-1` (bukan sekadar grid) dipakai karena kolom implisit berukuran
+          `auto`: strip riwayat yang bisa digulir akan melebarkan kolomnya sampai
+          halaman ikut meluber ke samping. `grid-cols-1` = minmax(0, 1fr). */}
+      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
+        {/* Riwayat percakapan (layar lebar) */}
+        <aside className="glass-panel hidden flex-col overflow-hidden md:flex md:max-h-[calc(100vh-11rem)]">
+          <div className="flex items-center justify-between border-b border-white/[0.06] p-4">
+            <div>
+              <p className="hud">riwayat</p>
+              <p className="text-sm font-semibold text-slate-200">Chat History</p>
+            </div>
+            <button type="button" onClick={startNewChat} className="btn btn-primary px-3 py-1.5 text-xs">
+              + New
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2">
+            <SessionList />
+          </div>
+
+          <div className="border-t border-white/[0.06] p-3">
             <button
-              onClick={startNewChat}
-              className="bg-primary-500 hover:bg-primary-600 text-white rounded-lg px-3 py-1 text-sm transition-colors"
+              type="button"
+              onClick={() => navigate('/profile')}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-slate-100"
             >
+              Profile &amp; Settings
+            </button>
+          </div>
+        </aside>
+
+        {/* Riwayat percakapan (layar sempit): strip gulir di atas chat */}
+        <div className="glass-panel min-w-0 p-3 md:hidden">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="hud">riwayat</p>
+            <button type="button" onClick={startNewChat} className="btn btn-ghost px-3 py-1 text-xs">
               + New Chat
             </button>
           </div>
-          
-          <div className="flex-1 overflow-y-auto p-2">
-            {sessions.length > 0 ? (
-              sessions.map((session) => (
-                <div
-                  key={session.sessionId}
-                  onClick={() => navigate(`/chat/${session.sessionId}`)}
-                  className={`
-                    p-3 rounded-lg cursor-pointer mb-1 transition-all
-                    ${session.sessionId === currentSession?.sessionId 
-                      ? 'bg-primary-50 text-primary-700' 
-                      : 'hover:bg-dark-50'
-                    }
-                  `}
-                >
-                  <p className="font-medium text-sm truncate">
-                    {session.title || 'New Chat'}
-                  </p>
-                  <p className="text-xs text-dark-400 mt-1">
-                    {new Date(session.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="text-center text-dark-400 p-4">No conversations yet</p>
-            )}
-          </div>
-          
-          <div className="p-3 border-t border-dark-200">
-            <button
-              onClick={() => navigate('/profile')}
-              className="w-full text-left p-2 text-sm text-dark-600 hover:bg-dark-50 rounded-lg transition-colors"
-            >
-              Profile & Settings
-            </button>
-          </div>
+          <SessionList variant="strip" />
         </div>
-        
-        {/* Main Chat Area */}
-        <div className="flex-1 bg-white dark-glass rounded-xl border border-dark-200 overflow-hidden flex flex-col">
-          {/* Chat Header */}
-          <div className="p-4 border-b border-dark-200 flex items-center justify-between gap-3">
-            <h3 className="font-bold text-dark-800 truncate">
-              {currentSession?.title || 'New Chat'}
-            </h3>
-            <div className="flex items-center gap-3 shrink-0">
+
+        {/* Area percakapan */}
+        <section className="glass-panel flex h-[calc(100vh-16rem)] min-h-[24rem] min-w-0 flex-col overflow-hidden md:h-[calc(100vh-11rem)]">
+          <header className="flex items-center justify-between gap-3 border-b border-white/[0.06] p-4">
+            <div className="min-w-0">
+              <p className="hud">percakapan</p>
+              <h1 className="truncate text-sm font-semibold text-slate-100">
+                {currentSession?.title || 'New Chat'}
+              </h1>
+            </div>
+
+            <div className="flex flex-shrink-0 items-center gap-2">
               {/* Kuota selalu terlihat supaya user tidak kaget saat habis */}
               {chatQuotaLeft !== null && (
                 <span
                   data-testid="chat-quota"
-                  className={`text-xs px-2 py-1 rounded-full border ${
-                    outOfQuota
-                      ? 'bg-red-50 border-red-200 text-red-600'
-                      : 'bg-dark-50 border-dark-200 text-dark-500'
-                  }`}
+                  className={`chip ${outOfQuota ? 'chip-danger' : ''}`}
                   title="Chat messages left in your quota"
                 >
+                  <span className={`h-1.5 w-1.5 rounded-full ${outOfQuota ? 'bg-rose-400' : 'bg-cyan-400'}`} />
                   {chatQuotaLeft} {chatQuotaLeft === 1 ? 'message' : 'messages'} left
                 </span>
               )}
+
               {currentSession?.sessionId && (
                 <button
+                  type="button"
                   onClick={() => deleteSession(currentSession.sessionId)}
-                  className="text-red-500 hover:text-red-600 text-sm"
+                  className="btn btn-danger px-3 py-1.5 text-xs"
                 >
                   Delete
                 </button>
               )}
             </div>
-          </div>
-          
-          {/* Messages */}
+          </header>
+
+          {/* Pesan */}
           <div className="flex-1 overflow-y-auto p-4">
             {currentSession?.messages && currentSession.messages.length > 0 ? (
               <div className="space-y-4">
@@ -280,24 +340,22 @@ const ChatPage = ({ user, setUser }) => {
                     key={index}
                     data-testid="chat-message"
                     data-role={message.role}
-                    className={`
-                      max-w-[80%] p-3 rounded-lg
-                      ${message.role === 'user' 
-                        ? 'bg-primary-500 text-white ml-auto' 
-                        : 'bg-dark-50 text-dark-800'
-                      }
-                    `}
+                    className={`max-w-[85%] rounded-2xl border px-4 py-3 ${
+                      message.role === 'user'
+                        ? 'ml-auto border-cyan-300/20 bg-gradient-to-br from-cyan-400/20 to-violet-400/15 text-slate-50'
+                        : 'border-white/10 bg-white/[0.04] text-slate-200'
+                    }`}
                   >
                     {message.role === 'user' ? (
                       // Pesan user ditampilkan apa adanya: markdown hanya dirender
                       // untuk balasan AI, supaya input user tidak mengubah layout.
-                      <p className="text-sm whitespace-pre-wrap break-words">
+                      <p className="whitespace-pre-wrap break-words text-sm">
                         {message.content}
                       </p>
                     ) : (
                       <Suspense
                         fallback={
-                          <p className="text-sm whitespace-pre-wrap break-words">
+                          <p className="whitespace-pre-wrap break-words text-sm">
                             {message.content}
                           </p>
                         }
@@ -305,64 +363,67 @@ const ChatPage = ({ user, setUser }) => {
                         <MarkdownMessage content={message.content} />
                       </Suspense>
                     )}
-                    <p className="text-xs opacity-70 mt-1">
-                      {new Date(message.timestamp).toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
+
+                    <p className="mt-2 font-mono text-[10px] text-slate-500">
+                      {new Date(message.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
                       })}
                     </p>
                     {/* Label per balasan: provider bisa berganti di tengah
                         percakapan, jadi ditampilkan dari data pesan itu sendiri */}
                     {message.role === 'assistant' && message.provider && (
-                      <p className="text-xs text-dark-400 mt-1">
+                      <p className="mt-1 font-mono text-[10px] text-slate-500">
                         via {message.provider}
                         {message.model ? ` · ${message.model}` : ''}
                       </p>
                     )}
                   </div>
                 ))}
+
                 {loading && typing && (
-                  <div className="bg-dark-50 text-dark-800 p-3 rounded-lg max-w-[80%]">
-                    <div className="flex items-center space-x-1">
-                      <div className="w-2 h-2 bg-dark-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                      <div className="w-2 h-2 bg-dark-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                      <div className="w-2 h-2 bg-dark-400 rounded-full animate-bounce"></div>
+                  <div className="max-w-[85%] rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-cyan-300 [animation-delay:-0.3s]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-cyan-300/70 [animation-delay:-0.15s]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-violet-300/70" />
+                      <span className="hud ml-2">menyusun balasan</span>
                     </div>
                   </div>
                 )}
+
                 <div ref={messagesEndRef} />
               </div>
             ) : (
-              <div className="h-full flex items-center justify-center text-center">
+              <div className="flex h-full items-center justify-center text-center">
                 <div>
-                  <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">💬</span>
+                  <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl border border-cyan-300/25 bg-gradient-to-br from-cyan-400/20 to-violet-500/10 text-3xl">
+                    💬
                   </div>
-                  <h3 className="text-xl font-bold text-dark-700 mb-2">
-                    Start a new conversation
-                  </h3>
-                  <p className="text-dark-400 max-w-md">
-                    Ask me anything! I&apos;m here to help with questions, explanations, 
+                  <h3 className="text-grad mb-2 text-lg font-bold">Start a new conversation</h3>
+                  <p className="max-w-md text-sm text-slate-400 text-balance">
+                    Ask me anything! I&apos;m here to help with questions, explanations,
                     coding assistance, creative writing, and more.
                   </p>
                 </div>
               </div>
             )}
           </div>
-          
-          {/* Input Area */}
-          <div className="p-4 border-t border-dark-200">
+
+          {/* Kolom kirim */}
+          <div className="border-t border-white/[0.06] p-4">
             {outOfQuota && (
-              <p className="text-xs text-red-600 mb-2">
+              <p className="mb-2 text-xs text-rose-300">
                 Chat quota exhausted. Ask an admin to increase it before sending new messages.
               </p>
             )}
-            <div className="flex gap-2">
+
+            <div className="flex items-end gap-2">
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder={outOfQuota ? 'Chat quota exhausted' : 'Type a message...'}
-                className="flex-1 px-4 py-2 border border-dark-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                className="field flex-1 resize-none"
                 rows={1}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -372,22 +433,25 @@ const ChatPage = ({ user, setUser }) => {
                 }}
               />
               <button
+                type="button"
                 onClick={handleSendMessage}
                 disabled={loading || !inputValue.trim() || outOfQuota}
-                className="bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 transition-colors flex items-center justify-center"
+                aria-label="Kirim pesan"
+                className="btn btn-primary h-11 w-11 flex-shrink-0 p-0"
               >
                 {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
                 ) : (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9-7-9-7-9 7 9 7z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5" />
-                  </svg>
+                  <SendIcon className="h-5 w-5" />
                 )}
               </button>
             </div>
+
+            <p className="mt-2 text-center text-[10px] text-slate-600">
+              Enter untuk mengirim · Shift + Enter untuk baris baru
+            </p>
           </div>
-        </div>
+        </section>
       </div>
     </Layout>
   )

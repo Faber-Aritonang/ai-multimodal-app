@@ -17,7 +17,7 @@ const QRCode = memo(({ value, size = 200, className = '', onError }) => {
   if (!value) {
     return (
       <div
-        className={`flex items-center justify-center bg-dark-100 rounded-lg text-xs text-dark-400 ${className}`}
+        className={`glass-inset flex items-center justify-center text-xs text-slate-500 ${className}`}
         style={{ width: size, height: size }}
       >
         QR code belum tersedia
@@ -27,7 +27,8 @@ const QRCode = memo(({ value, size = 200, className = '', onError }) => {
 
   try {
     return (
-      <div className={`inline-block bg-white p-2 rounded-lg shadow-md ${className}`}>
+      // Latar putih sengaja dipertahankan: modul QR harus kontras agar bisa dipindai.
+      <div className={`inline-block rounded-xl bg-white p-3 shadow-glow-cyan ${className}`}>
         <QRCodeSVG
           value={String(value)}
           size={size}
@@ -43,7 +44,7 @@ const QRCode = memo(({ value, size = 200, className = '', onError }) => {
 
     return (
       <div
-        className={`flex items-center justify-center bg-red-50 rounded-lg text-xs text-red-500 ${className}`}
+        className={`alert alert-danger flex items-center justify-center text-xs ${className}`}
         style={{ width: size, height: size }}
       >
         Gagal membuat QR code
