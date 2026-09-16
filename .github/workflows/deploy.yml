@@ -41,7 +41,6 @@ permissions:
 env:
   # Dipin ke major version agar tidak berubah sendiri.
   RAILWAY_CLI_VERSION: '5'
-  VERCEL_CLI_VERSION: '59'
   RAILWAY_ENVIRONMENT: 'production'
   # Nama service Railway. Nilai ini bukan tebakan: diambil dari daftar service
   # yang dicetak langkah diagnostik (`railway service list`) — project tujuan
@@ -177,30 +176,29 @@ jobs:
             --environment "$RAILWAY_ENVIRONMENT" \
             --ci
 
-  # Deploy Frontend ke Vercel.
+  # Verifikasi deploy Frontend (Vercel).
   #
-  # PENTING — perintah Vercel di job ini dijalankan dari AKAR repo, bukan dari
-  # `frontend/`. Setelan project Vercel di dashboard sudah menetapkan
-  # `rootDirectory: frontend`, dan CLI menyelesaikan nilai itu relatif terhadap
-  # cwd-nya. Menjalankan CLI di dalam `frontend/` membuat Vercel mencari
-  # `frontend/frontend` dan gagal dengan "The provided path ... does not exist".
+  # Job ini TIDAK mengunggah apa pun. Project Vercel terhubung ke repo GitHub
+  # dan membangun setiap push ke `main` sendiri (`source: git`), jadi
+  # mengunggah lagi hanya menghasilkan dua build untuk commit yang sama.
   #
-  # Build terjadi di sisi Vercel (`vercel deploy --prod`) memakai lingkungan
-  # build resminya, bukan `vercel build` di runner: percobaan sebelumnya gagal
-  # dengan `sh: 1: vite: not found` karena langkah install dilewati di CI.
-  # Perintah install/build/output juga ditulis eksplisit di `frontend/vercel.json`
-  # supaya tidak bergantung pada nilai default dashboard.
+  # Verifikasinya memakai REST API, bukan Vercel CLI. Token yang tersimpan di
+  # repo ini hanya berlaku untuk API project: `vercel whoami` dan `vercel pull`
+  # selalu menolaknya (`User not found`, lalu `Could not retrieve Project
+  # Settings`) walau token yang sama berhasil untuk `GET /v9/projects` dan
+  # `POST /v13/deployments`.
+  #
+  # Job tetap GAGAL kalau Vercel melaporkan `ERROR` atau kalau tidak ada
+  # deployment untuk commit ini sampai batas waktu habis, sehingga status hijau
+  # di sini berarti frontend benar-benar sudah ter-deploy.
   deploy-frontend:
     needs: quality
     if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
-    name: Deploy Frontend to Vercel
+    name: Verify Frontend on Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # VERCEL_TOKEN wajib ada di level job (bukan hanya di langkah pengecekan)
-      # supaya langkah pull/build/deploy benar-benar menerima tokennya.
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       # Nama secret di repo ini adalah VERCEL_PROJECT_ID (bukan
       # VERCEL_PROJECT_ID_FRONTEND seperti di workflow lama, yang membuat
       # project-id terkirim kosong).
@@ -220,36 +218,63 @@ jobs:
             exit 1
           fi
 
-      - name: Install Vercel CLI
-        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
-
-      - name: Vercel - tarik pengaturan project
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      # Menampilkan pengaturan efektif project (tanpa id/organisasi) supaya kalau
-      # deploy gagal, penyebabnya bisa dibaca dari log ini. `rootDirectory` juga
-      # dicetak karena nilai itu menentukan dari direktori mana CLI harus dipanggil.
-      - name: Diagnostik - pengaturan build Vercel
+      - name: Tunggu deployment produksi untuk commit ini
         run: |
-          node -e "
-            const fs = require('fs');
-            const candidates = ['./.vercel/project.json', './frontend/.vercel/project.json'];
-            const found = candidates.find((p) => fs.existsSync(p));
-            if (!found) {
-              console.log('project.json tidak ditemukan di:', candidates.join(', '));
-              process.exit(0);
-            }
-            console.log('pengaturan dibaca dari:', found);
-            const s = (require(found).settings) || {};
-            console.log('framework       :', s.framework || '(deteksi otomatis)');
-            console.log('rootDirectory   :', s.rootDirectory || '(akar repo)');
-            console.log('installCommand  :', s.installCommand || '(default)');
-            console.log('buildCommand    :', s.buildCommand || '(default)');
-            console.log('outputDirectory :', s.outputDirectory || '(default)');
-          "
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
 
-      # Sumber yang diunggah dari akar repo dibatasi lewat .vercelignore di akar
-      # (isi frontend/ tidak ikut dikecualikan — itu justru yang dibangun).
-      - name: Vercel - deploy ke production
-        run: vercel deploy --prod --yes --token="$VERCEL_TOKEN"
+          token = os.environ["VERCEL_TOKEN"]
+          project = os.environ["VERCEL_PROJECT_ID"]
+          sha = os.environ["GITHUB_SHA"]
+          batas = time.time() + 600
+
+          def ambil():
+              permintaan = urllib.request.Request(
+                  f"https://api.vercel.com/v6/deployments?projectId={project}&limit=20",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "github-actions",
+                  },
+              )
+              with urllib.request.urlopen(permintaan, timeout=30) as respons:
+                  return json.loads(respons.read().decode()).get("deployments", [])
+
+          while True:
+              try:
+                  daftar = ambil()
+              except urllib.error.HTTPError as galat:
+                  print(f"::error::API Vercel menolak permintaan: {galat.code}")
+                  print(galat.read().decode(errors="replace")[:300])
+                  sys.exit(1)
+
+              milik_commit = [
+                  d for d in daftar
+                  if (d.get("meta") or {}).get("githubCommitSha") == sha
+              ]
+              for d in milik_commit:
+                  print(f"  {d['uid']}  {d['state']:<9} target={d.get('target')}  https://{d.get('url')}")
+
+              siap = [
+                  d for d in milik_commit
+                  if d["state"] == "READY" and d.get("target") in ("production", None)
+              ]
+              if siap:
+                  print(f"::notice::Frontend siap: https://{siap[0].get('url')}")
+                  sys.exit(0)
+
+              if any(d["state"] in ("ERROR", "CANCELED") for d in milik_commit):
+                  print(f"::error::Vercel melaporkan ERROR untuk commit {sha[:8]}.")
+                  sys.exit(1)
+
+              if time.time() > batas:
+                  print(f"::error::Tidak ada deployment READY untuk commit {sha[:8]} dalam 10 menit.")
+                  sys.exit(1)
+
+              time.sleep(15)
+          PY
 
