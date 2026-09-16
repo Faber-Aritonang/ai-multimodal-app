@@ -404,6 +404,70 @@ Karena itu **Groq tetap jadi provider utama** dan Gemini idealnya hanya fallback
 
 ---
 
+## 3d. Penyimpanan media (Cloudinary) — wajib di produksi
+
+Tanpa ini, gambar hasil generate **hilang setiap deploy**. Container Railway
+memakai filesystem sementara: setiap deploy/restart mengganti container beserta
+isi `/app/uploads`, sedangkan record-nya tetap ada di database — akibatnya UI
+menampilkan gambar rusak (yang terlihat hanya teks `alt`) padahal kuota user
+sudah terpakai. Berkas yang sudah hilang tidak bisa dipulihkan.
+
+### Langkah
+
+1. Daftar di [cloudinary.com](https://cloudinary.com/users/register_free) —
+   plan **Free** tidak meminta kartu kredit (25 credit/bulan; 1 credit ≈ 1 GB
+   penyimpanan atau 1 GB bandwidth).
+2. Buka **Dashboard → Product Environment Credentials**. Salin tiga nilai:
+   **Cloud name**, **API Key**, **API Secret** (klik ikon mata untuk membuka).
+   Salin lewat ikon 📋 — huruf dan angka di layar itu mudah tertukar
+   (mis. `l`/`1`, `t`/`1`, `i`/`j`) dan cloud name yang salah menghasilkan
+   `401 Invalid cloud_name`.
+3. Isi di `backend/.env` (lokal, opsional) **dan** di dashboard Railway →
+   service backend → *Variables* (wajib):
+
+```
+CLOUDINARY_CLOUD_NAME=nama-cloud
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Begitu ketiganya lengkap, mode `cloudinary` dipakai otomatis —
+`STORAGE_PROVIDER` **tidak perlu** diisi. Kalau ingin memaksa memakai folder
+lokal di mesin dev (mis. agar kuota Cloudinary tidak terpakai saat menguji),
+set `STORAGE_PROVIDER=local`.
+
+### Cara memastikan sudah aktif
+
+```bash
+curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A5 storage
+# "storage": { "mode": "cloudinary", "cloudName": "nama-cloud", ... }
+```
+
+Kalau hasilnya `"mode": "local"` di produksi, gambar akan hilang pada deploy
+berikutnya. `GET /health` hanya menampilkan blok ini di luar production; di
+production cukup lihat nilai `mode`-nya lewat log startup atau uji generate satu
+kali lalu periksa bentuk `outputUrl` di database (harus diawali
+`https://res.cloudinary.com/`).
+
+### Yang perlu diketahui
+
+- **Berkas disimpan sebagai `cloudinary://<public_id>`** di kolom `outputFile`,
+  dan URL CDN-nya di `outputUrl`. Penghapusan media memakai public_id itu,
+  sekaligus *purge* salinan CDN-nya supaya gambar yang dihapus tidak tetap
+  tampil dari cache.
+- **Menghapus aset yang sudah tidak ada dianggap berhasil** (`not found`),
+  supaya tombol hapus tidak gagal 500 untuk record sisa.
+- Isi folder `uploads/` **tidak lagi dipakai** di produksi; folder itu hanya
+  jalur dev/test.
+- Alternatif tanpa Cloudinary: object storage apa pun ber-API S3 (R2, Supabase
+  Storage, B2, MinIO) lewat `STORAGE_PROVIDER=s3` + variabel `S3_*`. Catatan:
+  **Cloudflare R2 meminta metode pembayaran** saat aktivasi, sedangkan
+  Cloudinary tidak.
+- Kredensial yang pernah ditempel di chat sebaiknya dirotasi setelah setup:
+  **API Secret** bisa di-*regenerate* dari halaman API Keys yang sama.
+
+---
+
 ## 4. Buat akun admin pertama
 
 Alur aplikasi: user Google Sign-In masuk sebagai `guest` dan butuh approval admin

@@ -25,7 +25,7 @@ const {
   putObject,
   removeByReference,
   removeByUrl,
-  getStorageMode
+  isRemoteStorage
 } = require('../config/storage');
 const {
   generateImage,
@@ -328,12 +328,13 @@ exports.imageToImage = async (req, res) => {
     });
     media.inputFile = savedInput.url;
 
-    // Dengan object storage, URL publiknya memang terjangkau dari internet.
-    // Mode lokal tetap memakai PUBLIC_BASE_URL seperti sebelumnya — sengaja TIDAK
-    // diambil dari host request, karena host lokal (localhost) tetap "terlihat
-    // valid" bagi aplikasi padahal provider tidak bisa mengambilnya.
-    const inputPublicUrl =
-      getStorageMode() === 's3' ? savedInput.url : getPublicUploadUrl(inputFileName);
+    // Dengan penyimpanan remote (Cloudinary/S3), URL publiknya memang terjangkau
+    // dari internet. Mode lokal tetap memakai PUBLIC_BASE_URL seperti sebelumnya —
+    // sengaja TIDAK diambil dari host request, karena host lokal (localhost) tetap
+    // "terlihat valid" bagi aplikasi padahal provider tidak bisa mengambilnya.
+    const inputPublicUrl = isRemoteStorage()
+      ? savedInput.url
+      : getPublicUploadUrl(inputFileName);
 
     const result = await editImage({
       prompt: parsedRequest.prompt,

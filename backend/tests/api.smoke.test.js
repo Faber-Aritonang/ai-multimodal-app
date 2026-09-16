@@ -121,9 +121,10 @@ describe('GET /health', () => {
         imageEditFallback: 'none',
         imageEditReady: false,
         imageEditCapabilities: { cloudflare: true, pollinations: true, openai: false },
-        // Tanpa kredensial S3, berkas disimpan lokal. Di produksi nilainya harus
-        // `s3`, karena filesystem container Railway hilang tiap deploy.
-        storage: { mode: 'local', bucket: null, publicBaseUrl: null },
+        // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
+        // nilainya harus `cloudinary` atau `s3`, karena filesystem container
+        // Railway hilang tiap deploy.
+        storage: { mode: 'local', bucket: null, cloudName: null, publicBaseUrl: null },
         devLogin: 'enabled'
       });
     });

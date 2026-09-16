@@ -121,6 +121,11 @@ CHAT_FALLBACK_PROVIDER=gemini
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
 # terhapus setiap deploy. Lihat "Penyimpanan media" di bawah.
+# Pilihan A — Cloudinary (plan gratisnya tidak minta kartu kredit):
+# CLOUDINARY_CLOUD_NAME=xxxxxxxx
+# CLOUDINARY_API_KEY=123456789012345
+# CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+# Pilihan B — object storage S3-compatible (R2/Supabase/B2/MinIO):
 # STORAGE_PROVIDER=s3
 # S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 # S3_BUCKET=nama-bucket
@@ -414,12 +419,12 @@ IMAGE_FALLBACK_PROVIDER=pollinations
 
 # WAJIB di produksi — tanpa ini gambar hilang setiap deploy (lihat bagian
 # "Penyimpanan media" di bawah). Diperiksa lewat GET /health → services.storage.
-STORAGE_PROVIDER=s3
-S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-S3_BUCKET=nama-bucket
-S3_ACCESS_KEY_ID=...
-S3_SECRET_ACCESS_KEY=...
-S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
+# Cukup tiga baris ini: begitu lengkap, mode "cloudinary" dipakai otomatis.
+CLOUDINARY_CLOUD_NAME=xxxxxxxx
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+# Alternatif S3-compatible: STORAGE_PROVIDER=s3 + S3_ENDPOINT/S3_BUCKET/
+# S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY/S3_PUBLIC_BASE_URL.
 ```
 
 **Frontend**: Set in Vercel dashboard:
@@ -484,27 +489,46 @@ Container Railway memakai filesystem **sementara**: setiap deploy (dan setiap
 restart) mengganti container beserta seluruh isi `/app/uploads`. Tanpa object
 storage, gambar hasil generate hilang pada deploy berikutnya — catatannya tetap
 ada di database, jadi UI menampilkan gambar rusak dan kuota user sudah terpakai.
-Karena itu produksi **wajib** memakai object storage:
+Karena itu produksi **wajib** memakai penyimpanan di luar container.
+
+**Cloudinary** (yang dipakai sekarang) — plan gratisnya tidak meminta kartu
+kredit dan gambarnya dilayani CDN-nya. Cukup tiga variabel, diambil dari
+dashboard Cloudinary → *Product Environment Credentials*:
 
 ```
-STORAGE_PROVIDER=s3          # opsional: otomatis 's3' bila kredensial lengkap
+CLOUDINARY_CLOUD_NAME=xxxxxxxx
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Begitu ketiganya lengkap, mode `cloudinary` dipakai otomatis — `STORAGE_PROVIDER`
+tidak perlu diisi. Kuota gratisnya 25 credit/bulan (1 credit ≈ 1 GB penyimpanan
+atau 1 GB bandwidth), sedangkan gambar di aplikasi ini rata-rata ~0,5 MB.
+
+Alternatifnya object storage apa pun yang ber-API S3 (Cloudflare R2, Supabase
+Storage, Backblaze B2, MinIO):
+
+```
+STORAGE_PROVIDER=s3
 S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 S3_BUCKET=nama-bucket
 S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
-S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
-S3_FORCE_PATH_STYLE=true     # hanya MinIO/B2
+S3_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev   # harus publik: dipakai <img>
+S3_FORCE_PATH_STYLE=true                        # hanya untuk MinIO/B2
 ```
 
-API-nya S3, jadi berlaku untuk Cloudflare R2, Supabase Storage, Backblaze B2,
-maupun MinIO. `S3_PUBLIC_BASE_URL` harus bisa dibaca publik — URL itulah yang
-disimpan di `outputUrl` dan dipakai langsung oleh `<img>`.
+Urutan pemilihan mode: `STORAGE_PROVIDER` eksplisit → Cloudinary → S3 → folder
+lokal. Cloudinary bukan S3, jadi mode itu punya jalur sendiri lewat Upload
+API-nya; yang disimpan di database adalah `cloudinary://<public_id>` supaya
+penghapusan tidak perlu menebak public_id dari URL-nya.
 
 Cara memeriksa mode yang benar-benar aktif:
 
 ```bash
-curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A4 storage
-# "storage": { "mode": "s3", "bucket": "...", "publicBaseUrl": "..." }
+curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A5 storage
+# Cloudinary : { "mode": "cloudinary", "cloudName": "xxxxxxxx", ... }
+# S3         : { "mode": "s3", "bucket": "...", "publicBaseUrl": "..." }
 ```
 
 Kalau hasilnya `"mode": "local"` di produksi, gambar akan hilang pada deploy

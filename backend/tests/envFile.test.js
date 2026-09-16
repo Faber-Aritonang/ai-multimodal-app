@@ -81,7 +81,10 @@ describe('preferEnvFile', () => {
         'OPENAI_API_KEY',
         'CLOUDFLARE_ACCOUNT_ID',
         'CLOUDFLARE_API_TOKEN',
-        'POLLINATIONS_TOKEN'
+        'POLLINATIONS_TOKEN',
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET'
       ])
     );
   });

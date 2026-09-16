@@ -189,8 +189,8 @@ app.get('/health', (req, res) => {
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
       imageEditCapabilities: image.editCapabilities,
-      // Di produksi nilainya harus `s3`; kalau `local`, gambar akan hilang pada
-      // setiap deploy (filesystem container bersifat sementara).
+      // Di produksi nilainya harus `cloudinary` atau `s3`; kalau `local`, gambar
+      // akan hilang pada setiap deploy (filesystem container sementara).
       storage: describeStorage(),
       devLogin: 'enabled'
     };

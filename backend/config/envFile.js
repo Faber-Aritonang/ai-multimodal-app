@@ -24,7 +24,13 @@ const AI_CREDENTIAL_KEYS = [
   'OPENAI_API_KEY',
   'CLOUDFLARE_ACCOUNT_ID',
   'CLOUDFLARE_API_TOKEN',
-  'POLLINATIONS_TOKEN'
+  'POLLINATIONS_TOKEN',
+  // Kredensial Cloudinary termasuk di sini karena nilainya juga rahasia dan
+  // salah isi hanya menghasilkan `401 Invalid cloud_name` / `Invalid
+  // credentials` dari Cloudinary — gejala yang sama membingungkannya.
+  'CLOUDINARY_CLOUD_NAME',
+  'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET'
 ];
 
 /**
