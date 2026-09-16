@@ -15,6 +15,7 @@ const path = require('path');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { getAllowedOrigins } = require('./config/cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
@@ -76,7 +77,7 @@ const isFirebaseConfigured = () => {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: getAllowedOrigins(),
   credentials: true
 }));
 

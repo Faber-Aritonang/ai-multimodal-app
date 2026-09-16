@@ -425,6 +425,20 @@ Setiap push ke `main` menjalankan tiga job:
 > Vercel mencari `frontend/frontend` lalu gagal dengan pesan
 > *"The provided path ... does not exist"*.
 
+> **Penting juga (Railway):** service `ai-multimodal-app` terhubung ke repo GitHub
+> ini, sedangkan aplikasi backend ada di subfolder `backend`. Tanpa **Root
+> Directory** yang diisi, builder RAILPACK mencari `package.json` di akar repo,
+> tidak menemukannya, lalu deployment berhenti sekitar 10 detik dengan status
+> `FAILED` dan log build yang cuma berisi *scheduling build* — pesan yang tidak
+> menunjukkan penyebabnya. Setel **Settings → Source → Root Directory =
+> `backend`**. Semua deployment gagal dari `27d209e` sampai `56e571c` berasal
+> dari sebab ini, bukan dari kode aplikasi. Deployment pertama yang benar-benar
+> menjalankan server adalah yang `rootDirectory: backend` (`SUCCESS`).
+
+Service yang sama juga **auto-deploy dari GitHub** setiap ada push ke `main`
+(`repoTriggers` aktif), jadi job `deploy-backend` bersifat pelengkap — bukan
+satu-satunya jalur deploy.
+
 Keduanya memakai CLI resmi, bukan action pihak ketiga: workflow lama memakai
 `railway/railway-github-action` (repositori action-nya sudah tidak ada) dan
 `amondnet/vercel-action@v30` (tag itu tidak pernah ada), sehingga setiap push
