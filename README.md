@@ -394,7 +394,7 @@ IMAGE_FALLBACK_PROVIDER=pollinations
 
 **Frontend**: Set in Vercel dashboard:
 ```
-VITE_API_URL=https://ai-multimodal-backend.up.railway.app
+VITE_API_URL=https://ai-multimodal-app-production.up.railway.app
 VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=...
 VITE_FIREBASE_PROJECT_ID=...
@@ -403,8 +403,24 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 ```
 
-> Jangan lupa menambahkan domain Vercel ke Firebase Console → Authentication →
-> Settings → Authorized domains, dan URL Vercel ke `FRONTEND_URL` di Railway.
+> **Tiga hal yang tidak terlihat dari kode, dan pernah membuat produksi tidak
+> bisa dipakai:**
+>
+> | Wajib ada | Di mana | Akibat kalau hilang |
+> |---|---|---|
+> | domain Vercel di **Authorized domains** | Firebase Console → Authentication → Settings | tombol Google gagal: `auth/unauthorized-domain` |
+> | **Root Directory = `backend`** | Railway → service → Settings → Source | deployment `FAILED` dalam ~10 detik (RAILPACK mencari `package.json` di akar repo) |
+> | aturan **`rewrites` ke `/index.html`** | `frontend/vercel.json` | beranda terbuka, tetapi tiap tautan langsung (`/login`, `/tools/…`) dijawab 404 |
+>
+> Selain itu `FRONTEND_URL` di Railway harus memuat domain Vercel yang **sedang
+> dipakai**; kalau tidak, browser memblokir setiap panggilan API sebagai CORS.
+> Beberapa domain boleh ditulis sekaligus, dipisah koma.
+>
+> Database produksi memakai user Atlas di database `admin`, jadi connection
+> string-nya perlu `authSource=admin` **dan** nama database di depan `?`:
+> `mongodb+srv://user:pass@cluster.xxxxx.mongodb.net/ai-multimodal?authSource=admin&retryWrites=true&w=majority`.
+> Tanpa nama database, data masuk ke `test`; tanpa `authSource=admin`,
+> autentikasi gagal walau user & password benar.
 
 ### Pipeline otomatis (`.github/workflows/deploy.yml`)
 
