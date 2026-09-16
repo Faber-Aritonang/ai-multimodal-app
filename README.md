@@ -421,6 +421,23 @@ VITE_FIREBASE_APP_ID=...
 > `mongodb+srv://user:pass@cluster.xxxxx.mongodb.net/ai-multimodal?authSource=admin&retryWrites=true&w=majority`.
 > Tanpa nama database, data masuk ke `test`; tanpa `authSource=admin`,
 > autentikasi gagal walau user & password benar.
+>
+> **Admin pertama harus di-seed manual.** Registrasi selalu menghasilkan
+> `role: 'guest'` + `isApproved: false`, dan hanya admin yang boleh menyetujui
+> member — jadi selama koleksi `admins` masih kosong, **semua** pengguna
+> (termasuk pembuat aplikasi) berhenti di halaman *Pending Approval* dan tidak
+> ada yang bisa keluar dari sana. Jalankan `scripts/createAdmin.js` dengan
+> `MONGODB_URI` yang diarahkan ke database produksi:
+>
+> ```bash
+> cd backend
+> MONGODB_URI='mongodb+srv://...' \
+>   node scripts/createAdmin.js --uid <firebase-uid> --email <email> --name "Nama"
+> ```
+>
+> `uid` Firebase-nya bisa dibaca dari koleksi `users` (dokumen user yang baru
+> mendaftar). Setelah itu **login ulang**: JWT-nya akan berisi `role: 'admin'`
+> dan aplikasi mengarahkan ke `/admin`, bukan ke *Pending Approval*.
 
 ### Pipeline otomatis (`.github/workflows/deploy.yml`)
 
@@ -428,18 +445,27 @@ Setiap push ke `main` menjalankan tiga job:
 
 1. **quality** — unit test backend + lint & build frontend. Tidak butuh secret;
    kalau gagal, deploy tidak dijalankan.
-2. **deploy-backend** — `railway up` lewat **Railway CLI** (mengunggah direktori
-   `backend`, Railway membangunnya di sana).
-3. **deploy-frontend** — `vercel pull` lalu **`vercel deploy --prod`**: frontend
-   dibangun di sisi Vercel, sehingga instalasi dependency memakai lingkungan
-   build resminya (termasuk devDependencies seperti `vite`).
+2. **deploy-backend** — `railway up` lewat **Railway CLI**, dijalankan dari
+   **akar repo** sehingga konteks unggahannya sama dengan konteks deployment
+   GitHub (subfolder `backend/` terbentuk benar).
+3. **deploy-frontend** — **memverifikasi** deployment Vercel untuk commit yang
+   di-push lewat REST API: menunggu sampai `READY`, gagal kalau `ERROR` atau
+   lewat 10 menit, lalu memastikan `/`, `/login`, dan `/tools/text-to-image`
+   benar-benar melayani aplikasi (penjaga untuk aturan `rewrites` SPA).
 
-> **Penting:** perintah Vercel di job itu dijalankan dari **akar repo**, bukan
-> dari `frontend/`. Project Vercel sudah menetapkan `rootDirectory: frontend`,
-> dan Vercel CLI menyelesaikan nilai itu **relatif terhadap direktori kerja**
-> (`join(cwd, rootDirectory)`). Menjalankannya di dalam `frontend/` membuat
-> Vercel mencari `frontend/frontend` lalu gagal dengan pesan
-> *"The provided path ... does not exist"*.
+> **Penting:** job frontend **tidak mengunggah ulang** apa pun. Project Vercel
+> terhubung ke repo GitHub dan membangun setiap push ke `main` sendiri
+> (`source: git`), jadi `vercel deploy` dari CI hanya menghasilkan build kedua
+> untuk commit yang sama. Token yang tersimpan di repo juga jenis token project
+> yang ditolak CLI (`vercel whoami` → `User not found`), walau REST API
+> menerimanya.
+>
+> Kalau deploy Vercel dijalankan manual lewat CLI, jalankan dari **akar repo**,
+> bukan dari `frontend/`: project menetapkan `rootDirectory: frontend` dan CLI
+> menyelesaikan nilai itu relatif terhadap direktori kerja
+> (`join(cwd, rootDirectory)`) — dari dalam `frontend/` Vercel mencari
+> `frontend/frontend` lalu gagal dengan *"The provided path ... does not
+> exist"*.
 
 > **Penting juga (Railway):** service `ai-multimodal-app` terhubung ke repo GitHub
 > ini, sedangkan aplikasi backend ada di subfolder `backend`. Tanpa **Root
