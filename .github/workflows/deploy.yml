@@ -8,8 +8,8 @@ name: Deploy to Railway & Vercel
 # melompat ke v42). Keduanya bukan soal kode aplikasi, tapi referensi action yang
 # bisa hilang kapan saja.
 #
-# Catatan: repo ini publik, jadi log run juga publik. Tahap diagnostik di bawah
-# sengaja hanya mencetak NAMA service, tanpa nilai environment variable.
+# Catatan: repo ini publik, jadi log run juga publik. Verifikasi pasca-deploy di
+# bawah hanya membaca `/health` (tidak pernah mencetak nilai rahasia apa pun).
 #
 # Uji ulang referensi versi: `npm view @railway/cli version` dan
 # `npm view vercel version`.
@@ -42,11 +42,12 @@ env:
   # Dipin ke major version agar tidak berubah sendiri.
   RAILWAY_CLI_VERSION: '5'
   RAILWAY_ENVIRONMENT: 'production'
-  # Nama service Railway. Nilai ini bukan tebakan: diambil dari daftar service
-  # yang dicetak langkah diagnostik (`railway service list`) — project tujuan
-  # hanya punya satu service, bernama "ai-multimodal-app". Bisa diganti tanpa
-  # mengubah workflow dengan menambah secret RAILWAY_SERVICE.
+  # Nama service Railway. Nilainya bukan tebakan: project tujuan hanya punya
+  # satu service, bernama "ai-multimodal-app". Bisa diganti tanpa mengubah
+  # workflow dengan menambah secret RAILWAY_SERVICE.
   RAILWAY_SERVICE_DEFAULT: 'ai-multimodal-app'
+  # URL publik backend produksi, dipakai langkah verifikasi pasca-deploy.
+  PUBLIC_BACKEND_URL: 'https://ai-multimodal-app-production.up.railway.app'
 
 jobs:
   # Quality gate: unit test backend + lint & build frontend.
@@ -123,251 +124,6 @@ jobs:
       - name: Install Railway CLI
         run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
 
-      # Kalau nama service salah, error CLI hanya berbunyi "Service not found" —
-      # tidak memberi tahu nama yang benar. Langkah ini mencetak daftar nama
-      # service di environment tujuan supaya penyebabnya langsung kelihatan.
-      - name: Diagnostik - daftar service Railway
-        run: |
-          railway service list \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --json > /tmp/railway-services.json 2>/tmp/railway-services.err || true
-
-          node - <<'NODE'
-          const fs = require('fs');
-          const target = process.env.RAILWAY_SERVICE || process.env.RAILWAY_SERVICE_DEFAULT;
-
-          let raw = '';
-          try { raw = fs.readFileSync('/tmp/railway-services.json', 'utf8'); } catch {}
-
-          let data = null;
-          try { data = JSON.parse(raw); } catch {}
-
-          const list = !data ? [] : (Array.isArray(data) ? data : (data.services || data.items || []));
-          const names = list.map((s) => s.name || s.serviceName).filter(Boolean);
-
-          console.log('Service tujuan :', target);
-          console.log('Service tersedia:', names.length ? names.join(', ') : '(tidak terbaca)');
-
-          if (names.length && !names.includes(target)) {
-            console.log(`::warning::Service "${target}" tidak ada di project ini. ` +
-              'Ganti nilainya di env RAILWAY_SERVICE_DEFAULT atau tambahkan secret RAILWAY_SERVICE.');
-          }
-          NODE
-
-          if [ -s /tmp/railway-services.err ]; then
-            echo "--- pesan CLI ---"
-            head -5 /tmp/railway-services.err
-          fi
-
-      # Diagnostik penyimpanan media.
-      #
-      # Kegagalan nyata yang pernah terjadi: variabel CLOUDINARY_* sudah diisi di
-      # dashboard, tetapi service produksi tetap melaporkan `storageMode: "local"`
-      # di /health — artinya setiap deploy menghapus gambar user tanpa satu pun
-      # error. Penyebabnya hanya kelihatan dari daftar variabel yang BENAR-BENAR
-      # dimiliki service (mis. `STORAGE_PROVIDER` yang terlanjur ada, atau
-      # variabel yang tersimpan di environment/service lain).
-      #
-      # Log run repo ini PUBLIK, jadi langkah ini hanya mencetak NAMA variabel:
-      # nilainya dibuang sebelum apa pun masuk ke stdout.
-      - name: Diagnostik - variabel penyimpanan media
-        run: |
-          SERVICE="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
-
-          railway variables \
-            --project "$RAILWAY_PROJECT_ID" \
-            --service "$SERVICE" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --json > /tmp/railway-vars.json 2>/tmp/railway-vars.err || true
-
-          # Cadangan bila versi CLI ini tidak mengenal --json: `--kv` lalu ambil
-          # sisi kiri tanda '=' saja, sehingga nilai rahasia tidak pernah terbaca.
-          if [ ! -s /tmp/railway-vars.json ]; then
-            railway variables \
-              --project "$RAILWAY_PROJECT_ID" \
-              --service "$SERVICE" \
-              --environment "$RAILWAY_ENVIRONMENT" \
-              --kv > /tmp/railway-vars.kv 2>/tmp/railway-vars.err || true
-          fi
-
-          node - <<'NODE'
-          const fs = require('fs');
-
-          const namaDariKv = () => {
-            try {
-              return fs
-                .readFileSync('/tmp/railway-vars.kv', 'utf8')
-                .split(/\r?\n/)
-                .map((baris) => baris.split('=')[0].trim())
-                .filter(Boolean);
-            } catch {
-              return [];
-            }
-          };
-
-          let daftar = [];
-          let sumber = 'tidak terbaca';
-
-          try {
-            const mentah = JSON.parse(fs.readFileSync('/tmp/railway-vars.json', 'utf8'));
-            if (Array.isArray(mentah)) {
-              daftar = mentah.map((v) => v.name || v.key || v.k || '').filter(Boolean);
-            } else if (mentah && typeof mentah === 'object') {
-              daftar = Object.keys(mentah);
-            }
-            sumber = 'json';
-          } catch {
-            daftar = namaDariKv();
-            sumber = daftar.length ? 'kv (hanya nama)' : 'tidak terbaca';
-          }
-
-          const relevan = (nama) =>
-            /^(STORAGE_PROVIDER|UPLOAD_DIR|CLOUDINARY_[A-Z0-9_]+|S3_[A-Z0-9_]+)$/.test(nama);
-
-          const media = daftar.filter(relevan).sort();
-          const wajibCloudinary = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
-          const hilang = wajibCloudinary.filter((nama) => !media.includes(nama));
-          const adaProvider = daftar.includes('STORAGE_PROVIDER');
-
-          console.log(`sumber data             : ${sumber}`);
-          console.log(`jumlah variabel service : ${daftar.length}`);
-          console.log(`variabel media ada      : ${media.length ? media.join(', ') : '(tidak ada satu pun)'}`);
-          console.log(`CLOUDINARY belum ada    : ${hilang.length ? hilang.join(', ') : '(lengkap)'}`);
-
-          if (adaProvider) {
-            console.log(
-              '::warning::STORAGE_PROVIDER ada di service ini dan SELALU menang atas kredensial ' +
-                'cloudinary/s3. Hapus variabel itu di Railway supaya mode ditentukan kredensialnya.'
-            );
-          }
-
-          if (hilang.length) {
-            console.log(
-              '::warning::Produksi akan memakai mode local: ' + hilang.join(', ') +
-                ' tidak ada di service ini, sehingga gambar user hilang pada setiap deploy.'
-            );
-          } else if (!adaProvider) {
-            console.log(
-              'OK: kredensial Cloudinary lengkap dan tidak ada STORAGE_PROVIDER — ' +
-                'production /health seharusnya melaporkan storageMode=cloudinary.'
-            );
-          }
-          NODE
-
-          if [ -s /tmp/railway-vars.err ]; then
-            echo "--- pesan CLI (3 baris pertama) ---"
-            head -3 /tmp/railway-vars.err
-          fi
-
-      # Diagnostik lanjutan: di environment MANA variabel media berada.
-      #
-      # Satu service bisa punya beberapa environment, dan dashboard menampilkan
-      # environment yang sedang dipilih — variabel yang disimpan di environment
-      # lain tidak akan pernah terlihat oleh container produksi. Karena itu
-      # langkah ini memeriksa SEMUA environment di project dan mencetak NAMA
-      # variabelnya saja (log run publik; nilainya tidak pernah dicetak).
-      - name: Diagnostik - variabel media per environment
-        run: |
-          python3 - "$RAILWAY_PROJECT_ID" "$RAILWAY_TOKEN" "${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" <<'PY'
-          import json
-          import subprocess
-          import sys
-          import urllib.request
-
-          project_id, token, target = sys.argv[1], sys.argv[2], sys.argv[3]
-
-          def graphql(kueri, variabel):
-              permintaan = urllib.request.Request(
-                  "https://backboard.railway.com/graphql/v2",
-                  data=json.dumps({"query": kueri, "variables": variabel}).encode(),
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Content-Type": "application/json",
-                  },
-              )
-              with urllib.request.urlopen(permintaan, timeout=30) as respons:
-                  return json.loads(respons.read().decode())
-
-          def relevan(nama):
-              besar = nama.upper()
-              return "CLOUD" in besar or "STORAGE" in besar or besar.startswith("S3_") or besar == "UPLOAD_DIR"
-
-          try:
-              data = graphql(
-                  "query($id: String!) { project(id: $id) { environments { edges { node { name } } } } }",
-                  {"id": project_id},
-              )
-              envs = [
-                  simpul["node"]["name"]
-                  for simpul in data["data"]["project"]["environments"]["edges"]
-              ]
-          except Exception as galat:  # token project mungkin tidak boleh membaca project
-              print(f"(daftar environment tidak terbaca lewat API: {galat})")
-              envs = ["production"]
-
-          print(f"Environment di project: {', '.join(envs) if envs else '(tidak ada)'}")
-
-          wajib = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
-          ada_di = {nama: [] for nama in wajib}
-          dekat = {}
-
-          for nama_env in envs:
-              keluaran = subprocess.run(
-                  [
-                      "railway", "variables",
-                      "--project", project_id,
-                      "--service", target,
-                      "--environment", nama_env,
-                      "--json",
-                  ],
-                  capture_output=True,
-                  text=True,
-              )
-
-              kunci = []
-              try:
-                  isi = json.loads(keluaran.stdout)
-                  if isinstance(isi, dict):
-                      kunci = list(isi.keys())
-                  elif isinstance(isi, list):
-                      kunci = [v.get("name") or v.get("key") or "" for v in isi]
-                      kunci = [k for k in kunci if k]
-              except Exception:
-                  kunci = []
-
-              if not kunci:
-                  pesan = (keluaran.stderr or "").strip().splitlines()
-                  print(f"\n[{nama_env}] tidak terbaca: {pesan[0][:140] if pesan else 'keluaran kosong'}")
-                  continue
-
-              print(f"\n[{nama_env}] {len(kunci)} variabel — nama: {', '.join(sorted(kunci))}")
-
-              media = sorted(nama for nama in kunci if relevan(nama))
-              print(f"  [{nama_env}] nama terkait media: {', '.join(media) if media else '(tidak ada)'}")
-
-              for nama in media:
-                  if nama not in wajib:
-                      dekat[nama] = nama_env
-              for nama in wajib:
-                  if nama in kunci:
-                      ada_di[nama].append(nama_env)
-
-          print("")
-          for nama in wajib:
-              if ada_di[nama]:
-                  print(f"{nama}: ADA di environment {', '.join(ada_di[nama])}")
-              else:
-                  print(f"::warning::{nama}: tidak ada di environment mana pun pada project ini")
-
-          if dekat:
-              for nama, nama_env in dekat.items():
-                  print(
-                      f"::warning::Ada variabel bernama hampir sama, '{nama}' di environment "
-                      f"'{nama_env}' — kemungkinan salah ketik nama yang sebenarnya."
-                  )
-          PY
-
       # PENTING — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.
       # Service Railway menetapkan `rootDirectory: backend`, dan builder
       # menggabungkannya dengan konteks unggahan: mengunggah direktori `backend`
@@ -383,6 +139,64 @@ jobs:
             --service "${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" \
             --environment "$RAILWAY_ENVIRONMENT" \
             --ci
+
+      # Verifikasi produksi, bukan sekadar "build sukses".
+      #
+      # Kegagalan nyata yang pernah terjadi: ketiga variabel CLOUDINARY_* tidak
+      # pernah benar-benar tersimpan di service Railway, sehingga produksi
+      # diam-diam memakai mode penyimpanan `local` — container menulis gambar ke
+      # filesystem sementara, dan SETIAP deploy berikutnya menghapus riwayat
+      # gambar user tanpa satu pun error. Build tetap hijau, aplikasi tetap
+      # jalan; hanya berkasnya yang hilang.
+      #
+      # Karena itu deploy baru dianggap selesai hanya kalau `/health` produksi
+      # menjawab `status: OK`, `database: connected`, dan mode penyimpanannya
+      # bukan `local`. Langkah ini tidak mencetak nilai rahasia: `/health` memang
+      # sengaja hanya mengirim SATU kata mode penyimpanan, bukan kredensial.
+      - name: Verifikasi produksi - database & mode penyimpanan
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          url = os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + "/health"
+          batas = time.time() + 300
+          terakhir = None
+
+          while time.time() < batas:
+              try:
+                  with urllib.request.urlopen(url, timeout=30) as respons:
+                      terakhir = json.loads(respons.read().decode())
+                  print(" ", json.dumps(terakhir), flush=True)
+                  if terakhir.get("status") == "OK" and terakhir.get("database") == "connected":
+                      break
+              except Exception as galat:
+                  print(f"  {url} belum siap: {type(galat).__name__}", flush=True)
+              time.sleep(15)
+
+          if not terakhir or terakhir.get("status") != "OK" or terakhir.get("database") != "connected":
+              print("::error::Produksi tidak melaporkan status OK + database connected dalam 5 menit.")
+              sys.exit(1)
+
+          mode = terakhir.get("storageMode")
+
+          if mode is None:
+              print("::warning::/health tidak melaporkan storageMode sehingga tidak bisa diverifikasi.")
+          elif mode == "local":
+              print(
+                  "::error::Produksi memakai mode penyimpanan 'local': gambar user akan "
+                  "hilang pada deploy berikutnya. Isi CLOUDINARY_CLOUD_NAME, "
+                  "CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET di service Railway, "
+                  "lalu pastikan tidak ada variabel STORAGE_PROVIDER yang menimpanya."
+              )
+              sys.exit(1)
+          else:
+              print(f"::notice::Mode penyimpanan produksi: {mode}.")
+          PY
 
   # Verifikasi deploy Frontend (Vercel).
   #
