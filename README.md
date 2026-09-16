@@ -526,9 +526,13 @@ penghapusan tidak perlu menebak public_id dari URL-nya.
 Cara memeriksa mode yang benar-benar aktif:
 
 ```bash
-curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A5 storage
-# Cloudinary : { "mode": "cloudinary", "cloudName": "xxxxxxxx", ... }
-# S3         : { "mode": "s3", "bucket": "...", "publicBaseUrl": "..." }
+# Satu kata ini selalu ada, termasuk di production — di production nilainya
+# harus BUKAN "local".
+curl -s https://<domain-backend>/health | python3 -c "import sys,json; print(json.load(sys.stdin)['storageMode'])"
+# cloudinary | s3 | local
+
+# Di luar production ada detailnya juga (bucket / nama cloud):
+curl -s http://localhost:3000/health | python3 -m json.tool | grep -A5 storage
 ```
 
 Kalau hasilnya `"mode": "local"` di produksi, gambar akan hilang pada deploy

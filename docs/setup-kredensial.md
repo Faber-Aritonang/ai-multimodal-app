@@ -439,15 +439,16 @@ set `STORAGE_PROVIDER=local`.
 ### Cara memastikan sudah aktif
 
 ```bash
-curl -s https://<domain-backend>/health | python3 -m json.tool | grep -A5 storage
-# "storage": { "mode": "cloudinary", "cloudName": "nama-cloud", ... }
+curl -s https://<domain-backend>/health \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['storageMode'])"
+# cloudinary
 ```
 
-Kalau hasilnya `"mode": "local"` di produksi, gambar akan hilang pada deploy
-berikutnya. `GET /health` hanya menampilkan blok ini di luar production; di
-production cukup lihat nilai `mode`-nya lewat log startup atau uji generate satu
-kali lalu periksa bentuk `outputUrl` di database (harus diawali
-`https://res.cloudinary.com/`).
+Medan `storageMode` **selalu** dikirim, termasuk di production (blok `services`
+yang berisi detail infrastruktur tetap hanya muncul di luar production). Kalau
+nilainya `local` di produksi, gambar akan hilang pada deploy berikutnya — dan
+sejak itu pula log startup server akan menulis
+`Penyimpanan media: mode=local` sebagai peringatan di platform hosting.
 
 ### Yang perlu diketahui
 

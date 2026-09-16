@@ -30,6 +30,42 @@ describe('GET /health', () => {
     expect(typeof response.body.timestamp).toBe('string');
   });
 
+  test('mode penyimpanan selalu dilaporkan, termasuk di production', async () => {
+    const asli = process.env.NODE_ENV;
+
+    try {
+      process.env.NODE_ENV = 'production';
+      const produksi = await request(app).get('/health');
+
+      // Tanpa ini, "gambar hilang tiap deploy" hanya bisa diketahui dari keluhan
+      // user — persis yang terjadi sebelum mode cloudinary dipasang.
+      expect(produksi.body.storageMode).toBe('local');
+      expect(produksi.body.services).toBeUndefined();
+
+      process.env.NODE_ENV = 'test';
+      const dev = await request(app).get('/health');
+
+      expect(dev.body.storageMode).toBe('local');
+    } finally {
+      if (asli === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = asli;
+    }
+  });
+
+  test('kredensial Cloudinary yang lengkap terlihat sebagai mode cloudinary', async () => {
+    process.env.CLOUDINARY_CLOUD_NAME = 'uji-cloud';
+    process.env.CLOUDINARY_API_KEY = 'kunci-uji';
+    process.env.CLOUDINARY_API_SECRET = 'rahasia-uji';
+
+    const response = await request(app).get('/health');
+
+    expect(response.body.storageMode).toBe('cloudinary');
+
+    delete process.env.CLOUDINARY_CLOUD_NAME;
+    delete process.env.CLOUDINARY_API_KEY;
+    delete process.env.CLOUDINARY_API_SECRET;
+  });
+
   describe('status konfigurasi layanan', () => {
     const TOUCHED_VARS = [
       'FIREBASE_SERVICE_ACCOUNT',
@@ -51,7 +87,10 @@ describe('GET /health', () => {
       'S3_BUCKET',
       'S3_ACCESS_KEY_ID',
       'S3_SECRET_ACCESS_KEY',
-      'S3_PUBLIC_BASE_URL'
+      'S3_PUBLIC_BASE_URL',
+      'CLOUDINARY_CLOUD_NAME',
+      'CLOUDINARY_API_KEY',
+      'CLOUDINARY_API_SECRET'
     ];
 
     const clearChatAndImageEnv = () => {

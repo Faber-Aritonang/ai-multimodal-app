@@ -27,7 +27,7 @@ const memberRoutes = require('./routes/member');
 const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
 const { getProviderStatus } = require('./config/imageProviders');
-const { describeStorage } = require('./config/storage');
+const { describeStorage, getStorageMode } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { preferEnvFile } = require('./config/envFile');
 
@@ -164,7 +164,14 @@ app.get('/health', (req, res) => {
   const payload = {
     status: 'OK',
     timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    // Mode penyimpanan dilaporkan SELALU, termasuk di production.
+    // Alasannya konkret: kalau nilainya `local` di produksi, setiap deploy akan
+    // menghapus gambar user — dan itu satu-satunya fakta operasional penting yang
+    // tidak bisa dilihat dari kode maupun dari UI. Blok `services` di bawah tetap
+    // hanya untuk non-production (isinya detail infrastruktur), sedangkan satu
+    // kata ini tidak membocorkan apa pun.
+    storageMode: getStorageMode()
   };
 
   // Status konfigurasi layanan pihak ketiga, berguna untuk debugging lokal.
@@ -226,6 +233,9 @@ const startServer = async () => {
   await connectDB();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
+    // platform (Railway), bukan harus ditebak dari perilaku aplikasi.
+    console.log(`Penyimpanan media: mode=${getStorageMode()}`);
   });
 };
 
