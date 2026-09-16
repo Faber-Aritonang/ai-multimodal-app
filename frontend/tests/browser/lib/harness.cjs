@@ -195,6 +195,31 @@ class BrowserSession {
   }
 
   /**
+   * Blokir URL tertentu di level jaringan browser.
+   *
+   * Dipakai untuk menirukan berkas yang sudah tidak ada di server tanpa perlu
+   * menyentuh disk/object storage: permintaan gambar gagal, dan UI harus
+   * menjelaskannya alih-alih menampilkan ikon gambar rusak.
+   */
+  async blockUrls(patterns) {
+    await this.cdp.send('Network.setBlockedURLs', { urls: patterns });
+  }
+
+  /** Lepas semua pemblokiran URL. */
+  async unblockUrls() {
+    await this.cdp.send('Network.setBlockedURLs', { urls: [] });
+  }
+
+  /**
+   * Buang catatan kegagalan jaringan yang memang disengaja spec (mis. gambar
+   * diblokir untuk menirukan berkas yang sudah hilang di server), supaya tidak
+   * dihitung sebagai temuan pada pemeriksaan akhir runner.
+   */
+  clearNetworkFailures() {
+    this.networkFailures.length = 0;
+  }
+
+  /**
    * Polling sampai `read()` mengembalikan nilai truthy.
    * @returns {Promise<any>} nilai terakhir (truthy), atau null kalau timeout
    */

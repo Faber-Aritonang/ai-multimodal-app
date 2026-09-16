@@ -32,6 +32,10 @@ const READ_STATE = `(() => {
       const i = f.querySelector('img');
       return i && i.naturalWidth > 0;
     }).length,
+    // Gambar yang berkasnya sudah tidak ada harus dijelaskan, bukan dibiarkan
+    // tampil sebagai ikon gambar rusak berisi teks alt.
+    pesanBerkasHilang: document.querySelectorAll('[data-testid="media-missing"]').length,
+    teksBerkasHilang: (document.querySelector('[data-testid="media-missing"]') || {}).innerText || null,
     teksError: err
   };
 })()`;
@@ -44,7 +48,9 @@ const angkaDari = (teks) => {
 module.exports = {
   name: 'text-to-image',
 
-  async run({ session, reporter, api, sleep, apiUrl }) {
+  async run({ session, reporter, api, sleep, apiUrl, health }) {
+    const storageMode = health?.services?.storage?.mode || 'local';
+
     await session.open('/tools/text-to-image');
 
     const awal = await session.waitFor(async () => {
@@ -97,9 +103,19 @@ module.exports = {
     if (!reporter.check('gambar berhasil dibuat dan dimuat browser', Boolean(hasil && !hasil.teksError),
       hasil?.teksError || hasil?.hasilDimuat)) return;
 
-    // URL-nya relatif ('/uploads/...') saat dev memakai proxy Vite, dan absolut
-    // ke backend saat VITE_API_URL diisi (seperti di produksi). Keduanya benar.
-    reporter.matches('hasil memakai URL media di /uploads/', hasil.hasilUrl, /^(https?:\/\/[^/]+)?\/uploads\//);
+    if (storageMode === 's3') {
+      // Berkas di object storage selalu absolut: dengan begitu gambarnya tidak
+      // bergantung pada filesystem container yang hilang tiap deploy.
+      reporter.matches(
+        'berkas disimpan di object storage (URL absolut, bukan /uploads container)',
+        hasil.hasilUrl,
+        /^https?:\/\/[^/]+\/.+/i
+      );
+    } else {
+      // Mode lokal: relatif ('/uploads/...') saat dev memakai proxy Vite, absolut
+      // bila VITE_API_URL diisi. Keduanya benar untuk mode ini.
+      reporter.matches('hasil memakai URL media di /uploads/', hasil.hasilUrl, /^(https?:\/\/[^/]+)?\/uploads\//);
+    }
     reporter.check('tautan unduh tersedia', hasil.adaTombolUnduh === true);
     reporter.check(
       'metadata hasil menyebut resolusi asli + provider',
@@ -129,7 +145,7 @@ module.exports = {
     // generate tampil rusak padahal berkasnya 200. Di lokal gambar dimuat lewat
     // proxy Vite (satu origin), jadi kondisi produksi harus dibuat eksplisit di
     // sini: muat URL backend secara absolut, seperti yang dilakukan produksi.
-    if (apiUrl) {
+    if (apiUrl && String(hasil.hasilUrl).startsWith('/')) {
       // Ambil path-nya dulu: kalau src sudah absolut (VITE_API_URL diisi), hanya
       // path yang diperlukan supaya URL backend-nya tetap terbentuk benar.
       const mediaPath = String(hasil.hasilUrl).replace(/^https?:\/\/[^/]+/, '');
@@ -150,6 +166,27 @@ module.exports = {
         'dimuat'
       );
     }
+
+    // ---- Berkas yang sudah tidak ada harus dijelaskan, bukan gambar rusak ----
+    // Berkas media bisa hilang dari server (dulu: filesystem container terhapus
+    // tiap deploy). Yang diuji di sini adalah perilaku UI-nya: permintaan gambar
+    // diblokir di level browser supaya kondisinya sama, tanpa perlu menyentuh
+    // disk maupun object storage.
+    const namaBerkas = String(hasil.hasilUrl).split('/').pop();
+    await session.blockUrls([`*${namaBerkas}*`]);
+    await session.open('/tools/text-to-image', { settleMs: 6000 });
+
+    const berkasHilang = await session.waitFor(async () => {
+      const state = await session.evaluate(READ_STATE);
+      return state.pesanBerkasHilang > 0 ? state : null;
+    }, { timeoutMs: 20000, intervalMs: 1000 });
+
+    reporter.check('berkas yang hilang dijelaskan ke user', Boolean(berkasHilang), berkasHilang?.teksBerkasHilang);
+
+    await session.unblockUrls();
+    // Kegagalan jaringan tadi memang disengaja, jadi tidak dihitung sebagai
+    // temuan pada pemeriksaan akhir runner.
+    session.clearNetworkFailures();
 
     // contentId terbaru dari API -> dipakai memastikan tombol hapus benar-benar
     // menghapus data (bukan hanya menyembunyikan kartu di UI).

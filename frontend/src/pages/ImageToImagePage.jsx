@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
+import MediaImage from '../components/MediaImage'
 import Layout from '../components/Layout'
 
 /**
@@ -370,8 +371,8 @@ const ImageToImagePage = ({ user, setUser }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {result.inputFile && (
                 <figure>
-                  <img
-                    src={resolveMediaUrl(result.inputFile)}
+                  <MediaImage
+                    url={result.inputFile}
                     alt="Before"
                     className="w-full rounded-xl border border-dark-200"
                   />
@@ -379,8 +380,8 @@ const ImageToImagePage = ({ user, setUser }) => {
                 </figure>
               )}
               <figure>
-                <img
-                  src={resolveMediaUrl(result.outputUrl)}
+                <MediaImage
+                  url={result.outputUrl}
                   alt={result.prompt}
                   className="w-full rounded-xl shadow-md border border-dark-200"
                 />
@@ -429,9 +430,10 @@ const ImageToImagePage = ({ user, setUser }) => {
                 <figure key={item.contentId} data-testid="history-item" className="group">
                   <div className="relative">
                     {item.outputUrl ? (
-                      <img
-                        src={resolveMediaUrl(item.outputUrl)}
+                      <MediaImage
+                        url={item.outputUrl}
                         alt={item.prompt}
+                        compact
                         className="w-full aspect-square object-cover rounded-xl border border-dark-200"
                       />
                     ) : (

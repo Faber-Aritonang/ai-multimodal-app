@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
+import MediaImage from '../components/MediaImage'
 
 const SIZES = [
   { value: '1024x1024', label: 'Square', hint: '1024 × 1024' },
@@ -213,8 +214,8 @@ const TextToImagePage = ({ user, setUser }) => {
         {result?.outputUrl && (
           <div data-testid="latest-result" className="bg-white dark-glass rounded-2xl p-6">
             <h2 className="text-lg font-bold text-dark-800 mb-4">Latest result</h2>
-            <img
-              src={resolveMediaUrl(result.outputUrl)}
+            <MediaImage
+              url={result.outputUrl}
               alt={result.prompt}
               className="w-full max-w-xl rounded-xl shadow-md"
             />
@@ -262,9 +263,10 @@ const TextToImagePage = ({ user, setUser }) => {
                 <figure key={item.contentId} data-testid="history-item" className="group">
                   <div className="relative">
                     {item.outputUrl ? (
-                      <img
-                        src={resolveMediaUrl(item.outputUrl)}
+                      <MediaImage
+                        url={item.outputUrl}
                         alt={item.prompt}
+                        compact
                         className="w-full aspect-square object-cover rounded-xl border border-dark-200"
                       />
                     ) : (
