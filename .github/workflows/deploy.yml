@@ -244,6 +244,45 @@ jobs:
               with urllib.request.urlopen(permintaan, timeout=30) as respons:
                   return json.loads(respons.read().decode()).get("deployments", [])
 
+          def domain_produksi():
+              permintaan = urllib.request.Request(
+                  f"https://api.vercel.com/v9/projects/{project}/domains?limit=50",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "github-actions",
+                  },
+              )
+              with urllib.request.urlopen(permintaan, timeout=30) as respons:
+                  domains = json.loads(respons.read().decode()).get("domains", [])
+              if not domains:
+                  return None
+              terverifikasi = [d["name"] for d in domains if d.get("verified")]
+              return (terverifikasi or [domains[0]["name"]])[0]
+
+          def periksa_tautan_langsung():
+              # Frontend ini SPA: rute seperti /login hanya ada di sisi browser,
+              # jadi Vercel harus melayani index.html untuk semua path. Tanpa
+              # aturan `rewrites` di frontend/vercel.json, beranda tetap terbuka
+              # normal tetapi SETIAP tautan langsung dijawab 404 — kegagalan yang
+              # mudah lolos kalau hanya halaman utama yang dicek.
+              domain = domain_produksi()
+              if not domain:
+                  print("::warning::domain produksi tidak terdeteksi, uji tautan langsung dilewati")
+                  return
+              for path in ("/", "/login", "/tools/text-to-image"):
+                  url = f"https://{domain}{path}"
+                  try:
+                      with urllib.request.urlopen(url, timeout=30) as respons:
+                          isi = respons.read().decode(errors="replace")
+                          status = respons.status
+                  except urllib.error.HTTPError as galat:
+                      print(f"::error::{url} menjawab {galat.code} — rute SPA tidak dilayani.")
+                      sys.exit(1)
+                  if status != 200 or 'id="root"' not in isi:
+                      print(f"::error::{url} tidak mengembalikan aplikasi (status {status}).")
+                      sys.exit(1)
+                  print(f"  {url} -> {status}")
+
           while True:
               try:
                   daftar = ambil()
@@ -265,6 +304,7 @@ jobs:
               ]
               if siap:
                   print(f"::notice::Frontend siap: https://{siap[0].get('url')}")
+                  periksa_tautan_langsung()
                   sys.exit(0)
 
               if any(d["state"] in ("ERROR", "CANCELED") for d in milik_commit):
