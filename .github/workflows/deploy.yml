@@ -160,6 +160,106 @@ jobs:
             head -5 /tmp/railway-services.err
           fi
 
+      # Diagnostik penyimpanan media.
+      #
+      # Kegagalan nyata yang pernah terjadi: variabel CLOUDINARY_* sudah diisi di
+      # dashboard, tetapi service produksi tetap melaporkan `storageMode: "local"`
+      # di /health — artinya setiap deploy menghapus gambar user tanpa satu pun
+      # error. Penyebabnya hanya kelihatan dari daftar variabel yang BENAR-BENAR
+      # dimiliki service (mis. `STORAGE_PROVIDER` yang terlanjur ada, atau
+      # variabel yang tersimpan di environment/service lain).
+      #
+      # Log run repo ini PUBLIK, jadi langkah ini hanya mencetak NAMA variabel:
+      # nilainya dibuang sebelum apa pun masuk ke stdout.
+      - name: Diagnostik - variabel penyimpanan media
+        run: |
+          SERVICE="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
+
+          railway variables \
+            --project "$RAILWAY_PROJECT_ID" \
+            --service "$SERVICE" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --json > /tmp/railway-vars.json 2>/tmp/railway-vars.err || true
+
+          # Cadangan bila versi CLI ini tidak mengenal --json: `--kv` lalu ambil
+          # sisi kiri tanda '=' saja, sehingga nilai rahasia tidak pernah terbaca.
+          if [ ! -s /tmp/railway-vars.json ]; then
+            railway variables \
+              --project "$RAILWAY_PROJECT_ID" \
+              --service "$SERVICE" \
+              --environment "$RAILWAY_ENVIRONMENT" \
+              --kv > /tmp/railway-vars.kv 2>/tmp/railway-vars.err || true
+          fi
+
+          node - <<'NODE'
+          const fs = require('fs');
+
+          const namaDariKv = () => {
+            try {
+              return fs
+                .readFileSync('/tmp/railway-vars.kv', 'utf8')
+                .split(/\r?\n/)
+                .map((baris) => baris.split('=')[0].trim())
+                .filter(Boolean);
+            } catch {
+              return [];
+            }
+          };
+
+          let daftar = [];
+          let sumber = 'tidak terbaca';
+
+          try {
+            const mentah = JSON.parse(fs.readFileSync('/tmp/railway-vars.json', 'utf8'));
+            if (Array.isArray(mentah)) {
+              daftar = mentah.map((v) => v.name || v.key || v.k || '').filter(Boolean);
+            } else if (mentah && typeof mentah === 'object') {
+              daftar = Object.keys(mentah);
+            }
+            sumber = 'json';
+          } catch {
+            daftar = namaDariKv();
+            sumber = daftar.length ? 'kv (hanya nama)' : 'tidak terbaca';
+          }
+
+          const relevan = (nama) =>
+            /^(STORAGE_PROVIDER|UPLOAD_DIR|CLOUDINARY_[A-Z0-9_]+|S3_[A-Z0-9_]+)$/.test(nama);
+
+          const media = daftar.filter(relevan).sort();
+          const wajibCloudinary = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+          const hilang = wajibCloudinary.filter((nama) => !media.includes(nama));
+          const adaProvider = daftar.includes('STORAGE_PROVIDER');
+
+          console.log(`sumber data             : ${sumber}`);
+          console.log(`jumlah variabel service : ${daftar.length}`);
+          console.log(`variabel media ada      : ${media.length ? media.join(', ') : '(tidak ada satu pun)'}`);
+          console.log(`CLOUDINARY belum ada    : ${hilang.length ? hilang.join(', ') : '(lengkap)'}`);
+
+          if (adaProvider) {
+            console.log(
+              '::warning::STORAGE_PROVIDER ada di service ini dan SELALU menang atas kredensial ' +
+                'cloudinary/s3. Hapus variabel itu di Railway supaya mode ditentukan kredensialnya.'
+            );
+          }
+
+          if (hilang.length) {
+            console.log(
+              '::warning::Produksi akan memakai mode local: ' + hilang.join(', ') +
+                ' tidak ada di service ini, sehingga gambar user hilang pada setiap deploy.'
+            );
+          } else if (!adaProvider) {
+            console.log(
+              'OK: kredensial Cloudinary lengkap dan tidak ada STORAGE_PROVIDER — ' +
+                'production /health seharusnya melaporkan storageMode=cloudinary.'
+            );
+          }
+          NODE
+
+          if [ -s /tmp/railway-vars.err ]; then
+            echo "--- pesan CLI (3 baris pertama) ---"
+            head -3 /tmp/railway-vars.err
+          fi
+
       # PENTING — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.
       # Service Railway menetapkan `rootDirectory: backend`, dan builder
       # menggabungkannya dengan konteks unggahan: mengunggah direktori `backend`
