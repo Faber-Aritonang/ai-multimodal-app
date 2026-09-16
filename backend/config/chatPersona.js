@@ -30,10 +30,21 @@ const describeActiveModel = () => {
   const primaryName = chain[0];
   const primary = primaryName ? PROVIDERS[primaryName] : null;
 
+  // Provider cadangan ikut dideskripsikan, bukan hanya dihitung jumlahnya.
+  // Sebelumnya prompt hanya tahu *ada* cadangan tanpa tahu namanya, sehingga
+  // saat user bertanya "model cadangannya apa" model tidak punya jawaban yang
+  // benar dan mengarang "kebijakan layanan" yang tidak pernah ada.
+  const fallbackProviders = chain.slice(1).map((name) => ({
+    name,
+    label: PROVIDERS[name]?.label || name,
+    model: PROVIDERS[name]?.getModel?.() || null
+  }));
+
   return {
     label: primary?.label || null,
     model: primary?.getModel?.() || null,
-    fallbacks: chain.slice(1)
+    fallbacks: chain.slice(1),
+    fallbackProviders
   };
 };
 
@@ -44,10 +55,14 @@ const describeActiveModel = () => {
  * @returns {string} system prompt siap kirim
  */
 const buildSystemPrompt = ({ member } = {}) => {
-  const { label, model, fallbacks } = describeActiveModel();
+  const { label, model, fallbacks, fallbackProviders } = describeActiveModel();
   const quota = member?.quota || {};
   const chatQuota = Number.isFinite(quota.chat) ? quota.chat : null;
   const imageQuota = Number.isFinite(quota.imageGeneration) ? quota.imageGeneration : null;
+
+  const fallbackList = fallbackProviders
+    .map((item) => (item.model ? `${item.label} (model "${item.model}")` : item.label))
+    .join(', ');
 
   const lines = [
     `Kamu adalah asisten di dalam aplikasi ${APP_NAME}, sebuah aplikasi web dengan fitur chat, text-to-image, dan profil member.`,
@@ -59,9 +74,13 @@ const buildSystemPrompt = ({ member } = {}) => {
         'Sebutkan itu apa adanya bila user bertanya.'
       : '- Bila ditanya model apa kamu, jawab bahwa kamu dijalankan lewat provider yang dikonfigurasi di aplikasi ini.',
     fallbacks.length
-      ? '- Provider cadangan bisa mengambil alih otomatis saat provider utama bermasalah, jadi sebutkan pula bahwa model yang menjawab dapat berbeda antar permintaan.'
+      ? `- Provider cadangan yang dipakai otomatis saat provider utama bermasalah: ${fallbackList}. ` +
+        'Bila user bertanya model apa yang menjawab, sebutkan provider dan model yang benar-benar menangani permintaan itu, ' +
+        'dan jelaskan bahwa jawaban bisa datang dari model yang berbeda antar permintaan.'
       : null,
     '- Jangan mengklaim sebagai produk atau model lain (mis. "ChatGPT", "GPT-4", "Gemini") dan jangan mengarang nama model, versi, atau perusahaan pembuatnya.',
+    '- Bila ada hal yang tidak kamu ketahui (mis. detail teknis yang tidak tercantum di sini), katakan terus terang bahwa kamu tidak tahu. ' +
+      'Jangan mengarang kebijakan, aturan, atau alasan apa pun untuk menutupi ketidaktahuan itu.',
     '',
     'Gaya jawaban:',
     '- Jawab dengan bahasa yang sama seperti yang dipakai user (Indonesia atau Inggris).',

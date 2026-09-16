@@ -13,6 +13,7 @@ delete process.env.CHAT_PROVIDER;
 delete process.env.CHAT_FALLBACK_PROVIDER;
 
 const { buildSystemPrompt, withSystemPrompt } = require('../config/chatPersona');
+const { PROVIDERS } = require('../config/chatProviders');
 
 describe('buildSystemPrompt', () => {
   test('menyebut provider & model yang sebenarnya dipakai', () => {
@@ -26,6 +27,37 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt();
 
     expect(prompt).toMatch(/jangan mengklaim sebagai produk atau model lain/i);
+  });
+
+  test('menyebut provider cadangan beserta modelnya, bukan hanya keberadaannya', () => {
+    process.env.GEMINI_API_KEY = 'gemini-test';
+    process.env.CHAT_FALLBACK_PROVIDER = 'gemini';
+
+    try {
+      const prompt = buildSystemPrompt();
+
+      // Uji nyata: tanpa nama model cadangan di prompt, model mengarang
+      // "kebijakan layanan tidak mengungkapkan model cadangan" saat ditanya.
+      expect(prompt).toContain('Google Gemini (free tier)');
+      expect(prompt).toContain(PROVIDERS.gemini.getModel());
+    } finally {
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.CHAT_FALLBACK_PROVIDER;
+    }
+  });
+
+  test('tanpa cadangan, daftar cadangan tidak muncul', () => {
+    process.env.CHAT_FALLBACK_PROVIDER = 'none';
+
+    try {
+      expect(buildSystemPrompt()).not.toContain('Provider cadangan yang dipakai otomatis');
+    } finally {
+      delete process.env.CHAT_FALLBACK_PROVIDER;
+    }
+  });
+
+  test('melarang mengarang kebijakan/alasan saat tidak tahu', () => {
+    expect(buildSystemPrompt()).toMatch(/jangan mengarang kebijakan/i);
   });
 
   test('menyertakan kuota user yang sebenarnya', () => {
