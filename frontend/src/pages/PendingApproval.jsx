@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { authAPI } from '../config/api'
 import { SignOutButton } from '../components/icons'
 
-const PendingApproval = ({ user }) => {
+const PendingApproval = ({ user, setUser }) => {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
 
@@ -12,7 +12,15 @@ const PendingApproval = ({ user }) => {
     const interval = setInterval(async () => {
       try {
         const response = await authAPI.getStatus()
-        if (response.data.isAuthenticated && response.data.user?.isApproved) {
+        const freshUser = response.data.user
+
+        if (response.data.isAuthenticated && freshUser?.isApproved) {
+          // State `user` di App.jsx masih berisi nilai saat login
+          // (isApproved: false). Kalau tidak diperbarui di sini, ProtectedRoute
+          // akan langsung melempar balik ke halaman ini dan user terjebak di
+          // sini selamanya sampai ia refresh manual sendiri.
+          setUser?.(freshUser)
+          localStorage.setItem('user', JSON.stringify(freshUser))
           navigate('/dashboard')
         }
       } catch (error) {
@@ -21,7 +29,7 @@ const PendingApproval = ({ user }) => {
     }, 30000)
     
     return () => clearInterval(interval)
-  }, [navigate])
+  }, [navigate, setUser])
 
   const handleLogout = async () => {
     setLoading(true)

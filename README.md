@@ -232,6 +232,7 @@ Yang diuji:
 | `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
+| `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
 
 Prasyarat: backend (`cd backend && npm start`) dan frontend
 (`cd frontend && npm run dev`) sudah jalan, serta Chrome/Chromium terpasang.
@@ -242,7 +243,16 @@ TEST_BASE_URL=http://localhost:5173   # default
 TEST_API_URL=http://localhost:4000    # default
 TEST_MEMBER_EMAIL=dev.member@example.com
 CHROME_BIN=/path/ke/chrome            # bila Chrome tidak terdeteksi otomatis
+
+# Jalankan satu spec saja (mis. saat memperbaiki satu halaman)
+TEST_SPECS=pending-approval npm run test:browser
 ```
+
+Uji browser **tidak** jalan di CI karena butuh backend + frontend hidup, jadi ia
+dijalankan manual di lokal. Yang dijaga CI: backend unit test, ESLint, build
+frontend, serta job `Verify Frontend on Vercel` (menunggu deployment untuk commit
+yang dipush, memeriksa tautan langsung `/`, `/login`, `/tools/text-to-image`, dan
+memeriksa CORS dari origin produksi).
 
 Catatan: spec memakai akun dev member, jadi setiap eksekusi memakai
 **1 kuota chat** dan **1 kuota gambar**. Data yang dibuat (sesi chat, media)

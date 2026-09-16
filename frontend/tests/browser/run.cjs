@@ -26,12 +26,24 @@ const BASE_URL = (process.env.TEST_BASE_URL || 'http://localhost:5173').replace(
 const API_URL = (process.env.TEST_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
 const MEMBER_EMAIL = process.env.TEST_MEMBER_EMAIL || 'dev.member@example.com';
 
-const SPECS = [
+const ALL_SPECS = [
   require('./specs/chat.spec.cjs'),
   require('./specs/text-to-image.spec.cjs'),
   require('./specs/image-to-image.spec.cjs'),
-  require('./specs/dashboard-profile.spec.cjs')
+  require('./specs/dashboard-profile.spec.cjs'),
+  require('./specs/pending-approval.spec.cjs')
 ];
+
+// Filter opsional untuk saat mengembangkan satu spec saja, mis.:
+//   TEST_SPECS=pending-approval npm run test:browser
+const SPEC_FILTER = (process.env.TEST_SPECS || '')
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean);
+
+const SPECS = SPEC_FILTER.length
+  ? ALL_SPECS.filter((spec) => SPEC_FILTER.includes(spec.name))
+  : ALL_SPECS;
 
 const createApi = (token) => {
   const request = async (pathname, { method = 'GET', body } = {}) => {

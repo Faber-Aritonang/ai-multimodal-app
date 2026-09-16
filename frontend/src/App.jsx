@@ -90,7 +90,7 @@ function App() {
         {/* Protected Routes - Member Only */}
         <Route path="/pending-approval" element={
           <ProtectedRoute user={user}>
-            <PendingApproval user={user} />
+            <PendingApproval user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
         
