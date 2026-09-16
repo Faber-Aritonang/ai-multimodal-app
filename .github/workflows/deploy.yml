@@ -161,8 +161,15 @@ jobs:
             head -5 /tmp/railway-services.err
           fi
 
+      # PENTING — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.
+      # Service Railway menetapkan `rootDirectory: backend`, dan builder
+      # menggabungkannya dengan konteks unggahan: mengunggah direktori `backend`
+      # membuat builder mencari `backend/backend` lalu gagal (deployment
+      # `FAILED` dengan `commit=-`, tanpa log build yang menjelaskan sebabnya).
+      # Dari akar repo, konteks unggahan sama dengan konteks deployment GitHub,
+      # sehingga `backend/` terbentuk benar.
       - name: Deploy ke Railway
-        working-directory: backend
+        working-directory: .
         run: |
           railway up \
             --project "$RAILWAY_PROJECT_ID" \
