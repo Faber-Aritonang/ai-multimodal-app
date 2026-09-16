@@ -44,6 +44,9 @@ backend/uploads/
 .cache/
 .temp/
 
+# Metadata project Vercel (ditulis oleh `vercel pull`, bukan sumber kode)
+.vercel/
+
 # Testing
 coverage/
 .nyc_output/

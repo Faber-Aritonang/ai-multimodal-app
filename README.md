@@ -418,6 +418,13 @@ Setiap push ke `main` menjalankan tiga job:
    dibangun di sisi Vercel, sehingga instalasi dependency memakai lingkungan
    build resminya (termasuk devDependencies seperti `vite`).
 
+> **Penting:** perintah Vercel di job itu dijalankan dari **akar repo**, bukan
+> dari `frontend/`. Project Vercel sudah menetapkan `rootDirectory: frontend`,
+> dan Vercel CLI menyelesaikan nilai itu **relatif terhadap direktori kerja**
+> (`join(cwd, rootDirectory)`). Menjalankannya di dalam `frontend/` membuat
+> Vercel mencari `frontend/frontend` lalu gagal dengan pesan
+> *"The provided path ... does not exist"*.
+
 Keduanya memakai CLI resmi, bukan action pihak ketiga: workflow lama memakai
 `railway/railway-github-action` (repositori action-nya sudah tidak ada) dan
 `amondnet/vercel-action@v30` (tag itu tidak pernah ada), sehingga setiap push

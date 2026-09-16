@@ -172,22 +172,23 @@ jobs:
 
   # Deploy Frontend ke Vercel.
   #
-  # Ini alur resmi Vercel untuk Actions: `vercel pull` mengambil pengaturan
-  # project, `vercel build` membangun di runner, lalu `vercel deploy --prebuilt`
-  # mengunggah artefaknya tanpa membangun ulang.
+  # PENTING — perintah Vercel di job ini dijalankan dari AKAR repo, bukan dari
+  # `frontend/`. Setelan project Vercel di dashboard sudah menetapkan
+  # `rootDirectory: frontend`, dan CLI menyelesaikan nilai itu relatif terhadap
+  # cwd-nya. Menjalankan CLI di dalam `frontend/` membuat Vercel mencari
+  # `frontend/frontend` dan gagal dengan "The provided path ... does not exist".
   #
-  # Perintah install/build/output ditetapkan di `frontend/vercel.json`, bukan
-  # diserahkan ke setelan dashboard: run pertama gagal dengan `sh: 1: vite: not
-  # found` karena `vite` (devDependency) tidak terpasang saat build di CI.
+  # Build terjadi di sisi Vercel (`vercel deploy --prod`) memakai lingkungan
+  # build resminya, bukan `vercel build` di runner: percobaan sebelumnya gagal
+  # dengan `sh: 1: vite: not found` karena langkah install dilewati di CI.
+  # Perintah install/build/output juga ditulis eksplisit di `frontend/vercel.json`
+  # supaya tidak bergantung pada nilai default dashboard.
   deploy-frontend:
     needs: quality
     if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
     name: Deploy Frontend to Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: frontend
     env:
       # VERCEL_TOKEN wajib ada di level job (bukan hanya di langkah pengecekan)
       # supaya langkah pull/build/deploy benar-benar menerima tokennya.
@@ -219,12 +220,20 @@ jobs:
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       # Menampilkan pengaturan efektif project (tanpa id/organisasi) supaya kalau
-      # build di sisi Vercel gagal, penyebabnya bisa dibaca dari log ini.
+      # deploy gagal, penyebabnya bisa dibaca dari log ini. `rootDirectory` juga
+      # dicetak karena nilai itu menentukan dari direktori mana CLI harus dipanggil.
       - name: Diagnostik - pengaturan build Vercel
         run: |
           node -e "
-            const p = require('./.vercel/project.json');
-            const s = p.settings || {};
+            const fs = require('fs');
+            const candidates = ['./.vercel/project.json', './frontend/.vercel/project.json'];
+            const found = candidates.find((p) => fs.existsSync(p));
+            if (!found) {
+              console.log('project.json tidak ditemukan di:', candidates.join(', '));
+              process.exit(0);
+            }
+            console.log('pengaturan dibaca dari:', found);
+            const s = (require(found).settings) || {};
             console.log('framework       :', s.framework || '(deteksi otomatis)');
             console.log('rootDirectory   :', s.rootDirectory || '(akar repo)');
             console.log('installCommand  :', s.installCommand || '(default)');
@@ -232,12 +241,8 @@ jobs:
             console.log('outputDirectory :', s.outputDirectory || '(default)');
           "
 
-      # Deploy dari sumber, dibangun di sisi Vercel — bukan `vercel build` lokal.
-      #
-      # Percobaan sebelumnya memakai alur prebuilt (pull -> build -> deploy
-      # --prebuilt) dan gagal dengan `sh: 1: vite: not found` karena langkah
-      # install dilewati di sandbox CI, sehingga devDependency vite tidak ada.
-      # Membangun di Vercel memakai lingkungan build resminya (instalasi lengkap
-      # termasuk devDependencies), sama seperti deploy dari Git.
+      # Sumber yang diunggah dari akar repo dibatasi lewat .vercelignore di akar
+      # (isi frontend/ tidak ikut dikecualikan — itu justru yang dibangun).
       - name: Vercel - deploy ke production
         run: vercel deploy --prod --yes --token="$VERCEL_TOKEN"
+
