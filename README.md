@@ -441,6 +441,10 @@ CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
 # S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY/S3_PUBLIC_BASE_URL.
 ```
 
+> Daftar lengkap per variabel — mana yang wajib, akibatnya kalau salah, dan
+> perintah untuk memverifikasinya di produksi — ada di
+> [`docs/env-produksi-railway.md`](docs/env-produksi-railway.md).
+
 **Frontend**: Set in Vercel dashboard:
 ```
 VITE_API_URL=https://ai-multimodal-app-production.up.railway.app

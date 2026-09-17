@@ -1,0 +1,120 @@
+# Variabel Env Produksi (Railway) & Cara Verifikasinya
+
+Service: **`ai-multimodal-app`** · Environment: **`production`** · URL:
+`https://ai-multimodal-app-production.up.railway.app`
+
+Dokumen ini menjawab dua hal: **apa yang wajib diisi**, dan **bagaimana
+membuktikan bahwa nilainya benar-benar aktif** — bukan sekadar "build hijau".
+Tiga kegagalan nyata di repo ini (CORS diblokir, penyimpanan `local`, gambar
+hilang tiap deploy) semuanya terjadi sambil CI tetap hijau.
+
+Cara membaca tabel: kolom **akibat kalau salah** adalah gejala yang benar-benar
+pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
+
+---
+
+## A. Wajib — tanpa ini aplikasi mati atau rusak
+
+| Variabel | Nilai | Akibat kalau kosong/salah | Cara verifikasi |
+|---|---|---|---|
+| `NODE_ENV` | `production` | `trust proxy` tidak aktif sehingga `req.ip` berisi IP proxy: **semua pengunjung berbagi satu hitungan rate limit** → 429 massal. Route `dev-login` juga ikut hidup (siapa pun bisa membuat token). | `POST /api/v1/auth/dev-login` harus menjawab **404** |
+| `MONGODB_URI` | `mongodb+srv://…` | `server.js` memanggil `process.exit(1)` saat connect gagal → tidak ada satu pun endpoint yang naik | `/health` → `"database":"connected"` |
+| `JWT_SECRET` | `openssl rand -base64 32` | verifikasi token gagal; endpoint auth menjawab `JWT_SECRET is not set. Isi backend/.env terlebih dahulu.` | login dari UI berhasil, `/health` → `"status":"OK"` |
+| `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app` (beberapa domain boleh, dipisah koma) | browser memblokir **setiap** panggilan API sebagai CORS error, padahal backend menjawab 200 | header `access-control-allow-origin` memuat domain Vercel yang aktif |
+| `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. Job deploy juga sengaja gagal. | `/health` → `"storageMode":"cloudinary"` |
+| `FIREBASE_SERVICE_ACCOUNT` | isi JSON service account dalam satu baris, atau path berkas | login Google tidak bisa dipakai (`auth/…` gagal) | login Google dari frontend produksi |
+
+> Alternatif Cloudinary: `STORAGE_PROVIDER=s3` + `S3_ENDPOINT`, `S3_BUCKET`,
+> `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`
+> (+ `S3_REGION`, `S3_FORCE_PATH_STYLE` bila perlu) → `/health` harus
+> melaporkan `"storageMode":"s3"`. **Jangan** menyetel
+> `STORAGE_PROVIDER=local` di produksi.
+
+---
+
+## B. Wajib untuk fitur AI (satu key per fitur)
+
+| Fitur | Variabel | Cara verifikasi |
+|---|---|---|
+| Chat | minimal **satu** dari `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` | kirim satu pesan di UI; setiap balasan menampilkan provider yang benar-benar menjawab (mis. `via groq`, `via openrouter`) |
+| Chat — cadangan OpenRouter | `OPENROUTER_API_KEY` | badge `via openrouter` muncul saat Groq/Gemini kehabisan kuota. Tanpa key ini provider hanya dilewati, bukan error. |
+| Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
+| Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
+
+> Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
+> Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
+> tidak ada salahnya, tetapi tidak akan mengubah apa pun sebelum deploy selesai.
+
+---
+
+## C. Opsional (tuning — semuanya punya default di kode)
+
+| Variabel | Default | Guna |
+|---|---|---|
+| `CHAT_PROVIDER` / `CHAT_FALLBACK_PROVIDER` | provider pertama yang punya key, urut `groq → gemini → openai → openrouter` | memaksa urutan provider; cadangan boleh beberapa nama dipisah koma (`gemini,openrouter`) |
+| `OPENROUTER_CHAT_MODEL` | 4 model gratis berurutan (lihat docs bagian 3c) | daftar model OpenRouter; dicoba berurutan |
+| `OPENROUTER_REASONING` | `off` | `off` / `exclude` / `default` — mematikan jejak berpikir |
+| `OPENROUTER_FAILURE_COOLDOWN_MS` | `60000` | jeda sebelum model yang baru gagal dicoba lagi (`0` = selalu coba) |
+| `CHAT_MAX_TOKENS` | `2000` | batas token keluaran per balasan |
+| `CHAT_REQUEST_TIMEOUT_MS` | `90000` | batas waktu satu request ke provider chat |
+| `IMAGE_PROVIDER` / `IMAGE_FALLBACK_PROVIDER` | `cloudflare` bila kredensialnya ada, lalu `pollinations` | urutan provider gambar |
+| `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
+| `PUBLIC_BASE_URL` | — | hanya perlu untuk image-to-image lewat Pollinations (butuh URL input publik) |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
+| `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |
+| `PORT` | diisi Railway | jangan diubah manual |
+| Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `POLLINATIONS_MODEL`, `OPENAI_*` |
+
+---
+
+## Verifikasi cepat setelah deploy
+
+Jalankan dari mesin mana pun (tidak ada nilai rahasia yang tercetak):
+
+```bash
+B=https://ai-multimodal-app-production.up.railway.app
+
+# 1. Backend hidup + database + penyimpanan
+curl -s $B/health
+#    {"status":"OK",...,"database":"connected","storageMode":"cloudinary"}
+
+# 2. NODE_ENV benar-benar production (route dev wajib mati)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/auth/dev-login -d '{}'
+#    404
+
+# 3. CORS mengizinkan frontend yang sedang dipakai
+curl -s -D - -o /dev/null -H 'Origin: https://ai-multimodal-app.vercel.app' $B/health \
+  | grep -i access-control-allow-origin
+#    access-control-allow-origin: https://ai-multimodal-app.vercel.app
+
+# 4. Origin asing tetap ditolak (tidak boleh ada header di atas)
+curl -s -D - -o /dev/null -H 'Origin: https://situs-asing.example' $B/health \
+  | grep -i access-control-allow-origin || echo 'ditolak (benar)'
+#    ditolak (benar)
+```
+
+Hasil keempat perintah di atas terakhir diukur **17 September 2026** dan
+semuanya sesuai harapan. Setelah mengubah variabel di Railway, tunggu deploy
+ulang selesai baru jalankan verifikasi ini.
+
+### Gejala → penyebab
+
+| Gejala di produksi | Penyebab yang paling sering |
+|---|---|
+| Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat domain Vercel yang sedang aktif |
+| Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_*` (atau `S3_*`) belum lengkap |
+| Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
+| `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
+| Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
+| Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
+
+### Kenapa status provider tidak terlihat di `/health` produksi
+
+`/health` sengaja **hanya** melaporkan `status`, `database`, dan `storageMode`
+saat `NODE_ENV=production`; objek `services` (daftar provider gambar & chat)
+hanya muncul di development/test supaya info infrastruktur tidak dibocorkan ke
+repo publik. Karena itu verifikasi provider chat di produksi dilakukan lewat:
+
+1. **badge provider di UI chat** — setiap balasan menyimpan dan menampilkan
+   provider yang benar-benar menjawab (`via groq`, `via openrouter`, …); atau
+2. **log Railway** saat startup/deploy.
