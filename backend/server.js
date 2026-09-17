@@ -236,6 +236,17 @@ const startServer = async () => {
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
     // platform (Railway), bukan harus ditebak dari perilaku aplikasi.
     console.log(`Penyimpanan media: mode=${getStorageMode()}`);
+    // Rantai provider chat dicatat di sini dengan alasan yang sama: `/health`
+    // sengaja menyembunyikan blok `services` di production, sehingga tanpa baris
+    // ini satu-satunya cara tahu apakah OpenRouter (atau provider lain) benar
+    // aktif adalah membuka env di dashboard platform — dan itu yang berulang
+    // kali membuat "sudah saya isi key-nya" tidak cocok dengan perilaku aplikasi.
+    // Isinya hanya nama provider + ada/tidaknya key, tidak ada nilainya.
+    const chat = getChatProviderStatus();
+    const chatStatus = Object.entries(chat.status)
+      .map(([name, state]) => `${name}=${state}`)
+      .join(' ');
+    console.log(`Provider chat: ${chat.chain.join(' > ') || 'none'} (${chatStatus})`);
   });
 };
 

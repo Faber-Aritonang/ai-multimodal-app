@@ -52,6 +52,14 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Variabel | Default | Guna |
 |---|---|---|
 | `CHAT_PROVIDER` / `CHAT_FALLBACK_PROVIDER` | provider pertama yang punya key, urut `groq → gemini → openai → openrouter` | memaksa urutan provider; cadangan boleh beberapa nama dipisah koma (`gemini,openrouter`) |
+
+> ⚠️ `CHAT_FALLBACK_PROVIDER` bersifat **eksklusif**: begitu diisi, hanya provider
+> yang tertulis di situ yang dipakai sebagai cadangan — provider berkey lain
+> **tidak** diselipkan otomatis (`chatProviders.js`, cabang `fallbackNames`).
+> Jadi kalau nilainya masih `gemini` dari konfigurasi lama, menambahkan
+> `OPENROUTER_API_KEY` tidak akan berefek apa pun. Isi `gemini,openrouter`,
+> atau kosongkan/hapus variabelnya supaya semua provider berkey ikut otomatis.
+> Nilai `none` mematikan seluruh cadangan.
 | `OPENROUTER_CHAT_MODEL` | 4 model gratis berurutan (lihat docs bagian 3c) | daftar model OpenRouter; dicoba berurutan |
 | `OPENROUTER_REASONING` | `off` | `off` / `exclude` / `default` — mematikan jejak berpikir |
 | `OPENROUTER_FAILURE_COOLDOWN_MS` | `60000` | jeda sebelum model yang baru gagal dicoba lagi (`0` = selalu coba) |
@@ -106,6 +114,7 @@ ulang selesai baru jalankan verifikasi ini.
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
+| Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | `CHAT_FALLBACK_PROVIDER` masih `gemini` (eksklusif), atau key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway |
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
@@ -117,4 +126,18 @@ repo publik. Karena itu verifikasi provider chat di produksi dilakukan lewat:
 
 1. **badge provider di UI chat** — setiap balasan menyimpan dan menampilkan
    provider yang benar-benar menjawab (`via groq`, `via openrouter`, …); atau
-2. **log Railway** saat startup/deploy.
+2. **log startup Railway** (Deploy Logs / service logs), yang mencetak rantai
+   dan status tiap key tepat di bawah baris mode penyimpanan:
+
+   ```
+   Penyimpanan media: mode=cloudinary
+   Provider chat: groq > gemini > openrouter (groq=configured gemini=configured openai=missing openrouter=configured)
+   ```
+
+   Baris kedua itu menjawab langsung "apakah key OpenRouter sudah terbaca
+   proses?": kalau tertulis `openrouter=missing` maka variabelnya belum sampai
+   ke service ini (nama salah tulis, dipasang di service/environment lain, atau
+   container belum restart) — bukan soal modelnya. Kalau `openrouter=configured`
+   tetapi rantainya cuma `groq > gemini`, penyebabnya `CHAT_FALLBACK_PROVIDER`
+   yang diisi eksklusif (lihat catatan di bagian C). Nilainya hanya
+   `configured`/`missing`, tidak pernah memuat isi key.
