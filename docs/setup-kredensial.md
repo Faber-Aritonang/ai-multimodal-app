@@ -465,16 +465,19 @@ sama, penalaran dimatikan, dan `max_tokens` 1200–2000:
    menjadi **`groq → gemini → openrouter`** — provider utama dan cadangan lama
    tetap di posisinya.
 
-Kalau `CHAT_FALLBACK_PROVIDER` diisi satu nama (mis. `gemini`), daftar itu
-sifatnya eksplisit. Untuk tetap memakai Gemini **lalu** OpenRouter, tulis
-keduanya dipisah koma:
+Kalau `CHAT_FALLBACK_PROVIDER` diisi satu nama (mis. `gemini`), nama itu dicoba
+**lebih dulu**, dan provider lain yang key-nya sudah diisi tetap ikut di
+belakangnya — jadi `gemini` saja sudah cukup, hasilnya tetap
+`groq → gemini → openrouter`. Tulis keduanya dipisah koma kalau ingin Gemini
+**lalu** OpenRouter dicoba sebelum provider berkey lain:
 
 ```env
 CHAT_PROVIDER=groq
 CHAT_FALLBACK_PROVIDER=gemini,openrouter
 ```
 
-`CHAT_FALLBACK_PROVIDER=none` tetap berarti tanpa cadangan, dan OpenRouter juga
+Satu-satunya nilai yang benar-benar mematikan cadangan — termasuk untuk provider
+yang key-nya sudah diisi — adalah `CHAT_FALLBACK_PROVIDER=none`. OpenRouter juga
 bisa dijadikan provider utama lewat `CHAT_PROVIDER=openrouter`.
 
 ### Pilihan model gratis

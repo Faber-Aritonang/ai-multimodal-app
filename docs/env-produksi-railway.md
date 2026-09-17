@@ -53,13 +53,15 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 |---|---|---|
 | `CHAT_PROVIDER` / `CHAT_FALLBACK_PROVIDER` | provider pertama yang punya key, urut `groq → gemini → openai → openrouter` | memaksa urutan provider; cadangan boleh beberapa nama dipisah koma (`gemini,openrouter`) |
 
-> ⚠️ `CHAT_FALLBACK_PROVIDER` bersifat **eksklusif**: begitu diisi, hanya provider
-> yang tertulis di situ yang dipakai sebagai cadangan — provider berkey lain
-> **tidak** diselipkan otomatis (`chatProviders.js`, cabang `fallbackNames`).
-> Jadi kalau nilainya masih `gemini` dari konfigurasi lama, menambahkan
-> `OPENROUTER_API_KEY` tidak akan berefek apa pun. Isi `gemini,openrouter`,
-> atau kosongkan/hapus variabelnya supaya semua provider berkey ikut otomatis.
-> Nilai `none` mematikan seluruh cadangan.
+> `CHAT_FALLBACK_PROVIDER` mengatur **urutan** cadangan, bukan membatasinya:
+> nama yang ditulis dicoba lebih dulu, lalu provider lain yang key-nya sudah
+> diisi ikut di belakangnya. Jadi `gemini` saja tetap menghasilkan
+> `groq → gemini → openrouter` begitu `OPENROUTER_API_KEY` ada — menambah key
+> selalu berefek. Satu-satunya nilai yang mematikan cadangan adalah `none`.
+>
+> (Perilaku ini berubah di commit `feat(chat): provider berkey selalu jadi
+> cadangan`. Sebelumnya daftar dihormati **persis**, sehingga key baru tidak
+> berefek sampai daftar lama ikut disunting.)
 | `OPENROUTER_CHAT_MODEL` | 4 model gratis berurutan (lihat docs bagian 3c) | daftar model OpenRouter; dicoba berurutan |
 | `OPENROUTER_REASONING` | `off` | `off` / `exclude` / `default` — mematikan jejak berpikir |
 | `OPENROUTER_FAILURE_COOLDOWN_MS` | `60000` | jeda sebelum model yang baru gagal dicoba lagi (`0` = selalu coba) |
@@ -114,7 +116,7 @@ ulang selesai baru jalankan verifikasi ini.
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
-| Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | `CHAT_FALLBACK_PROVIDER` masih `gemini` (eksklusif), atau key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway |
+| Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway (`openrouter=missing` berarti variabelnya belum sampai ke service) |
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
@@ -137,7 +139,6 @@ repo publik. Karena itu verifikasi provider chat di produksi dilakukan lewat:
    Baris kedua itu menjawab langsung "apakah key OpenRouter sudah terbaca
    proses?": kalau tertulis `openrouter=missing` maka variabelnya belum sampai
    ke service ini (nama salah tulis, dipasang di service/environment lain, atau
-   container belum restart) — bukan soal modelnya. Kalau `openrouter=configured`
-   tetapi rantainya cuma `groq > gemini`, penyebabnya `CHAT_FALLBACK_PROVIDER`
-   yang diisi eksklusif (lihat catatan di bagian C). Nilainya hanya
+   container belum restart) — bukan soal modelnya. Kalau `openrouter=configured`,
+   namanya pasti muncul juga di rantai (`groq > … > openrouter`). Nilainya hanya
    `configured`/`missing`, tidak pernah memuat isi key.

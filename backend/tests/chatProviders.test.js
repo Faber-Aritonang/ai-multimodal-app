@@ -125,6 +125,35 @@ describe('pemilihan provider', () => {
     expect(getChatChain()).toEqual(['groq', 'gemini']);
   });
 
+  test('daftar cadangan tidak menutup provider berkey yang tidak disebut', () => {
+    process.env.GROQ_API_KEY = 'gsk-test';
+    process.env.GEMINI_API_KEY = 'gemini-test';
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.CHAT_FALLBACK_PROVIDER = 'gemini';
+
+    // Kasus nyata: operator menambah OPENROUTER_API_KEY ke platform, sementara
+    // daftar cadangan lama masih `gemini`. Key baru itu tidak boleh diam.
+    expect(getChatChain()).toEqual(['groq', 'gemini', 'openrouter']);
+  });
+
+  test('urutan yang ditulis operator tetap didahulukan', () => {
+    process.env.GROQ_API_KEY = 'gsk-test';
+    process.env.GEMINI_API_KEY = 'gemini-test';
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.CHAT_FALLBACK_PROVIDER = 'openrouter';
+
+    expect(getChatChain()).toEqual(['groq', 'openrouter', 'gemini']);
+  });
+
+  test('CHAT_FALLBACK_PROVIDER=none tetap mematikan cadangan berkey', () => {
+    process.env.GROQ_API_KEY = 'gsk-test';
+    process.env.GEMINI_API_KEY = 'gemini-test';
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.CHAT_FALLBACK_PROVIDER = 'none';
+
+    expect(getChatChain()).toEqual(['groq']);
+  });
+
   test('OpenRouter jadi cadangan terakhir saat key-nya diisi', () => {
     process.env.GROQ_API_KEY = 'gsk-test';
     process.env.GEMINI_API_KEY = 'gemini-test';

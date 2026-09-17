@@ -9,7 +9,9 @@
  *   CHAT_PROVIDER           = groq | gemini | openai | openrouter
  *   CHAT_FALLBACK_PROVIDER  = groq | gemini | openai | openrouter | none
  *                             (boleh beberapa nama dipisah koma, mis.
- *                              `gemini,openrouter` — dicoba berurutan)
+ *                              `gemini,openrouter` — dicoba berurutan;
+ *                              provider berkey lain tetap ikut di belakangnya,
+ *                              lihat catatan di getChatChain)
  *   OPENROUTER_CHAT_MODEL   = daftar model OpenRouter, dipisah koma dan dicoba
  *                             berurutan (huruf besar/kecil tidak diubah)
  *   OPENROUTER_FAILURE_COOLDOWN_MS = jeda sebelum model yang baru gagal dicoba
@@ -29,9 +31,10 @@
 const { getClient, getChatModel } = require('./openai');
 
 const DEFAULT_MAX_TOKENS = 2000;
-// Urutan ini menentukan provider utama default sekaligus urutan cadangan saat
-// CHAT_FALLBACK_PROVIDER tidak diisi. OpenRouter ditaruh paling akhir supaya
-// provider utama dan cadangan yang sudah ada tidak bergeser posisinya.
+// Urutan ini menentukan provider utama default sekaligus urutan cadangan:
+// nama yang ditulis di CHAT_FALLBACK_PROVIDER didahulukan, sisanya mengikuti
+// urutan ini. OpenRouter ditaruh paling akhir supaya provider utama dan
+// cadangan yang sudah ada tidak bergeser posisinya.
 const PROVIDER_ORDER = ['groq', 'gemini', 'openai', 'openrouter'];
 
 // Groq biasanya menjawab < 1 detik, tapi free tier Gemini terukur 17-60 detik
@@ -458,7 +461,34 @@ const resolveDefaultPrimary = () =>
   PROVIDER_ORDER.find((name) => PROVIDERS[name].isConfigured()) || PROVIDER_ORDER[0];
 
 /**
+ * Tambahkan semua provider lain yang kredensialnya tersedia, sesuai urutan
+ * prioritas, tanpa menggeser provider yang sudah ada di dalam rantai.
+ *
+ * Dipakai baik saat daftar cadangan tidak diatur maupun saat operator menulis
+ * daftarnya sendiri. Key yang sudah diisi tidak boleh "diam" hanya karena
+ * daftar itu tidak menyebut namanya: key adalah bukti operator menyiapkan
+ * provider tersebut, sedangkan `CHAT_FALLBACK_PROVIDER` mengatur **urutan**
+ * cadangan, bukan membatasi siapa saja yang boleh dipakai. Perilaku lama
+ * (daftar dihormati persis) membuat key yang baru ditambahkan tidak berefek
+ * sampai daftar lama ikut disunting — sumber kebingungan yang nyata.
+ */
+const appendConfiguredProviders = (chain) => {
+  for (const name of PROVIDER_ORDER) {
+    if (!chain.includes(name) && PROVIDERS[name].isConfigured()) chain.push(name);
+  }
+
+  return chain;
+};
+
+/**
  * Urutan provider yang akan dicoba untuk satu pesan.
+ *
+ * Provider pertama selalu `CHAT_PROVIDER` (atau provider pertama yang punya
+ * key). Sesudahnya: nama yang ditulis di `CHAT_FALLBACK_PROVIDER` lebih dulu —
+ * urutannya dihormati — lalu sisa provider yang kredensialnya tersedia.
+ * `CHAT_FALLBACK_PROVIDER=none` adalah satu-satunya nilai yang benar-benar
+ * mematikan cadangan, termasuk untuk provider yang key-nya sudah diisi.
+ *
  * @returns {string[]}
  * @throws {Error} jika nama provider di env tidak dikenal
  */
@@ -478,32 +508,24 @@ const getChatChain = () => {
   if (fallbackEnv !== undefined && normalizeName(fallbackEnv) === 'none') return chain;
 
   // Cadangan eksplisit: boleh satu nama (`gemini`) atau beberapa dipisah koma
-  // (`gemini,openrouter`). Provider yang ditulis dihormati persis — tidak ada
-  // provider lain yang diselipkan otomatis, supaya urutan cadangan yang sudah
-  // dipilih operator tidak berubah diam-diam.
+  // (`gemini,openrouter`). Urutan yang ditulis dihormati, lalu provider berkey
+  // yang belum tercantum tetap ditambahkan di belakangnya.
   const fallbackNames = fallbackEnv === undefined ? [] : parseProviderList(fallbackEnv);
 
-  if (fallbackNames.length) {
-    for (const name of fallbackNames) {
-      if (!PROVIDERS[name]) {
-        throw createError(
-          `Unknown CHAT_FALLBACK_PROVIDER "${name}". Available: ${PROVIDER_ORDER.join(', ')}, none.`,
-          'INVALID_PROVIDER_CONFIG'
-        );
-      }
-
-      if (!chain.includes(name)) chain.push(name);
+  for (const name of fallbackNames) {
+    if (!PROVIDERS[name]) {
+      throw createError(
+        `Unknown CHAT_FALLBACK_PROVIDER "${name}". Available: ${PROVIDER_ORDER.join(', ')}, none.`,
+        'INVALID_PROVIDER_CONFIG'
+      );
     }
 
-    return chain;
+    if (!chain.includes(name)) chain.push(name);
   }
 
-  // Default: semua provider lain yang kredensialnya tersedia.
-  for (const name of PROVIDER_ORDER) {
-    if (!chain.includes(name) && PROVIDERS[name].isConfigured()) chain.push(name);
-  }
-
-  return chain;
+  // Default maupun daftar eksplisit sama-sama ditutup dengan provider berkey
+  // yang belum ikut, supaya menambahkan key selalu berefek.
+  return appendConfiguredProviders(chain);
 };
 
 /**
