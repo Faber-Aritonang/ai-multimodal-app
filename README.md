@@ -17,7 +17,7 @@ Full-stack web application with AI-powered multimodal features including chat, t
 ## Features
 
 ### Available Features
-- **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI sebagai fallback)
+- **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI/OpenRouter sebagai fallback)
 - **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
@@ -41,7 +41,7 @@ Full-stack web application with AI-powered multimodal features including chat, t
 | **Database** | MongoDB Atlas | ✅ 512MB Free | MongoDB Cloud |
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
-| **Chat (LLM)** | Groq + Gemini fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
+| **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -94,7 +94,7 @@ JWT_SECRET=your-super-secret-key-here
 FIREBASE_SERVICE_ACCOUNT=./config/firebase-service-account.json
 
 # AI APIs — semua fitur AI punya jalur gratis, OPENAI_API_KEY tidak wajib lagi.
-# (Chat: Groq/Gemini gratis · Text-to-Image: Pollinations tanpa key ·
+# (Chat: Groq/Gemini/OpenRouter gratis · Text-to-Image: Pollinations tanpa key ·
 #  Image-to-Image: Cloudflare atau PUBLIC_BASE_URL publik)
 # OPENAI_API_KEY=sk-your-key   # opsional, hanya untuk provider berbayar
 
@@ -116,7 +116,20 @@ IMAGE_FALLBACK_PROVIDER=pollinations
 GROQ_API_KEY=gsk_your-groq-key
 CHAT_PROVIDER=groq
 GEMINI_API_KEY=your-gemini-key
-CHAT_FALLBACK_PROVIDER=gemini
+# Cadangan boleh lebih dari satu, dipisah koma dan dicoba berurutan.
+CHAT_FALLBACK_PROVIDER=gemini,openrouter
+# OpenRouter: model gratis berakhiran `:free`. Opsional — kalau key-nya kosong,
+# provider ini hanya dilewati dan rantai cadangan lama tidak berubah.
+# OPENROUTER_API_KEY=sk-or-your-openrouter-key
+# Boleh beberapa model dipisah koma (dicoba berurutan; limit gratis berlaku
+# per model). Model-model itu bisa berpikir (reasoning); penalarannya dimatikan
+# default (off) agar jawaban tidak berupa jejak berpikir.
+# OPENROUTER_CHAT_MODEL=nex-agi/nex-n2.5-mini:free,nvidia/nemotron-3-super-120b-a12b:free,inclusionai/ling-3.0-flash-vl:free,inclusionai/ling-3.0-flash-fin:free,z-ai/glm-5.2:free
+# OPENROUTER_REASONING=off
+# Model yang baru gagal dijeda 60 detik (dilewati tanpa request) agar kegagalan
+# yang sama tidak dibayar berulang kali; set 0 untuk selalu mencoba semuanya.
+# OPENROUTER_FAILURE_COOLDOWN_MS=60000
+# Lihat docs/setup-kredensial.md bagian 3c untuk hasil pembandingannya.
 
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
@@ -411,7 +424,8 @@ FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
 OPENAI_API_KEY=your-openai-key
 GROQ_API_KEY=gsk_your-groq-key
 CHAT_PROVIDER=groq
-CHAT_FALLBACK_PROVIDER=gemini
+CHAT_FALLBACK_PROVIDER=gemini,openrouter
+OPENROUTER_API_KEY=sk-or-your-openrouter-key
 CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 IMAGE_PROVIDER=cloudflare

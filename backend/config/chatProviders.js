@@ -6,12 +6,21 @@
  *   generate({ messages, maxTokens }) -> { content, model, usage }
  *
  * Dipilih lewat env:
- *   CHAT_PROVIDER           = groq | gemini | openai
- *   CHAT_FALLBACK_PROVIDER  = groq | gemini | openai | none
+ *   CHAT_PROVIDER           = groq | gemini | openai | openrouter
+ *   CHAT_FALLBACK_PROVIDER  = groq | gemini | openai | openrouter | none
+ *                             (boleh beberapa nama dipisah koma, mis.
+ *                              `gemini,openrouter` — dicoba berurutan)
+ *   OPENROUTER_CHAT_MODEL   = daftar model OpenRouter, dipisah koma dan dicoba
+ *                             berurutan (huruf besar/kecil tidak diubah)
+ *   OPENROUTER_FAILURE_COOLDOWN_MS = jeda sebelum model yang baru gagal dicoba
+ *                             lagi (default 60000; 0 = selalu coba semua)
+ *   OPENROUTER_REASONING    = off | exclude | default  (default: off)
+ *                             (khusus provider OpenRouter — lihat catatan di
+ *                              DEFAULT_OPENROUTER_REASONING)
  *
  * Default tanpa mengisi apa pun: provider pertama yang punya API key, dengan
- * urutan Groq → Gemini → OpenAI. Fallback dipakai otomatis saat provider utama
- * gagal (mis. kuota harian gratisnya habis).
+ * urutan Groq → Gemini → OpenAI → OpenRouter. Fallback dipakai otomatis saat
+ * provider utama gagal (mis. kuota harian gratisnya habis).
  *
  * Catatan penting: berbeda dari text-to-image, chat tidak punya provider tanpa
  * API key, jadi minimal satu key wajib diisi.
@@ -20,7 +29,10 @@
 const { getClient, getChatModel } = require('./openai');
 
 const DEFAULT_MAX_TOKENS = 2000;
-const PROVIDER_ORDER = ['groq', 'gemini', 'openai'];
+// Urutan ini menentukan provider utama default sekaligus urutan cadangan saat
+// CHAT_FALLBACK_PROVIDER tidak diisi. OpenRouter ditaruh paling akhir supaya
+// provider utama dan cadangan yang sudah ada tidak bergeser posisinya.
+const PROVIDER_ORDER = ['groq', 'gemini', 'openai', 'openrouter'];
 
 // Groq biasanya menjawab < 1 detik, tapi free tier Gemini terukur 17-60 detik
 // (dan kadang 503 sesaat lalu berhasil saat di-retry). Timeout dibuat eksplisit
@@ -34,14 +46,124 @@ const getRequestTimeoutMs = () =>
 
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-120b';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+// Model gratis dari OpenRouter (gratis = akhiran `:free`, rate limit harian).
+//
+// Dipilih setelah membandingkan 22 model `:free` di katalog OpenRouter: ini yang
+// paling cepat dan paling konsisten (±0,7–1,0 detik, 6/6 permintaan berhasil),
+// setara provider utama Groq (±0,9 detik). Pembanding terdekat, model
+// `nvidia/nemotron-3.5-lightning:free` yang dipakai sebelumnya, terukur ±71–76
+// detik untuk prompt yang sama — terlalu lambat sebagai cadangan karena sudah
+// melewati `CHAT_REQUEST_TIMEOUT_MS` (90 detik) pada jawaban yang panjang.
+//
+// Urutannya penting: model tercepat dipakai lebih dulu, lalu model berikutnya
+// menampung kasus rate limit/kuota model gratis yang bersifat per model.
+// Model kedua terukur ±5,0–6,3 detik (pernah `503 Service temporarily overloaded`
+// dari sisi NVIDIA), dan model ketiga ±1,0–1,9 detik (4/4 percobaan berhasil) —
+// sengaja ditaruh paling akhir sebagai jaring pengaman terakhir, bukan pilihan
+// pertama, supaya urutan yang sudah dipakai tidak bergeser.
+//
+// Model keempat (`inclusionai/ling-3.0-flash-fin:free`) terukur 815–2317 ms,
+// 3/3 percobaan berhasil, jawabannya rapi — varian "fin" dari model ketiga.
+//
+// `z-ai/glm-5.2:free` dikeluarkan dari daftar: ia selalu dibalas `429` karena
+// kolam gratis bersama provider upstreamnya (`limit_source:
+// upstream_provider_shared_pool`, provider "Decart") sedang jenuh — 0 berhasil
+// dari 8 percobaan di empat ronde pengujian. Itu bukan kuota akun kita, jadi
+// ia bisa dimasukkan kembali kapan saja lewat OPENROUTER_CHAT_MODEL begitu
+// kolamnya longgar (opsi BYOK ada di docs bagian 3c).
+const DEFAULT_OPENROUTER_MODELS = [
+  'nex-agi/nex-n2.5-mini:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'inclusionai/ling-3.0-flash-vl:free',
+  'inclusionai/ling-3.0-flash-fin:free'
+];
+const DEFAULT_OPENROUTER_MODEL = DEFAULT_OPENROUTER_MODELS[0];
+
+// Model ini tetap bisa berpikir (reasoning): kalau dibiarkan, ia memakai jatah
+// `max_tokens` untuk berpikir dan yang tersisa di `content` hanya jejak berpikir
+// ("Here's a thinking process: ..."), sementara waktunya membengkak (terukur
+// ±100 detik vs ±19 detik saat penalaran dimatikan). Jadi secara default
+// penalaran dimatikan untuk provider ini.
+//   off     -> reasoning.enabled=false  (jawaban bersih, tercepat)
+//   exclude -> reasoning.exclude=true   (tetap berpikir, jejaknya disembunyikan)
+//   default -> tidak mengirim parameter apa pun (ikut perilaku model)
+const DEFAULT_OPENROUTER_REASONING = 'off';
+const OPENROUTER_REASONING_MODES = {
+  off: { enabled: false },
+  exclude: { exclude: true },
+  default: null
+};
+
+const getOpenRouterReasoning = () => {
+  const raw =
+    process.env.OPENROUTER_REASONING === undefined
+      ? DEFAULT_OPENROUTER_REASONING
+      : normalizeName(process.env.OPENROUTER_REASONING);
+
+  // Nilai tak dikenal sengaja tidak melempar error: salah tulis di env tidak
+  // boleh mematikan seluruh fitur chat, cukup kembali ke perilaku model.
+  return OPENROUTER_REASONING_MODES[raw] ?? OPENROUTER_REASONING_MODES.default;
+};
+
+/**
+ * Jeda sebelum model OpenRouter yang baru gagal dicoba lagi.
+ *
+ * Batas gratis di OpenRouter bersifat per model dan sering bertahan lebih dari
+ * satu request (mis. `429` dari upstream z-ai yang bertahan berjam-jam). Tanpa
+ * ingatan antar-request, setiap pesan user membayar ulang kegagalan yang sama —
+ * itulah yang membuat "semua provider gagal" terasa lama. Nilai 0 mematikan
+ * jeda ini (semua model selalu dicoba).
+ */
+const DEFAULT_OPENROUTER_COOLDOWN_MS = 60000;
+
+// Retry bawaan SDK sengaja dimatikan untuk OpenRouter: percobaan ulang di sini
+// sudah ditangani dengan mencoba model berikutnya, jadi retry internal hanya
+// menggandakan waktu tunggu saat sebuah model sedang kena `429`.
+const OPENROUTER_MAX_RETRIES = 0;
+
+// model -> { until, reason } untuk model yang baru gagal.
+const openRouterFailures = new Map();
+
+const getOpenRouterCooldownMs = () =>
+  process.env.OPENROUTER_FAILURE_COOLDOWN_MS === undefined
+    ? DEFAULT_OPENROUTER_COOLDOWN_MS
+    : Number(process.env.OPENROUTER_FAILURE_COOLDOWN_MS) || 0;
+
+const recordOpenRouterFailure = (model, reason) => {
+  openRouterFailures.set(model, { until: Date.now() + getOpenRouterCooldownMs(), reason });
+};
+
+/**
+ * Sisa waktu jeda sebuah model dalam milidetik (0 = siap dicoba).
+ * Catatan yang sudah kedaluwarsa langsung dibuang supaya Map tidak menumpuk.
+ */
+const getOpenRouterCooldownRemaining = (model, now = Date.now()) => {
+  const entry = openRouterFailures.get(model);
+  if (!entry) return 0;
+
+  const remaining = entry.until - now;
+  if (remaining <= 0) {
+    openRouterFailures.delete(model);
+    return 0;
+  }
+
+  return remaining;
+};
+
+const getOpenRouterFailureReason = (model) => openRouterFailures.get(model)?.reason || null;
+
+/** Dipakai test agar jeda antar-test tidak saling mewarisi. */
+const resetOpenRouterCooldowns = () => openRouterFailures.clear();
 
 // Nilai placeholder di .env.example tidak dianggap konfigurasi valid.
 const PLACEHOLDER_VALUES = new Set([
   'gsk-your-groq-key-here',
-  'your-gemini-key-here'
+  'your-gemini-key-here',
+  'your-openrouter-key-here'
 ]);
 
 const isSet = (value) => {
@@ -72,6 +194,35 @@ const createError = (message, code) => {
 const normalizeName = (value) => String(value || '').trim().toLowerCase();
 
 /**
+ * Pecah nilai env berisi beberapa nama provider dipisah koma menjadi daftar.
+ * Satu nama tetap bekerja seperti sebelumnya (`gemini`), tapi sekarang bisa
+ * juga berisi rantai cadangan (`gemini,openrouter`).
+ */
+const parseProviderList = (value) => parseModelList(value).map((name) => normalizeName(name));
+
+/**
+ * Pecah daftar model dari env menjadi array.
+ *
+ * Berbeda dari nama provider, id model TIDAK dinormalkan: nilainya adalah
+ * pengenal dari katalog OpenRouter (mis. `meta-llama/Llama-3.3-70B-Instruct:free`),
+ * dan yang diketik operator dikirim apa adanya.
+ */
+const parseModelList = (value) => {
+  const seen = new Set();
+
+  return String(value || '')
+    .split(',')
+    .map((model) => model.trim())
+    .filter((model) => {
+      // Model kembar dibuang: menuliskan model yang sama dua kali hanya membuat
+      // kegagalannya dibayar dua kali dalam satu permintaan.
+      if (model === '' || seen.has(model)) return false;
+      seen.add(model);
+      return true;
+    });
+};
+
+/**
  * Pesan error provider + status HTTP bila ada (mis. 429 saat kuota habis).
  */
 const describeError = (error) =>
@@ -80,13 +231,25 @@ const describeError = (error) =>
 /**
  * Panggil chat completion dan ambil teks jawabannya.
  */
-const requestCompletion = async ({ client, model, messages, maxTokens, maxTokensParam }) => {
+const requestCompletion = async ({
+  client,
+  model,
+  messages,
+  maxTokens,
+  maxTokensParam,
+  reasoning
+}) => {
   const params = { model, messages };
 
   // Nama parameter batas token berbeda antar penyedia:
   // Groq sudah menandai `max_tokens` sebagai deprecated, sedangkan lapisan
   // kompatibilitas Gemini mengabaikan field yang tidak dikenal.
   if (maxTokens) params[maxTokensParam] = maxTokens;
+
+  // Parameter khusus reasoning model (OpenRouter). Tanpa arahan eksplisit,
+  // penalaran bisa menghabiskan seluruh jatah token sehingga jawaban tidak
+  // pernah muncul di `content`.
+  if (reasoning) params.reasoning = reasoning;
 
   const response = await client.chat.completions.create(params);
   const content = response?.choices?.[0]?.message?.content;
@@ -192,7 +355,101 @@ const openai = {
   }
 };
 
-const PROVIDERS = { groq, gemini, openai };
+/**
+ * OpenRouter — gateway ke banyak model (termasuk yang gratis, ditandai `:free`).
+ * Endpoint-nya kompatibel OpenAI, jadi cukup baseURL + key yang berbeda.
+ * Dipakai sebagai cadangan tambahan: key-nya opsional, dan selama
+ * OPENROUTER_API_KEY kosong provider ini hanya dilewati.
+ */
+const openrouter = {
+  name: 'openrouter',
+  label: 'OpenRouter (model gratis)',
+  envVars: ['OPENROUTER_API_KEY'],
+  maxTokensParam: 'max_tokens',
+
+  isConfigured: () => isSet(process.env.OPENROUTER_API_KEY),
+
+  /**
+   * Semua model yang akan dicoba untuk provider ini, berurutan.
+   * Satu nama di `OPENROUTER_CHAT_MODEL` tetap bekerja seperti sebelumnya; nilai
+   * berisi koma menambahkan model cadangan di dalam provider yang sama. Nama yang
+   * tertulis dua kali dihitung sekali.
+   * @returns {string[]}
+   */
+  getModels() {
+    const configured =
+      process.env.OPENROUTER_CHAT_MODEL === undefined
+        ? DEFAULT_OPENROUTER_MODELS
+        : parseModelList(process.env.OPENROUTER_CHAT_MODEL);
+
+    // Nilai kosong (mis. `OPENROUTER_CHAT_MODEL=`) jangan membuat daftar kosong,
+    // karena itu akan mematikan provider ini tanpa penjelasan.
+    return configured.length ? configured : DEFAULT_OPENROUTER_MODELS;
+  },
+
+  // Metode biasa (bukan arrow function) supaya `this` menunjuk ke provider ini.
+  getModel() {
+    return this.getModels()[0];
+  },
+
+  async generate({ messages, maxTokens }) {
+    const models = this.getModels();
+    const now = Date.now();
+    const cooling = models
+      .map((model) => ({ model, remaining: getOpenRouterCooldownRemaining(model, now) }))
+      .filter((item) => item.remaining > 0);
+
+    // Semua model sedang dijeda -> gagal cepat. Ini yang membuat kegagalan total
+    // tidak lagi memakan waktu: percobaan ulang tetap dijamin terjadi karena jeda
+    // punya batas waktu (default 60 detik), bukan mematikan provider selamanya.
+    const candidates = models.filter(
+      (model) => !cooling.some((item) => item.model === model)
+    );
+
+    const failures = cooling.map(
+      (item) =>
+        `${item.model}: dijeda ${Math.ceil(item.remaining / 1000)} detik lagi ` +
+        `(percobaan terakhir: ${getOpenRouterFailureReason(item.model)})`
+    );
+
+    // Batas gratis OpenRouter berlaku per model, jadi model berikutnya dicoba
+    // ketika model sebelumnya menolak (mis. 429/503) — rantai kecil di dalam
+    // satu provider, sama seperti rantai antar-provider di `generateChatReply`.
+    for (const model of candidates) {
+      try {
+        const result = await requestCompletion({
+          client: getClient({
+            apiKey: sanitizeSecret(process.env.OPENROUTER_API_KEY),
+            baseURL: process.env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL,
+            timeout: getRequestTimeoutMs(),
+            maxRetries: OPENROUTER_MAX_RETRIES
+          }),
+          model,
+          messages,
+          maxTokens,
+          maxTokensParam: this.maxTokensParam,
+          reasoning: getOpenRouterReasoning()
+        });
+
+        // Model ini sehat lagi: hapus catatan kegagalannya supaya request
+        // berikutnya langsung memakainya kembali.
+        openRouterFailures.delete(model);
+        return result;
+      } catch (error) {
+        const reason = describeError(error);
+        recordOpenRouterFailure(model, reason);
+        failures.push(`${model}: ${reason}`);
+      }
+    }
+
+    throw createError(
+      `All OpenRouter models failed (${failures.join('; ')})`,
+      'PROVIDER_UNAVAILABLE'
+    );
+  }
+};
+
+const PROVIDERS = { groq, gemini, openai, openrouter };
 
 /**
  * Provider pertama yang siap dipakai, sesuai urutan prioritas.
@@ -216,22 +473,28 @@ const getChatChain = () => {
   }
 
   const chain = [explicit || resolveDefaultPrimary()];
-  const fallbackRaw =
-    process.env.CHAT_FALLBACK_PROVIDER === undefined
-      ? null
-      : normalizeName(process.env.CHAT_FALLBACK_PROVIDER);
+  const fallbackEnv = process.env.CHAT_FALLBACK_PROVIDER;
 
-  if (fallbackRaw === 'none') return chain;
+  if (fallbackEnv !== undefined && normalizeName(fallbackEnv) === 'none') return chain;
 
-  if (fallbackRaw) {
-    if (!PROVIDERS[fallbackRaw]) {
-      throw createError(
-        `Unknown CHAT_FALLBACK_PROVIDER "${fallbackRaw}". Available: ${PROVIDER_ORDER.join(', ')}, none.`,
-        'INVALID_PROVIDER_CONFIG'
-      );
+  // Cadangan eksplisit: boleh satu nama (`gemini`) atau beberapa dipisah koma
+  // (`gemini,openrouter`). Provider yang ditulis dihormati persis — tidak ada
+  // provider lain yang diselipkan otomatis, supaya urutan cadangan yang sudah
+  // dipilih operator tidak berubah diam-diam.
+  const fallbackNames = fallbackEnv === undefined ? [] : parseProviderList(fallbackEnv);
+
+  if (fallbackNames.length) {
+    for (const name of fallbackNames) {
+      if (!PROVIDERS[name]) {
+        throw createError(
+          `Unknown CHAT_FALLBACK_PROVIDER "${name}". Available: ${PROVIDER_ORDER.join(', ')}, none.`,
+          'INVALID_PROVIDER_CONFIG'
+        );
+      }
+
+      if (!chain.includes(name)) chain.push(name);
     }
 
-    if (!chain.includes(fallbackRaw)) chain.push(fallbackRaw);
     return chain;
   }
 
@@ -276,7 +539,8 @@ const generateChatReply = async ({ messages, maxTokens }) => {
 
   throw createError(
     `All chat providers failed (${summary}). Set a free API key in backend/.env: ` +
-      'GROQ_API_KEY (https://console.groq.com/keys) or GEMINI_API_KEY.',
+      'GROQ_API_KEY (https://console.groq.com/keys), GEMINI_API_KEY, or ' +
+      'OPENROUTER_API_KEY (https://openrouter.ai/keys).',
     nothingConfigured ? 'MISSING_CREDENTIALS' : 'PROVIDER_UNAVAILABLE'
   );
 };
@@ -309,6 +573,12 @@ module.exports = {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_GROQ_MODEL,
   DEFAULT_GEMINI_MODEL,
+  DEFAULT_OPENROUTER_MODEL,
+  DEFAULT_OPENROUTER_MODELS,
+  DEFAULT_OPENROUTER_COOLDOWN_MS,
+  DEFAULT_OPENROUTER_REASONING,
+  resetOpenRouterCooldowns,
+  OPENROUTER_BASE_URL,
   PROVIDERS,
   PROVIDER_ORDER
 };

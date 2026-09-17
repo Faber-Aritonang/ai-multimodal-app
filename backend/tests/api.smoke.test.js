@@ -79,6 +79,8 @@ describe('GET /health', () => {
       'CHAT_FALLBACK_PROVIDER',
       'GROQ_API_KEY',
       'GEMINI_API_KEY',
+      'OPENROUTER_API_KEY',
+      'OPENROUTER_CHAT_MODEL',
       'IMAGE_EDIT_PROVIDER',
       'IMAGE_EDIT_FALLBACK_PROVIDER',
       'PUBLIC_BASE_URL',
@@ -103,6 +105,8 @@ describe('GET /health', () => {
         'CHAT_FALLBACK_PROVIDER',
         'GROQ_API_KEY',
         'GEMINI_API_KEY',
+        'OPENROUTER_API_KEY',
+        'OPENROUTER_CHAT_MODEL',
         // Penyimpanan juga dibersihkan: nilainya ikut muncul di /health, dan
         // test bisa berjalan di mesin yang env-nya sudah berisi kredensial S3.
         'STORAGE_PROVIDER',
@@ -144,7 +148,12 @@ describe('GET /health', () => {
         firebase: 'missing',
         openai: 'missing',
         chatProvider: 'groq',
-        chatProviders: { groq: 'missing', gemini: 'missing', openai: 'missing' },
+        chatProviders: {
+          groq: 'missing',
+          gemini: 'missing',
+          openai: 'missing',
+          openrouter: 'missing'
+        },
         imageProvider: 'pollinations',
         imageFallback: 'none',
         imageProviders: {
@@ -210,6 +219,9 @@ describe('GET /health', () => {
     test('GROQ_API_KEY membuat Groq menjadi provider chat utama', async () => {
       process.env.GROQ_API_KEY = 'gsk-test';
       process.env.GEMINI_API_KEY = 'gemini-test';
+      // Kredensial OpenRouter milik mesin pengembang (dari .env) tidak boleh
+      // membuat test ini gagal — perilakunya diuji di test tersendiri di bawah.
+      delete process.env.OPENROUTER_API_KEY;
 
       const status = await services();
 
@@ -217,8 +229,19 @@ describe('GET /health', () => {
       expect(status.chatProviders).toEqual({
         groq: 'configured',
         gemini: 'configured',
-        openai: 'missing'
+        openai: 'missing',
+        openrouter: 'missing'
       });
+    });
+
+    test('OPENROUTER_API_KEY menambah cadangan tanpa menggeser provider utama', async () => {
+      process.env.GROQ_API_KEY = 'gsk-test';
+      process.env.OPENROUTER_API_KEY = 'sk-or-test';
+
+      const status = await services();
+
+      expect(status.chatProvider).toBe('groq');
+      expect(status.chatProviders.openrouter).toBe('configured');
     });
 
     test('path service account yang filenya tidak ada -> missing', async () => {

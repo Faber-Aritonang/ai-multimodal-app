@@ -15,6 +15,27 @@ const { getChatChain, PROVIDERS } = require('./chatProviders');
 const APP_NAME = 'AI Multimodal';
 
 /**
+ * Nama model yang bisa menjawab dari satu provider.
+ *
+ * Sebagian provider (OpenRouter) punya beberapa model cadangan di dalam dirinya,
+ * jadi identitas di system prompt harus menyebut semuanya — kalau hanya model
+ * pertama yang disebut, balasan dari model kedua akan dilaporkan dengan nama
+ * model yang salah saat user bertanya.
+ */
+const describeProviderModels = (provider) => {
+  if (!provider) return null;
+
+  const models =
+    typeof provider.getModels === 'function'
+      ? provider.getModels()
+      : provider.getModel
+        ? [provider.getModel()]
+        : [];
+
+  return models.length ? models.join(', ') : null;
+};
+
+/**
  * Provider & model yang akan dicoba lebih dulu, plus daftar cadangan.
  * Dibungkus try/catch karena `getChatChain()` melempar error saat env provider
  * salah tulis — dan itu tidak boleh menggagalkan seluruh permintaan chat.
@@ -37,12 +58,12 @@ const describeActiveModel = () => {
   const fallbackProviders = chain.slice(1).map((name) => ({
     name,
     label: PROVIDERS[name]?.label || name,
-    model: PROVIDERS[name]?.getModel?.() || null
+    model: describeProviderModels(PROVIDERS[name])
   }));
 
   return {
     label: primary?.label || null,
-    model: primary?.getModel?.() || null,
+    model: describeProviderModels(primary),
     fallbacks: chain.slice(1),
     fallbackProviders
   };

@@ -304,7 +304,7 @@ sebenarnya bukan hasil edit.
 
 ---
 
-## 3c. Chat gratis (Groq + Gemini)
+## 3c. Chat gratis (Groq + Gemini + OpenRouter)
 
 Fitur chat (LLM) juga tidak wajib memakai OpenAI. Provider dipilih lewat
 `CHAT_PROVIDER`; semuanya memakai endpoint yang **kompatibel dengan OpenAI**,
@@ -315,10 +315,15 @@ jadi tidak ada dependency baru.
 | `groq` | `GROQ_API_KEY` | **Ya**, tanpa kartu kredit | 30 req/menit, **1.000 req/hari**, 8K token/menit, 200K token/hari |
 | `gemini` | `GEMINI_API_KEY` | **Ya** | free tier paling longgar |
 | `openai` | `OPENAI_API_KEY` | Tidak | butuh billing aktif |
+| `openrouter` | `OPENROUTER_API_KEY` | **Ya** untuk model `:free` | rate limit harian per model |
 
 **Urutan default tanpa mengisi apa pun:** provider pertama yang punya key, urut
-**Groq → Gemini → OpenAI**. Fallback otomatis dipakai kalau provider utama gagal
-(mis. kuota harian gratisnya habis) atau balasannya kosong.
+**Groq → Gemini → OpenAI → OpenRouter**. Fallback otomatis dipakai kalau provider
+utama gagal (mis. kuota harian gratisnya habis) atau balasannya kosong.
+
+Provider yang tidak punya key otomatis dilewati, jadi menambahkan
+`OPENROUTER_API_KEY` **tidak mengubah** provider utama maupun cadangan yang sudah
+berjalan — OpenRouter hanya ditambahkan di urutan paling akhir.
 
 > ⚠️ Berbeda dari text-to-image, **chat wajib punya minimal satu API key** — tidak
 > ada provider chat yang benar-benar tanpa kredensial.
@@ -341,8 +346,136 @@ CHAT_FALLBACK_PROVIDER=gemini
 
 ```bash
 curl -s http://localhost:4000/health | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).services))'
-# chatProvider: 'groq', chatProviders: { groq: 'configured', gemini: 'configured', openai: 'missing' }
+# chatProvider: 'groq', chatProviders: { groq: 'configured', gemini: 'configured', openai: 'missing', openrouter: 'missing' }
 ```
+
+### Menambah OpenRouter sebagai cadangan tambahan
+
+Berguna saat kuota gratis Groq **dan** Gemini sama-sama habis (atau Gemini sedang
+`503`). Endpoint-nya kompatibel OpenAI, jadi tidak ada dependency baru.
+
+1. Buka **https://openrouter.ai/keys** → **Create Key** → salin nilainya.
+2. Isi `backend/.env` (tanpa mengubah baris yang sudah ada):
+
+```env
+OPENROUTER_API_KEY=sk-or-...
+# Boleh satu model, boleh beberapa dipisah koma — dicoba berurutan.
+OPENROUTER_CHAT_MODEL=nex-agi/nex-n2.5-mini:free,nvidia/nemotron-3-super-120b-a12b:free,inclusionai/ling-3.0-flash-vl:free,inclusionai/ling-3.0-flash-fin:free
+```
+
+Batas gratis OpenRouter berlaku **per model**, jadi menuliskan lebih dari satu
+model berarti: kalau model pertama kena `429`/`503`, model berikutnya langsung
+dicoba tanpa harus turun ke provider lain. Urutannya dipilih dari yang tercepat
+ke yang paling lambat:
+
+| Urutan | Model | Waktu | Kenapa di posisi ini |
+|---|---|---|---|
+| 1 | `nex-agi/nex-n2.5-mini:free` | **±0,7–1,0 detik** | tercepat & paling konsisten (6/6 berhasil) |
+| 2 | `nvidia/nemotron-3-super-120b-a12b:free` | ±5,0–6,3 detik | lebih pintar untuk soal sulit, tapi lebih lambat dan pernah `503` |
+| 3 | `inclusionai/ling-3.0-flash-vl:free` | ±1,0–1,9 detik | 4/4 berhasil, tapi tetap ditaruh setelah model yang sudah dipakai agar urutannya tidak bergeser |
+| 4 | `inclusionai/ling-3.0-flash-fin:free` | ±0,8–2,3 detik | varian "fin" dari model ketiga; 3/3 berhasil |
+
+Menuliskan model yang sama dua kali tidak masalah (dihitung sekali), tapi
+sebaiknya tetap rapi: daftar ini yang menentukan urutan percobaan.
+
+Kalau salah satu model gagal terus, ia **tidak** menghentikan permintaan: error
+baru dikembalikan setelah semua model di daftar itu habis dicoba, dan pesan
+errornya menyebut setiap model beserta sebabnya (mis.
+`All OpenRouter models failed (nex-agi/nex-n2.5-mini:free: ... 429; nvidia/nemotron-3-super-120b-a12b:free: ... 503)`).
+
+#### Kegagalan tidak dibayar berulang kali
+
+Retry bawaan SDK **dimatikan** untuk OpenRouter (`maxRetries: 0`): percobaan ulang
+di sini ditangani dengan pindah ke model berikutnya, jadi retry internal hanya
+menggandakan waktu tunggu saat sebuah model sedang kena `429`/`5xx`.
+
+Selain itu, model yang baru gagal **dijeda** (default 60 detik) dan dilewati
+tanpa request selama jeda itu. Jeda dipasang per model dan dihapus otomatis
+begitu model tersebut berhasil lagi, jadi ini bukan pemutusan permanen — model
+pasti dicoba lagi setelah jeda habis. Terukur pada gangguan nyata
+(list yang seluruh modelnya sedang gagal):
+
+| Request saat gangguan | Sebelum | Sesudah |
+|---|---|---|
+| ke-1 (menemukan kegagalan) | ±6–8 detik | ±5,6 detik |
+| ke-2 dan seterusnya | ±6 detik **per request** | **0 ms** |
+| satu model saja yang gagal, sisanya sehat | ±6 detik | **0 ms** (langsung ke model berikutnya)
+
+Atur lewat `OPENROUTER_FAILURE_COOLDOWN_MS` — mis. `0` untuk selalu mencoba
+semua model (berguna saat menguji), atau nilai lebih besar kalau provider sering
+kena batas harian:
+
+```env
+OPENROUTER_FAILURE_COOLDOWN_MS=60000   # default
+# OPENROUTER_FAILURE_COOLDOWN_MS=0     # matikan jeda
+```
+
+> ℹ️ Jeda ini disimpan di memori proses, bukan di database: setiap instance
+> backend punya catatannya sendiri dan kembali kosong setelah restart. Itu
+> disengaja — tujuannya hanya menghindari pembayaran waktu berulang, bukan
+> menyimpan status permanen.
+
+> ⚠️ **Jangan lupa akhiran `:free`.** Tanpa akhiran itu, id akan cocok ke varian
+> **berbayar** dan gagal dengan `402 Insufficient credits. This account never
+> purchased credits.` — pesan yang menyesatkan, karena yang kurang sebenarnya
+> cuma `:free` di belakang id. Nilai env model dikirim apa adanya (huruf
+> besar/kecilnya tidak diubah, berbeda dari env nama provider) meskipun
+> OpenRouter masih memaafkan perbedaan huruf besar/kecil; id yang benar-benar
+> tidak ada dibalas `400 ... is not a valid model ID` dan otomatis dilewati ke
+> model berikutnya.
+
+#### Pemilihan model gratis: hasil pembandingan
+
+Ke-22 model `:free` di katalog OpenRouter diuji dari mesin ini dengan prompt yang
+sama, penalaran dimatikan, dan `max_tokens` 1200–2000:
+
+| Model gratis | Waktu | Berhasil | Catatan |
+|---|---|---|---|
+| **`nex-agi/nex-n2.5-mini:free`** (default, urutan 1) | **±0,7–1,0 detik** | 6/6 | jawaban rapi & sesuai instruksi; secepat provider utama Groq |
+| **`inclusionai/ling-3.0-flash-vl:free`** (default, urutan 3) | ±1,0–1,9 detik | 4/4 | jawaban bagus; kadang membungkus perintah dalam code fence |
+| **`inclusionai/ling-3.0-flash-fin:free`** (default, urutan 4) | ±0,8–2,3 detik | 3/3 | varian "fin" dari model di atas; jawaban rapi |
+| `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | ±3,1 detik | 1/2 | sisanya `ResourceExhausted 16/16` dari sisi NVIDIA |
+| `dots-studio/dots-3-note-preview:free` | ±3,4 detik | 1/1 | — |
+| **`nvidia/nemotron-3-super-120b-a12b:free`** (default, urutan 2) | ±5,0–6,3 detik | 3/4 | pernah `503 Service temporarily overloaded`, karena itu bukan pilihan pertama |
+| `nvidia/nemotron-3.5-lightning:free` (dipakai sebelumnya) | **±71–76 detik** | 2/2 | terlalu lambat; jawaban bisa berupa jejak berpikir |
+| `google/gemma-4-31b-it:free`, `google/gemma-4-26b-a4b-it:free` | — | 0/2 | `429 rate-limited upstream` di dua ronde pengujian |
+| `z-ai/glm-5.2:free` (**dikeluarkan** dari daftar default) | — | 0/8 | `429 rate-limited upstream` di empat ronde pengujian. Penyebabnya bukan kuota akun kita: `limit_source: "upstream_provider_shared_pool"`, provider "Decart", `provider_error_code: "overloaded"`. Varian `:free` hanya dilayani kolam bersama itu, sementara `z-ai/glm-5.2` (tanpa `:free`) punya ±30 provider yang semuanya berbayar — jadi provider routing pun tidak menolong. Bisa dimasukkan kembali lewat `OPENROUTER_CHAT_MODEL` kapan saja begitu kolamnya longgar, atau lewat BYOK (key Z.ai sendiri di https://openrouter.ai/settings/integrations) |
+| `thinkingmachines/inkling-small:free` | — | — | hanya untuk agentic harness, bukan chat biasa |
+| `liquid/lfm-2.5-2.6b:free` | — | — | menolak `reasoning.enabled=false` ("reasoning is mandatory") |
+
+> ℹ️ **Kenapa berpikir (reasoning) dimatikan.** Beberapa model gratis di
+> OpenRouter adalah *reasoning model*: kalau dibiarkan, ia memakai jatah
+> `CHAT_MAX_TOKENS` untuk berpikir — yang tersisa di `content` hanya jejak
+> berpikir ("Here's a thinking process: ..."), bukan jawaban — dan waktunya
+> membengkak jauh (terukur pada `nvidia/nemotron-3.5-lightning:free`: ±100 detik
+> tanpa parameter vs ±19 detik saat dimatikan). Karena itu provider ini mengirim
+> `reasoning: { enabled: false }` secara default. Ubah lewat
+> `OPENROUTER_REASONING` bila model pilihan Anda justru wajib berpikir:
+>
+> ```env
+> OPENROUTER_REASONING=off       # default: reasoning dimatikan
+> # OPENROUTER_REASONING=exclude # tetap berpikir, jejaknya tidak dikirim
+> # OPENROUTER_REASONING=default # ikut perilaku model apa adanya
+> ```
+>
+> Kalau memilih `exclude` atau `default`, naikkan `CHAT_REQUEST_TIMEOUT_MS`
+> (mis. `150000`) supaya request tidak diputus sebelum provider menjawab.
+
+3. Restart backend. Karena `CHAT_FALLBACK_PROVIDER` tidak diisi, rantai default
+   menjadi **`groq → gemini → openrouter`** — provider utama dan cadangan lama
+   tetap di posisinya.
+
+Kalau `CHAT_FALLBACK_PROVIDER` diisi satu nama (mis. `gemini`), daftar itu
+sifatnya eksplisit. Untuk tetap memakai Gemini **lalu** OpenRouter, tulis
+keduanya dipisah koma:
+
+```env
+CHAT_PROVIDER=groq
+CHAT_FALLBACK_PROVIDER=gemini,openrouter
+```
+
+`CHAT_FALLBACK_PROVIDER=none` tetap berarti tanpa cadangan, dan OpenRouter juga
+bisa dijadikan provider utama lewat `CHAT_PROVIDER=openrouter`.
 
 ### Pilihan model gratis
 
@@ -371,6 +504,7 @@ curl -s https://generativelanguage.googleapis.com/v1beta/openai/models \
 | Provider | Waktu balas | Catatan |
 |---|---|---|
 | `groq` / `openai/gpt-oss-120b` | **±0,9 detik** | jawaban langsung, kualitas baik |
+| `openrouter` / 4 model gratis berurutan (lihat tabel urutan di atas) | **±0,7–1,0 detik** | cadangan terakhir; reasoning dimatikan (lihat catatan di atas), limit gratis per model |
 | `gemini` / `gemini-3.8-flash` | **17–60 detik** | free tier memang lambat, dan kadang `503` sesaat lalu berhasil saat di-retry |
 | `gemini-flash-latest` | ±30 detik | alternatif kalau `gemini-3.8-flash` sedang padat |
 
@@ -386,8 +520,8 @@ Karena itu **Groq tetap jadi provider utama** dan Gemini idealnya hanya fallback
 
 - **Nama parameter batas token berbeda per provider** dan sudah ditangani di
   `config/chatProviders.js`: Groq memakai `max_completion_tokens` (karena
-  `max_tokens` di sana sudah deprecated), Gemini/OpenAI memakai `max_tokens`.
-  Batasnya diatur lewat `CHAT_MAX_TOKENS` (default 2000).
+  `max_tokens` di sana sudah deprecated), Gemini/OpenAI/OpenRouter memakai
+  `max_tokens`. Batasnya diatur lewat `CHAT_MAX_TOKENS` (default 2000).
 - **Batas waktu request** diatur lewat `CHAT_REQUEST_TIMEOUT_MS` (default 90000 ms)
   dengan 1 kali retry. Tanpa ini, default SDK OpenAI adalah 10 menit — terlalu
   lama untuk endpoint yang tidak streaming.

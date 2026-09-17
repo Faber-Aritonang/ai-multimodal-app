@@ -21,6 +21,7 @@ const dotenv = require('dotenv');
 const AI_CREDENTIAL_KEYS = [
   'GROQ_API_KEY',
   'GEMINI_API_KEY',
+  'OPENROUTER_API_KEY',
   'OPENAI_API_KEY',
   'CLOUDFLARE_ACCOUNT_ID',
   'CLOUDFLARE_API_TOKEN',

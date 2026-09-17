@@ -13,7 +13,7 @@ delete process.env.CHAT_PROVIDER;
 delete process.env.CHAT_FALLBACK_PROVIDER;
 
 const { buildSystemPrompt, withSystemPrompt } = require('../config/chatPersona');
-const { PROVIDERS } = require('../config/chatProviders');
+const { PROVIDERS, DEFAULT_OPENROUTER_MODELS } = require('../config/chatProviders');
 
 describe('buildSystemPrompt', () => {
   test('menyebut provider & model yang sebenarnya dipakai', () => {
@@ -42,6 +42,24 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toContain(PROVIDERS.gemini.getModel());
     } finally {
       delete process.env.GEMINI_API_KEY;
+      delete process.env.CHAT_FALLBACK_PROVIDER;
+    }
+  });
+
+  test('semua model OpenRouter disebut, bukan hanya model pertama', () => {
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    process.env.CHAT_FALLBACK_PROVIDER = 'openrouter';
+
+    try {
+      const prompt = buildSystemPrompt();
+
+      // Provider ini punya lebih dari satu model; kalau hanya model pertama yang
+      // disebut, balasan dari model kedua akan dilaporkan dengan nama yang salah.
+      for (const model of DEFAULT_OPENROUTER_MODELS) {
+        expect(prompt).toContain(model);
+      }
+    } finally {
+      delete process.env.OPENROUTER_API_KEY;
       delete process.env.CHAT_FALLBACK_PROVIDER;
     }
   });
