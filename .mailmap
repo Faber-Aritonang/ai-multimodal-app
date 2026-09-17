@@ -1,17 +1,18 @@
 # Peta identitas kontributor.
 #
-# Seluruh commit di repo ini tercatat dengan nama git lokal "Faber Aritonang",
-# sedangkan nama yang dipakai pemiliknya adalah "Jimmy Faber". Keduanya orang
-# yang sama dan memakai email yang sama, jadi dipetakan ke satu identitas supaya
-# `git shortlog`, `git log --author`, dan `git blame` tidak menampilkan dua
-# kontributor berbeda untuk orang yang sama.
+# Repo ini pernah memakai config git lokal `user.email = faberaritonang@gmail.com`
+# (tanpa titik), padahal email yang benar adalah `faber.aritonang@gmail.com`.
+# Nama git-nya juga "Faber Aritonang", sedangkan nama yang dipakai "Jimmy Faber".
+# Ketiganya dipetakan ke satu identitas supaya `git shortlog`, `git log
+# --author`, dan `git blame` tidak menampilkan kontributor yang berbeda-beda
+# untuk orang yang sama.
 #
 # Format: <nama pilihan> <email pilihan> <nama alias> <email alias>
 #
 # Catatan: GitHub TIDAK memakai .mailmap untuk daftar kontributor di halaman
-# repo — di sana penautan dilakukan lewat email yang terverifikasi di akun
-# GitHub (Settings -> Emails). File ini hanya merapikan tampilan di sisi git
-# lokal/CLI.
+# repo — penautan di sana hanya lewat email yang terverifikasi di akun GitHub
+# (Settings -> Emails). File ini merapikan tampilan di sisi git lokal/CLI;
+# komit lama tetap tersimpan dengan email lamanya di dalam objek git.
 
-Jimmy Faber <faberaritonang@gmail.com> Faber Aritonang <faberaritonang@gmail.com>
-Jimmy Faber <faberaritonang@gmail.com> <faberaritonang@gmail.com>
+Jimmy Faber <faber.aritonang@gmail.com> Faber Aritonang <faberaritonang@gmail.com>
+Jimmy Faber <faber.aritonang@gmail.com> <faberaritonang@gmail.com>
