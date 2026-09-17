@@ -1,7 +1,7 @@
 # AI Multimodal Application
 
 [![Deploy to Railway & Vercel](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Full-stack web application with AI-powered multimodal features: **chat**,
 **text-to-image**, dan **image-to-image**. Fitur video & audio masih berstatus
@@ -13,7 +13,7 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | 🌐 **Demo (live)** | <https://ai-multimodal-app.vercel.app> |
 | ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
 | 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
-| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) |
+| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [panduan kontribusi](CONTRIBUTING.md) |
 
 > Demo berjalan di atas kuota gratis provider AI, jadi sesekali lambat atau
 > menunggu giliran. Masuk memakai Google Sign-In; member baru menunggu
@@ -739,6 +739,11 @@ ai-multimodal-app/
 
 ## Contributing
 
+Panduan lengkapnya ada di **[CONTRIBUTING.md](CONTRIBUTING.md)** — menyiapkan
+lingkungan, menjalankan test, gaya commit, konvensi kode, dan hal-hal yang harus
+dihindari (terutama jangan sampai ikut meng-commit `.env` beserta salinannya).
+Ringkasnya:
+
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
@@ -746,7 +751,8 @@ ai-multimodal-app/
 5. Open a Pull Request
 
 Sebelum membuka PR, jalankan `cd backend && npm test` dan `cd frontend && npm run lint`.
-Keduanya juga dijalankan otomatis oleh CI pada setiap push ke `main`.
+Keduanya juga dijalankan otomatis oleh CI pada setiap push ke `main` — Pull
+Request dari fork tidak ikut diuji, jadi jalankan manual.
 
 ## Contributors
 
@@ -756,7 +762,7 @@ Keduanya juga dijalankan otomatis oleh CI pada setiap push ke `main`.
 
 ## License
 
-This project is licensed under the MIT License.
+Dirilis di bawah [MIT License](LICENSE) — Copyright (c) 2026 Jimmy Faber.
 
 ## Contact
 
