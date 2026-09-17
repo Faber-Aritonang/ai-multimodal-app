@@ -1,6 +1,23 @@
 # AI Multimodal Application
 
-Full-stack web application with AI-powered multimodal features including chat, text-to-image, text-to-video, and more. Built with free tech stack, designed for easy scale-up to paid services.
+[![Deploy to Railway & Vercel](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+
+Full-stack web application with AI-powered multimodal features: **chat**,
+**text-to-image**, dan **image-to-image**. Fitur video & audio masih berstatus
+feature flag ([lihat daftarnya](#feature-flags-pending-admin-approval)). Dibangun
+di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
+
+| | |
+|---|---|
+| 🌐 **Demo (live)** | <https://ai-multimodal-app.vercel.app> |
+| ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
+| 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
+| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) |
+
+> Demo berjalan di atas kuota gratis provider AI, jadi sesekali lambat atau
+> menunggu giliran. Masuk memakai Google Sign-In; member baru menunggu
+> persetujuan admin sebelum bisa memakai fiturnya.
 
 ## Table of Contents
 
@@ -9,10 +26,17 @@ Full-stack web application with AI-powered multimodal features including chat, t
 - [Quick Start](#quick-start)
 - [Backend Setup](#backend-setup)
 - [Frontend Setup](#frontend-setup)
+- [Testing & Linting](#testing--linting)
 - [API Documentation](#api-documentation)
+- [Example API Usage](#example-api-usage)
 - [Deployment](#deployment)
 - [Architecture](#architecture)
+- [Project Structure](#project-structure)
 - [Future Improvements](#future-improvements)
+- [Contributing](#contributing)
+- [Contributors](#contributors)
+- [License](#license)
+- [Contact](#contact)
 
 ## Features
 
@@ -380,37 +404,34 @@ provider gratis (Cloudflare Workers AI: ±65 gambar 1024x1024 per hari).
 
 ## Deployment
 
+Deploy produksi berjalan **otomatis dari CI**: satu push ke `main` menjalankan
+test & lint, mengunggah backend lewat `railway up`, memverifikasi `/health`
+produksi, lalu memastikan deployment Vercel untuk commit itu benar-benar naik
+(lihat [Pipeline otomatis](#pipeline-otomatis-githubworkflowsdeployyml)).
+Langkah manual di bawah hanya perlu kalau menargetkan project atau platform lain.
+
 ### Backend Deployment (Railway)
 
-1. Push backend to GitHub:
-```bash
-cd backend
-git init
-git add .
-git commit -m "Initial commit"
-git push origin main
-```
+Cara yang dipakai sekarang: service Railway dihubungkan ke repo ini dengan root
+`backend/`, lalu setiap push ke `main` di-deploy oleh job `Deploy Backend to
+Railway` (butuh secret `RAILWAY_TOKEN`).
 
-2. Go to [Railway.app](https://railway.app)
-3. Create new project → Deploy from GitHub
-4. Set environment variables in Railway dashboard
-5. Deploy!
+Manual:
+
+1. `railway login`, lalu `railway link` ke project tujuan
+2. Isi variabel lingkungan di dashboard Railway — daftar lengkap per variabel,
+   akibatnya kalau salah, dan cara verifikasinya ada di
+   [`docs/env-produksi-railway.md`](docs/env-produksi-railway.md)
+3. `railway up` dari folder `backend/`
+4. Pastikan `GET /health` menjawab `"status":"OK"`, `"database":"connected"`,
+   dan `storageMode` **bukan** `local`
 
 ### Frontend Deployment (Vercel)
 
-1. Push frontend to GitHub:
-```bash
-cd frontend
-git init
-git add .
-git commit -m "Initial commit"
-git push origin main
-```
-
-2. Go to [Vercel.com](https://vercel.com)
-3. Create new project → Import from GitHub
-4. Configure project settings
-5. Deploy!
+1. Import repo ini di [Vercel](https://vercel.com), root directory `frontend/`
+2. Set `VITE_API_URL` ke domain backend produksi
+   (`https://ai-multimodal-app-production.up.railway.app`)
+3. Deploy — build berikutnya otomatis dari setiap push ke `main`
 
 ### Environment Variables for Production
 
@@ -716,10 +737,6 @@ ai-multimodal-app/
 - [ ] Rate limiting per feature
 - [ ] Caching (Redis)
 
-## License
-
-This project is licensed under the MIT License.
-
 ## Contributing
 
 1. Fork the repository
@@ -728,10 +745,26 @@ This project is licensed under the MIT License.
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+Sebelum membuka PR, jalankan `cd backend && npm test` dan `cd frontend && npm run lint`.
+Keduanya juga dijalankan otomatis oleh CI pada setiap push ke `main`.
+
+## Contributors
+
+| Kontributor | Peran |
+|---|---|
+| **[Jimmy Faber](https://github.com/Faber-Aritonang)** | Pembuat & pemelihara aplikasi — backend, frontend, dan pipeline deploy |
+
+## License
+
+This project is licensed under the MIT License.
+
 ## Contact
 
-Project by [Faber-Aritonang](https://github.com/Faber-Aritonang)
+- **Jimmy Faber** — [GitHub](https://github.com/Faber-Aritonang)
+- Repositori: <https://github.com/Faber-Aritonang/ai-multimodal-app>
+- Demo: <https://ai-multimodal-app.vercel.app>
+- Laporan bug & ide fitur: [Issues](https://github.com/Faber-Aritonang/ai-multimodal-app/issues)
 
 ---
 
-**Note**: This is a work-in-progress project. Media generation features will be added in subsequent iterations.
+**Note**: Proyek ini masih dikembangkan. Fitur inti (chat, text-to-image, image-to-image) sudah berjalan di demo; fitur video & audio masih berstatus feature flag dan baru aktif setelah disetujui admin.
