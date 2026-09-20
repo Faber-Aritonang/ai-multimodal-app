@@ -55,3 +55,5 @@ coverage/
 .npm-cache/.env
 .env.local
 .env*
+.env
+.env.save
