@@ -1,3 +1,4 @@
+key
 /**
  * Test: config/chatPersona
  *
@@ -6,7 +7,7 @@
  * bocor ke isi prompt.
  */
 
-process.env.GROQ_API_KEY = 'gsk_test_key_1234567890';
+process.env.GROQ_API_KEY || 'test_key_12345678901';
 delete process.env.GEMINI_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.CHAT_PROVIDER;

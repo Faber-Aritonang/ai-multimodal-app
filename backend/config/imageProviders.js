@@ -58,7 +58,7 @@ const isSet = (value) => {
  *
  * Nilai dari shell/.env bisa tercemar tanpa disadari — mis. saat kunci ditempel
  * ke ~/.bashrc dengan tanda kutip yang tidak ditutup, dua baris bergabung menjadi
- * `gsk_xxx\nexport VAR=gsk_xxx`. Nilai berisi baris baru seperti itu ditolak
+ * `export VAR=process.env.GROQ_API_KEY`. Nilai berisi baris baru seperti itu ditolak
  * fetch (header tidak valid) dan hanya muncul sebagai "Connection error".
  *
  * Kredensial API tidak pernah mengandung spasi, jadi token pertama aman.

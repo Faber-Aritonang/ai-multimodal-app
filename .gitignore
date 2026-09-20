@@ -52,4 +52,5 @@ coverage/
 .nyc_output/
 
 # Optional npm cache
-.npm-cache/
+.npm-cache/.env
+.env.local

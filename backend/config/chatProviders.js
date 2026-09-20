@@ -164,7 +164,7 @@ const resetOpenRouterCooldowns = () => openRouterFailures.clear();
 
 // Nilai placeholder di .env.example tidak dianggap konfigurasi valid.
 const PLACEHOLDER_VALUES = new Set([
-  'gsk-your-groq-key-here',
+  'process.env.GROQ_API_KEY',
   'your-gemini-key-here',
   'your-openrouter-key-here'
 ]);
@@ -180,7 +180,7 @@ const isSet = (value) => {
  *
  * Nilai dari shell/.env bisa ikut tercemar tanpa disadari — mis. saat kunci
 ditempel ke ~/.bashrc dengan tanda kutip yang tidak ditutup, dua baris
-bergabung menjadi: `gsk_xxx\nexport GROQ_API_KEY=gsk_xxx`. Nilai berisi baris
+bergabung menjadi: `process.env.GROQ_API_KEY`. Nilai berisi baris
 baru seperti itu ditolak oleh fetch (header tidak valid) dan hanya muncul
 sebagai "Connection error", jadi lebih baik dibersihkan di sini.
  *
