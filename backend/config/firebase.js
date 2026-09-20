@@ -9,7 +9,6 @@
  *   2. Path ke file service account (lokal):
  *      FIREBASE_SERVICE_ACCOUNT=./config/firebase-service-account.json
  */
-
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');

@@ -57,3 +57,5 @@ coverage/
 .env*
 .env
 .env.save
+backend/config/firebase-service-account.json
+backend/config/firebase-service-account.json
