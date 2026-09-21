@@ -427,7 +427,9 @@ Manual:
    membuat builder mencari `backend/backend` dan deployment gagal dengan
    `commit=-` tanpa log build
 4. Pastikan `GET /health` menjawab `"status":"OK"`, `"database":"connected"`,
-   `storageMode` **bukan** `local`, dan `storageCheck` bernilai `ok`
+   `storageMode` **bukan** `local`, dan `storageCheck` bernilai `ok`. Kalau
+   `storageCheck` bernilai `failed`, `storageCheckReason` menyebut sebabnya
+   (`HTTP 401` = kredensialnya ditolak, `timeout` = provider tidak menjawab)
 
 ### Frontend Deployment (Vercel)
 
@@ -573,8 +575,8 @@ Cara memeriksa mode yang benar-benar aktif:
 ```bash
 # Dua kolom ini selalu ada, termasuk di production — di production modenya harus
 # BUKAN "local", dan storageCheck harus "ok" (kredensialnya benar-benar berlaku,
-# bukan sekadar terisi).
-curl -s https://<domain-backend>/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['storageMode'], d['storageCheck'])"
+# bukan sekadar terisi). Kalau gagal, storageCheckReason menyebut sebabnya.
+curl -s https://<domain-backend>/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['storageMode'], d['storageCheck'], d.get('storageCheckReason',''))"
 # cloudinary ok
 
 # Di luar production ada detailnya juga (bucket / nama cloud):

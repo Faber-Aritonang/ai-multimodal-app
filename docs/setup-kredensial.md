@@ -607,10 +607,22 @@ untuk Cloudinary, `HeadBucket` untuk S3): `pending` (belum selesai), `ok`,
 membuat `storageMode` terbaca `cloudinary`, dan tanpa kolom ini kegagalannya baru
 terlihat saat user pertama kali men-generate gambar.
 
-Kalau `storageCheck` bernilai `failed`, kode galatnya ada di log startup:
-`Verifikasi penyimpanan: failed (HTTP 401)`. Kodenya sengaja hanya status HTTP —
-bukan pesan dari provider, karena pesannya memuat nama cloud/bucket dan baris ini
-juga tayang di log CI yang repo-nya publik.
+Kalau `storageCheck` bernilai `failed`, **sebabnya ikut dikirim** sebagai
+`storageCheckReason`:
+
+```json
+{"storageMode":"cloudinary","storageCheck":"failed","storageCheckReason":"HTTP 401"}
+```
+
+- `HTTP 401` / `HTTP 403` — provider menolak nilainya: salah salin, sudah
+dicabut, atau masih placeholder.
+- `timeout` — providernya tidak menjawab dalam 10 detik; periksa jaringan, bukan
+  nilainya.
+
+Isinya sengaja hanya KODE, bukan pesan dari provider, karena pesannya memuat nama
+cloud/bucket dan kolom ini tayang di `/health` publik serta di log CI repo publik.
+Sebelum kolom ini ada, satu-satunya cara mengetahui sebabnya adalah membaca baris
+`Verifikasi penyimpanan:` di log startup Railway.
 
 ### Yang perlu diketahui
 
