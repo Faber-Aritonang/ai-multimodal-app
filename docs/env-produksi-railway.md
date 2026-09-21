@@ -21,7 +21,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `MONGODB_URI` | `mongodb+srv://…` | `server.js` memanggil `process.exit(1)` saat connect gagal → tidak ada satu pun endpoint yang naik | `/health` → `"database":"connected"` |
 | `JWT_SECRET` | `openssl rand -base64 32` | verifikasi token gagal; endpoint auth menjawab `JWT_SECRET is not set. Isi backend/.env terlebih dahulu.` | login dari UI berhasil, `/health` → `"status":"OK"` |
 | `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id,https://www.maubuatapa.my.id` (beberapa domain dipisah koma) | browser memblokir **setiap** panggilan API sebagai CORS error, padahal backend menjawab 200 | header `access-control-allow-origin` memuat domain yang sedang dibuka |
-| `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. Job deploy juga sengaja gagal. | `/health` → `"storageMode":"cloudinary"` |
+| `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | **Kalau kosong:** mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. **Kalau terisi tapi salah:** mode terbaca `cloudinary` sementara **setiap upload ditolak provider** — job deploy juga sengaja gagal. | `/health` → `"storageMode":"cloudinary"` **dan** `"storageCheck":"ok"` (lihat catatan di bawah) |
 | `FIREBASE_SERVICE_ACCOUNT` | isi JSON service account dalam satu baris, atau path berkas | login Google tidak bisa dipakai (`auth/…` gagal) | login Google dari frontend produksi |
 
 > Alternatif Cloudinary: `STORAGE_PROVIDER=s3` + `S3_ENDPOINT`, `S3_BUCKET`,
@@ -110,9 +110,15 @@ Jalankan dari mesin mana pun (tidak ada nilai rahasia yang tercetak):
 ```bash
 B=https://ai-multimodal-app-production.up.railway.app
 
-# 1. Backend hidup + database + penyimpanan
+# 1. Backend hidup + database + penyimpanan + kredensial penyimpanannya
 curl -s $B/health
-#    {"status":"OK",...,"database":"connected","storageMode":"cloudinary"}
+#    {"status":"OK",...,"database":"connected","storageMode":"cloudinary","storageCheck":"ok"}
+#
+#    Dua kolom ini menjawab dua hal berbeda dan keduanya harus bagus:
+#      storageMode  = mode apa yang dipakai            -> local | cloudinary | s3
+#      storageCheck = apakah kredensialnya BERLAKU     -> pending | ok | failed | skipped
+#    Nilai yang salah tulis tetap membuat storageMode terbaca `cloudinary`,
+#    karena pemeriksaan konfigurasi hanya bertanya "apakah variabelnya kosong".
 
 # 2. NODE_ENV benar-benar production (route dev wajib mati)
 curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/auth/dev-login -d '{}'
@@ -141,6 +147,7 @@ ulang selesai baru jalankan verifikasi ini.
 |---|---|
 | Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat hostname yang sedang dibuka; setelah deploy kode terbaru, tiga domain aplikasi di-whitelist bawaan, tetapi tetap isi `FRONTEND_URL` agar konfigurasi eksplisit |
 | Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_*` (atau `S3_*`) belum lengkap |
+| Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Kodenya ada di log startup Railway pada baris `Verifikasi penyimpanan: failed (HTTP 401/403)`. |
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |

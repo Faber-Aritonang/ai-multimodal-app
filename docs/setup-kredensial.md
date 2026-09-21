@@ -589,15 +589,28 @@ set `STORAGE_PROVIDER=local`.
 
 ```bash
 curl -s https://<domain-backend>/health \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['storageMode'])"
-# cloudinary
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['storageMode'], d['storageCheck'])"
+# cloudinary ok
 ```
 
-Medan `storageMode` **selalu** dikirim, termasuk di production (blok `services`
-yang berisi detail infrastruktur tetap hanya muncul di luar production). Kalau
-nilainya `local` di produksi, gambar akan hilang pada deploy berikutnya — dan
-sejak itu pula log startup server akan menulis
+Kedua medan itu **selalu** dikirim, termasuk di production (blok `services` yang
+berisi detail infrastruktur tetap hanya muncul di luar production), dan keduanya
+perlu dilihat karena artinya berbeda:
+
+- **`storageMode`** — mode yang dipakai. Kalau nilainya `local` di produksi,
+gambar akan hilang pada deploy berikutnya; log startup server juga menulis
 `Penyimpanan media: mode=local` sebagai peringatan di platform hosting.
+- **`storageCheck`** — hasil **benar-benar memanggil providernya** (`api.ping()`
+untuk Cloudinary, `HeadBucket` untuk S3): `pending` (belum selesai), `ok`,
+`failed`, atau `skipped` (mode `local`). Ini yang membedakan kredensial yang
+**terisi** dari kredensial yang **berlaku** — nilai yang salah salin tetap
+membuat `storageMode` terbaca `cloudinary`, dan tanpa kolom ini kegagalannya baru
+terlihat saat user pertama kali men-generate gambar.
+
+Kalau `storageCheck` bernilai `failed`, kode galatnya ada di log startup:
+`Verifikasi penyimpanan: failed (HTTP 401)`. Kodenya sengaja hanya status HTTP —
+bukan pesan dari provider, karena pesannya memuat nama cloud/bucket dan baris ini
+juga tayang di log CI yang repo-nya publik.
 
 ### Yang perlu diketahui
 
