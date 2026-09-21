@@ -29,15 +29,39 @@ Jadi keduanya dihitung sebagai bocor.
 
 | Kunci | Isi yang bocor | Perlu dirotasi? |
 |---|---|---|
-| `JWT_SECRET` | nilai asli, 44 karakter (base64 dari 32 byte) | Ya — tapi produksi sudah bukan nilai ini (lihat catatan) |
-| `GROQ_API_KEY` | nilai asli, berawalan `gsk_` | **Ya** |
-| `GEMINI_API_KEY` | nilai asli, 138 karakter | **Ya** |
-| `CLOUDFLARE_API_TOKEN` | nilai asli, 53 karakter | **Ya (revoke)** |
+| `GROQ_API_KEY` | nilai asli, berawalan `gsk_` | **Ya — kunci ini terbukti masih hidup** |
+| `JWT_SECRET` | nilai asli, 44 karakter (base64 dari 32 byte) | Verifikasi dulu; produksi sudah bukan nilai ini |
+| `GEMINI_API_KEY` | nilai asli, 138 karakter | Tidak — nilai ini tidak valid saat diuji |
+| `CLOUDFLARE_API_TOKEN` | nilai asli, 53 karakter | Tidak — sudah tidak berlaku saat diuji |
 | `CLOUDFLARE_ACCOUNT_ID` | 32 karakter hex | Tidak wajib (identifier, bukan rahasia) |
 | `MONGODB_URI` | `mongodb://localhost…` **tanpa** `user:password` | Tidak ada (lihat catatan) |
 | `FIREBASE_SERVICE_ACCOUNT` | hanya **path**: `./config/firebase-service-account.json` | Tidak ada (bukan kunci) |
 | `OPENAI_API_KEY` | kosong | Tidak ada |
 | `FRONTEND_URL`, `NODE_ENV`, `PORT`, `UPLOAD_DIR`, `RATE_LIMIT_*`, `OPENROUTER_CHAT_MODEL` | konfigurasi | Tidak ada |
+
+### Hasil pemeriksaan langsung (21 September 2026)
+
+Setiap kunci diuji ke providernya masing-masing dengan permintaan **read-only**
+(tidak ada yang dibuat, diubah, atau dihapus):
+
+| Kunci | Uji | Hasil | Artinya |
+|---|---|---|---|
+| `GROQ_API_KEY` | `GET api.groq.com/openai/v1/models` | **200** | **masih hidup** — siapa pun yang bisa membaca repo ini bisa memakai kuota Groq akun tersebut |
+| `GEMINI_API_KEY` | `GET generativelanguage.googleapis.com/v1beta/models` | 401 | nilai tidak valid; bentuknya memang tidak lazim, kemungkinan hasil paste yang salah |
+| `CLOUDFLARE_API_TOKEN` | `GET api.cloudflare.com/client/v4/user/tokens/verify` | 401 `Invalid API Token` | sudah tidak berlaku |
+| nilai `JWT_SECRET` dari berkas ini | JWT HS256 → `GET /api/v1/member/profile` produksi | 401 `Invalid token` | `JWT_SECRET` produksi bukan nilai ini |
+
+```bash
+# Cara mengulang pemeriksaan di atas (nilai dibaca dari berkas, tidak dicetak)
+GROQ=$(grep -m1 '^GROQ_API_KEY=' backend/.env.save.1 | cut -d= -f2-)
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $GROQ" \
+  https://api.groq.com/openai/v1/models
+#    200 = masih hidup, 401 = sudah dicabut
+```
+
+Kesimpulan praktis: hanya **satu** kunci dari berkas ini yang masih menjadi
+lubang aktif, yaitu `GROQ_API_KEY`. Itu yang harus ditangani lebih dulu; sisanya
+sudah tidak berbahaya dan pengerjaannya bisa menyusul.
 
 Catatan penting dari tabel di atas:
 
@@ -116,9 +140,15 @@ railway variables --service ai-multimodal-app --environment production \
 Efek samping yang harus diumumkan ke pengguna: **semua sesi lama langsung
 ditolak**, semua orang login ulang. Token lama akan menjawab `401`.
 
-### C2. `GROQ_API_KEY`
+### C2. `GROQ_API_KEY` — kunci yang masih hidup, kerjakan ini lebih dulu
 
-1. Buka **console.groq.com** → *API Keys* → **Create API Key**. Beri nama yang
+Nilainya sudah dipastikan berlaku (`GET /openai/v1/models` → 200), jadi ini
+satu-satunya tindakan di dokumen ini yang menutup lubang yang benar-benar
+terbuka.
+
+1. Buat kunci baru **sebelum** menghapus yang lama, supaya tidak ada masa
+   produksi tidak punya key chat. Buka **console.groq.com** → *API Keys* →
+   **Create API Key**. Beri nama yang
    menunjukkan asalnya (mis. `railway-prod-2026-09`) supaya rotasi berikutnya
    mudah ditelusuri.
 2. Pasang di Railway (bagian D).
@@ -126,6 +156,11 @@ ditolak**, semua orang login ulang. Token lama akan menjawab `401`.
 4. Setelah verifikasi hijau, **hapus kunci lama** di console.groq.com.
 
 ### C3. `GEMINI_API_KEY`
+
+> **Status terukur: nilai di berkas bocor tidak valid** (401 saat diuji), jadi
+> tidak ada kunci yang perlu dicabut untuk nilai ini. Langkah di bawah tetap
+> berguna kalau Gemini ingin dipakai sebagai cadangan — pastikan saja kunci yang
+> terpasang di Railway bukan kunci yang gagal itu.
 
 1. Buka **aistudio.google.com/apikey** → **Create API key**.
 2. Pasang di Railway (bagian D).
@@ -140,6 +175,11 @@ ditolak**, semua orang login ulang. Token lama akan menjawab `401`.
 > **buat ulang dari AI Studio** dan tempel utuh dalam satu baris.
 
 ### C4. `CLOUDFLARE_API_TOKEN` (+ `CLOUDFLARE_ACCOUNT_ID`)
+
+> **Status terukur: token di berkas bocor sudah tidak berlaku** (401
+> `Invalid API Token`), jadi kemungkinan besar rotationya sudah pernah dilakukan
+> atau token itu sudah dihapus. Buka halaman API Tokens untuk memastikan tidak
+> ada token lain yang tidak dikenal, lalu tutup kasus ini.
 
 Kredensial ini dipakai fitur text-to-image dan image-to-image (model FLUX.2
 [Klein] lewat Workers AI).
@@ -302,7 +342,7 @@ commit hash berubah, setiap clone dan PR lama harus di-clone ulang, dan force
 push menimpa riwayat di GitHub. **Lakukan rotasi lebih dulu, apa pun
 keputusannya** — selama kredensial sudah diganti, isi riwayat kehilangan nilainya.
 
-Kredensial baru Jangan disimpan sebagai `.env.save*`. `.gitignore` sekarang
+Kredensial baru jangan disimpan sebagai `.env.save*`. `.gitignore` sekarang
 memuat `.env*`, jadi salinan apa pun berawalan `.env` sudah terabaikan — tetapi
 aturan ignore tidak berlaku pada berkas yang **sudah** ter-track, dan tidak
 melindungi Anda dari `git add -f`.
@@ -327,11 +367,10 @@ Berkas yang memakainya: [`.github/workflows/deploy.yml`](../.github/workflows/de
 
 ## H. Checklist
 
-- [ ] `JWT_SECRET` baru dibuat, dipasang di Railway, deploy selesai
-- [ ] Token lama benar-benar ditolak (401) setelah rotasi
-- [ ] `GROQ_API_KEY` baru dipasang + diverifikasi (`via groq`), kunci lama **sudah dihapus**
-- [ ] `GEMINI_API_KEY` dibuat ulang dari AI Studio + dipasang, kunci lama dihapus
-- [ ] `CLOUDFLARE_API_TOKEN` lama di-revoke, token baru dipasang, generate gambar berhasil
+- [ ] **`GROQ_API_KEY`** (satu-satunya lubang yang masih terbuka): kunci baru dipasang di Railway → chat diverifikasi `via groq` → kunci lama **dicabut di console.groq.com**
+- [ ] Dipastikan `GEMINI_API_KEY` di Railway bukan nilai bocor (nilai itu tidak valid, jadi kalau itu yang terpasang, Gemini memang tidak pernah jalan)
+- [ ] Tidak ada token asing yang masih aktif di halaman API Tokens Cloudflare
+- [ ] `JWT_SECRET` diperiksa di tab Variables, dan diganti **hanya kalau** nilainya masih sama dengan yang bocor (kalau diganti: semua user login ulang)
 - [ ] Dipastikan `MONGODB_URI` di Railway bukan URI lokal yang bocor
 - [ ] Dipastikan `backend/config/firebase-service-account.json` tidak ter-track
 - [ ] Berkas bocor dilepas dari tracking (`git rm --cached`) dan di-push
