@@ -141,6 +141,18 @@ OPENAI_API_KEY=sk-...
 # UPLOAD_DIR=uploads
 ```
 
+> **Jangan menyimpan salinan berkas ini.** `backend/.env` memuat kredensial
+> asli, jadi salinan apa pun — mis. `backend/.env.save`, `.env.bak`,
+> `.env.save.1` — sama sensitifnya dengan berkas aslinya dan tidak boleh masuk
+> git. `.gitignore` di repo ini sudah memuat `.env*`, tetapi aturan ignore
+> **tidak berlaku** pada berkas yang sudah ter-track dan tidak menahan
+> `git add -f`.
+>
+> Riwayat git tidak bisa "dibatalkan": sekali kredensial ter-commit, satu-satunya
+> perbaikan yang benar-benar bekerja adalah **mengganti kredensialnya di
+> provider**. Cara melakukannya per kunci ada di
+> [`rotasi-kredensial.md`](./rotasi-kredensial.md).
+
 ### Frontend
 
 ```bash
@@ -728,6 +740,7 @@ aman dipakai untuk menguji fitur tanpa menunggu setup Google Sign-In.
 | `Quota for imageGeneration exhausted` | Kuota gambar user habis. Admin bisa approve ulang dengan kuota baru, atau ubah `quota.imageGeneration` di MongoDB. |
 | Login berhasil tapi selalu diarahkan ke `/pending-approval` | Akun belum di-approve. Buka `/admin/members` dengan akun admin lalu approve. |
 | CORS error di browser | `FRONTEND_URL` di `backend/.env` harus sama persis dengan origin frontend (termasuk port). |
+| Kredensial terlanjur ter-commit ke git | Menghapus berkasnya dari commit berikutnya tidak cukup — isinya tetap bisa dibaca dari riwayat. Kredensial harus **dirotasi di provider**, lihat [`rotasi-kredensial.md`](./rotasi-kredensial.md). |
 
 ---
 

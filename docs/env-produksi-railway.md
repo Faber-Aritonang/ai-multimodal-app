@@ -77,6 +77,31 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 
 ---
 
+## D. Kalau nilai variabel harus diganti (rotasi)
+
+Mengganti nilai di Railway **memicu deploy ulang otomatis** untuk service itu,
+jadi tidak perlu men-deploy ulang secara manual. Untuk rotasi API key, urutan
+"terbitkan baru → pasang → verifikasi → cabut yang lama" membuat peralihan
+berjalan tanpa downtime; `JWT_SECRET` tidak bisa begitu karena token hanya punya
+satu penandatangan (semua sesi lama langsung mati).
+
+```bash
+# Ganti satu variabel lalu tunggu deploy selesai
+railway variables --service ai-multimodal-app --environment production \
+  --set "JWT_SECRET=$(openssl rand -base64 32)"
+```
+
+> `railway variables --json` mencetak **nilai** setiap variabel, bukan hanya
+> namanya — jangan dijalankan di CI atau di terminal yang output-nya disimpan.
+> Untuk memeriksa apakah sebuah key sudah terbaca proses tanpa membocorkan
+> isinya, pakai log startup Railway (lihat bagian provider chat di bawah).
+
+Langkah lengkap per kredensial (termasuk dari mana tiap kunci diambil, cara
+verifikasinya, dan cara memastikan kunci lama benar-benar mati) ada di
+[`rotasi-kredensial.md`](./rotasi-kredensial.md).
+
+---
+
 ## Verifikasi cepat setelah deploy
 
 Jalankan dari mesin mana pun (tidak ada nilai rahasia yang tercetak):
@@ -120,6 +145,8 @@ ulang selesai baru jalankan verifikasi ini.
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
 | Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway (`openrouter=missing` berarti variabelnya belum sampai ke service) |
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
+| Semua user tiba-tiba diminta login ulang, token lama menjawab 401 | `JWT_SECRET` baru saja dirotasi. Ini perilaku yang benar — token lama memang tidak lagi ditandatangani oleh secret yang aktif. |
+| Setelah mengganti API key, fitur masih memakai key lama | deploy ulang belum selesai, atau key dipasang di service/environment yang bukan `ai-multimodal-app`/`production`. Cek baris `Provider chat:` di log startup. |
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
 

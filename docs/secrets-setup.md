@@ -1,119 +1,119 @@
 # GitHub Actions Secrets Setup
 
+Berkas ini melengkapi [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml),
+yang merupakan sumber kebenaran untuk daftar secret-nya. Kalau keduanya berbeda,
+workflow yang benar.
+
 ## Required Secrets
 
-Set these secrets di GitHub Repository → Settings → Secrets and variables → Actions:
+Set di GitHub Repository → Settings → Secrets and variables → Actions:
 
-### Backend (Railway)
+| Secret | Wajib | Dipakai job | Dari mana |
+|---|---|---|---|
+| `RAILWAY_TOKEN` | ya | `deploy-backend` | Railway → Project Settings → **Tokens** → Create Token |
+| `RAILWAY_PROJECT_ID` | ya | `deploy-backend` | Railway → Project Settings → Project Information |
+| `VERCEL_TOKEN` | ya | `deploy-frontend` | Vercel → Settings → Tokens → Create Token |
+| `VERCEL_PROJECT_ID` | ya | `deploy-frontend` | Vercel → Project Settings → General → Project ID |
+| `RAILWAY_SERVICE` | tidak | `deploy-backend` | hanya perlu kalau nama service bukan `ai-multimodal-app` |
 
-1. **RAILWAY_TOKEN** (string)
-   - Dapat dari: Railway Dashboard → Settings → API Tokens → Create Token
-   - Scope: `read:projects`, `write:deployments`
+Catatan nama yang mudah salah:
 
-2. **RAILWAY_PROJECT_ID** (string)
-   - Dapat dari: Railway Dashboard → Project Settings → Project Information
+- Secretnya bernama **`VERCEL_PROJECT_ID`**. Versi lama dokumen ini menulis
+  `VERCEL_PROJECT_ID_FRONTEND`; nama itu membuat `project-id` terkirim **kosong**
+  dan job verifikasi gagal seolah-olah tokennya yang salah. `VERCEL_ORG_ID`
+  tidak dipakai workflow ini, jadi tidak perlu diisi.
+- `RAILWAY_TOKEN` di sini adalah **project token**, bukan token akun. Token akun
+  (`railway login`) dan project token memakai variabel yang sama tetapi tidak
+  bisa saling menggantikan.
 
-### Frontend (Vercel)
+## Catatan untuk job `quality` di CI
 
-3. **VERCEL_TOKEN** (string)
-   - Dapat dari: Vercel Dashboard → Settings → Tokens → Create Token
-
-4. **VERCEL_ORG_ID** (string)
-   - Dapat dari: Vercel Dashboard → Settings → General → Team ID
-
-5. **VERCEL_PROJECT_ID_FRONTEND** (string)
-   - Dapat dari: Vercel Dashboard → Project Settings → General → Project ID
-
-### Firebase (untuk backend)
-
-6. **FIREBASE_SERVICE_ACCOUNT_KEY** (JSON)
-   - Dari: Firebase Console → Project Settings → Service Accounts → Generate New Private Key
-   - Salin seluruh isi JSON file
-
-### OpenAI (untuk chat & text-to-image)
-
-7. **OPENAI_API_KEY** (string)
-   - Dari: https://platform.openai.com/api-keys
-
----
-
-## Catatan untuk job Quality di CI
-
-Workflow `.github/workflows/deploy.yml` punya job **quality** (unit test backend +
-lint + build frontend) yang jalan sebelum deploy. Job ini **tidak membutuhkan
-secret apa pun** karena test backend memakai mock (tanpa MongoDB/Firebase).
-
-Build di job quality juga tidak butuh `VITE_*` karena bundle produksi yang dipakai
-Vercel dibuat ulang di sisi Vercel memakai environment variables di dashboard.
+Job **quality** (unit test backend + lint + build frontend) berjalan sebelum
+deploy dan **tidak membutuhkan secret apa pun**: test backend memakai mock tanpa
+MongoDB/Firebase. Build di job ini juga tidak butuh `VITE_*`, karena bundle
+produksi dibangun ulang di sisi Vercel memakai environment variables di
+dashboard Vercel.
 
 ---
 
 ## Setup Instructions
 
 ### 1. Install Railway CLI
+
 ```bash
-npm install -g railway
-railway login
+npm install --global @railway/cli
+railway login            # atau: export RAILWAY_TOKEN='…' untuk non-interaktif
 ```
 
-### 2. Inisialisasi Railway Project
+### 2. Hubungkan ke project Railway
+
 ```bash
-cd backend
-railway init
-railway up
+railway link --project "<RAILWAY_PROJECT_ID>"
 ```
 
-Setelah berhasil, Railway akan memberikan:
-- Project ID
-- API Token
+> **Penting — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.**
+> Service Railway menetapkan `rootDirectory: backend`, dan builder
+> menggabungkannya dengan konteks unggahan. Mengunggah direktori `backend`
+> membuat builder mencari `backend/backend` lalu gagal dengan deployment
+> `FAILED` bertanda `commit=-`, tanpa log build yang menjelaskan sebabnya.
+> Dari akar repo, konteks unggahan sama dengan konteks deployment GitHub
+> sehingga `backend/` terbentuk benar.
+>
+> ```bash
+> # dari akar repo
+> railway up --service ai-multimodal-app --environment production --ci
+> ```
+>
+> Tanpa `--detach`, perintah ini menunggu build selesai dan gagal kalau
+> build-nya gagal — itu yang membuat statusnya jujur.
 
-### 3. Deploy Frontend ke Vercel
-```bash
-cd frontend
-npm install -g vercel
-vercel --login
-vercel
-```
+### 3. Deploy Frontend (Vercel)
 
-Setelah berhasil, Vercel akan memberikan:
-- Project ID
-- Organization ID
-- Token
-
----
-
-## Alternatif: Manual Deploy
-
-Jika tidak ingin menggunakan GitHub Actions, deploy manual:
-
-### Backend ke Railway
-```bash
-cd backend
-railway up
-```
-
-### Frontend ke Vercel
-```bash
-cd frontend
-vercel --prod
-```
+Project Vercel terhubung ke repo GitHub dan membangun setiap push ke `main`
+sendiri (`source: git`), jadi **tidak perlu** `vercel --prod` dari mesin lokal:
+mengunggah lagi hanya menghasilkan dua build untuk commit yang sama. Job
+`deploy-frontend` hanya *memverifikasi* hasilnya lewat REST API.
 
 ---
 
 ## Environment Variables (Backend)
 
-Set di Railway Dashboard → Project → Settings → Variables:
+Ini **variabel runtime** milik service Railway, bukan secret GitHub Actions.
+Daftar lengkap beserta efek tiap variabel kalau salah ada di
+[`env-produksi-railway.md`](./env-produksi-railway.md) — sengaja tidak
+diduplikasi di sini agar tidak ada dua sumber yang bisa saling menyimpang.
 
-| Variable | Contoh Value | Deskripsi |
-|----------|--------------|-----------|
-| MONGODB_URI | mongodb+srv://... | MongoDB connection string |
-| JWT_SECRET | random-32-char-string | JWT signing secret |
-| NODE_ENV | production | Environment |
-| OPENAI_API_KEY | sk-... | OpenAI API key |
-| FIREBASE_SERVICE_ACCOUNT | JSON di secrets | Firebase service account |
-| PORT | 3000 | Server port |
+Minimum supaya aplikasi hidup (bukan sekadar build hijau):
 
-### Generate JWT Secret
+| Variabel | Contoh | Guna |
+|---|---|---|
+| `NODE_ENV` | `production` | mengaktifkan `trust proxy` dan mematikan route `dev-login` |
+| `MONGODB_URI` | `mongodb+srv://…` | database; gagal connect → proses keluar |
+| `JWT_SECRET` | `openssl rand -base64 32` | menandatangani token login |
+| `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id` | CORS |
+| `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | penyimpanan media; tanpa ini mode jatuh ke `local` dan gambar user hilang tiap deploy |
+| `FIREBASE_SERVICE_ACCOUNT` | JSON dalam satu baris, atau path | login Google |
+
+Untuk fitur AI, tambahkan minimal satu provider chat (`GROQ_API_KEY`,
+`GEMINI_API_KEY`, atau `OPENROUTER_API_KEY`) dan kredensial Cloudflare
+(`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`) untuk text-to-image.
+
+### Mengisi variabel lewat CLI
+
 ```bash
-openssl rand -base64 32
+railway variables --service ai-multimodal-app --environment production \
+  --set "JWT_SECRET=$(openssl rand -base64 32)"
 ```
+
+Mengubah variabel memicu deploy ulang otomatis. Hati-hati:
+`railway variables --json` mencetak **nilai** semua variabel, bukan hanya
+namanya.
+
+---
+
+## Kalau ada kredensial yang bocor
+
+Menghapus berkas dari commit berikutnya tidak cukup — isinya tetap terbaca dari
+riwayat git, jadi kredensialnya harus diganti di provider. Langkah per kunci,
+termasuk cara memverifikasi kunci lama benar-benar sudah mati, ada di
+[`rotasi-kredensial.md`](./rotasi-kredensial.md).

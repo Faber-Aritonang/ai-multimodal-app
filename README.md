@@ -13,7 +13,7 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | 🌐 **Demo (live)** | <https://www.maubuatapa.my.id> |
 | ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
 | 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
-| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [panduan kontribusi](CONTRIBUTING.md) |
+| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [rotasi kredensial](docs/rotasi-kredensial.md) · [panduan kontribusi](CONTRIBUTING.md) |
 
 > Demo berjalan di atas kuota gratis provider AI, jadi sesekali lambat atau
 > menunggu giliran. Masuk memakai Google Sign-In; member baru menunggu
@@ -422,7 +422,10 @@ Manual:
 2. Isi variabel lingkungan di dashboard Railway — daftar lengkap per variabel,
    akibatnya kalau salah, dan cara verifikasinya ada di
    [`docs/env-produksi-railway.md`](docs/env-produksi-railway.md)
-3. `railway up` dari folder `backend/`
+3. `railway up` dari **akar repo**, bukan dari folder `backend/` — service ini
+   memakai `rootDirectory: backend`, sehingga mengunggah direktori `backend`
+   membuat builder mencari `backend/backend` dan deployment gagal dengan
+   `commit=-` tanpa log build
 4. Pastikan `GET /health` menjawab `"status":"OK"`, `"database":"connected"`,
    dan `storageMode` **bukan** `local`
 
@@ -704,7 +707,7 @@ ai-multimodal-app/
 │   │   └── main.jsx         # Entry point
 │   └── package.json
 │
-├── docs/                     # Dokumentasi (setup kredensial, CI secrets)
+├── docs/                     # Dokumentasi (setup kredensial, CI secrets, rotasi)
 └── README.md
 ```
 
