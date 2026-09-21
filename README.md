@@ -10,7 +10,7 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 
 | | |
 |---|---|
-| 🌐 **Demo (live)** | <https://ai-multimodal-app.vercel.app> |
+| 🌐 **Demo (live)** | <https://www.maubuatapa.my.id> |
 | ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
 | 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
 | 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [panduan kontribusi](CONTRIBUTING.md) |
@@ -430,7 +430,9 @@ Manual:
 
 1. Import repo ini di [Vercel](https://vercel.com), root directory `frontend/`
 2. Set `VITE_API_URL` ke domain backend produksi
-   (`https://ai-multimodal-app-production.up.railway.app`)
+   (`https://ai-multimodal-app-production.up.railway.app`). Frontend juga memiliki
+   fallback ke URL ini agar domain custom tidak mengirim request API ke
+   route SPA (`/api/...`) yang hanya mengembalikan `index.html`.
 3. Deploy — build berikutnya otomatis dari setiap push ke `main`
 
 ### Environment Variables for Production
@@ -482,13 +484,14 @@ VITE_FIREBASE_APP_ID=...
 >
 > | Wajib ada | Di mana | Akibat kalau hilang |
 > |---|---|---|
-> | domain Vercel di **Authorized domains** | Firebase Console → Authentication → Settings | tombol Google gagal: `auth/unauthorized-domain` |
+> | domain utama `www.maubuatapa.my.id` di **Authorized domains** | Firebase Console → Authentication → Settings | tombol Google gagal: `auth/unauthorized-domain` |
 > | **Root Directory = `backend`** | Railway → service → Settings → Source | deployment `FAILED` dalam ~10 detik (RAILPACK mencari `package.json` di akar repo) |
 > | aturan **`rewrites` ke `/index.html`** | `frontend/vercel.json` | beranda terbuka, tetapi tiap tautan langsung (`/login`, `/tools/…`) dijawab 404 |
 >
-> Selain itu `FRONTEND_URL` di Railway harus memuat domain Vercel yang **sedang
-> dipakai**; kalau tidak, browser memblokir setiap panggilan API sebagai CORS.
-> Beberapa domain boleh ditulis sekaligus, dipisah koma.
+> Selain itu `FRONTEND_URL` di Railway harus memuat semua hostname frontend yang
+> sedang dipakai: `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id,https://www.maubuatapa.my.id`.
+> Kalau tidak, browser memblokir panggilan API sebagai CORS. Domain custom adalah
+> alamat demo utama; domain Vercel tetap dicantumkan sebagai alias deployment.
 >
 > **Berkas `/uploads` harus boleh dimuat lintas origin.** Karena frontend
 > (Vercel) dan backend (Railway) adalah dua origin berbeda, `helmet()` yang
@@ -768,7 +771,7 @@ Dirilis di bawah [MIT License](LICENSE) — Copyright (c) 2026 Jimmy Faber.
 
 - **Jimmy Faber** — [GitHub](https://github.com/Faber-Aritonang)
 - Repositori: <https://github.com/Faber-Aritonang/ai-multimodal-app>
-- Demo: <https://ai-multimodal-app.vercel.app>
+- Demo: <https://www.maubuatapa.my.id>
 - Laporan bug & ide fitur: [Issues](https://github.com/Faber-Aritonang/ai-multimodal-app/issues)
 
 ---
