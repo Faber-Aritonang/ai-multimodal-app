@@ -10,7 +10,8 @@
 // pembaca layar karena murni dekoratif.
 const Aurora = () => (
   <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-    <div className="absolute inset-0 bg-ink-950" />
+    <div className="page-background-image absolute inset-0" />
+    <div className="page-background-overlay absolute inset-0" />
     <div className="aurora-blob aurora-blob--cyan" />
     <div className="aurora-blob aurora-blob--violet" />
     <div className="aurora-blob aurora-blob--fuchsia" />
