@@ -738,10 +738,14 @@ ai-multimodal-app/
 - [ ] Sound-to-Text (Whisper)
 
 ### Phase 3: Enhancements
-- [ ] File upload & storage (Firebase Storage/Cloudinary) — saat ini hasil generate disimpan di disk lokal `backend/uploads/`
+- [x] Penyimpanan hasil generate di Cloudinary / S3-compatible — bukan lagi disk
+  lokal `backend/uploads/`; mode `local` hanya untuk dev. Kredensialnya
+  diverifikasi ke provider saat boot dan hasilnya dilaporkan di `/health`
+  (`storageCheck`), sehingga rilis dengan kredensial tidak berlaku ditolak job
+  deploy, bukan ditemukan user
 - [ ] Real-time chat (Socket.io)
-- [ ] Admin dashboard with analytics
-- [ ] User profile management
+- [ ] User profile management — halaman profil yang ada sekarang **hanya baca**
+  (`GET /api/v1/member/profile`); belum ada penyuntingan data
 - [ ] Subscription plans
 - [ ] Rate limiting per feature
 - [ ] Caching (Redis)
