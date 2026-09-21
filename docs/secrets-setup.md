@@ -101,12 +101,13 @@ Untuk fitur AI, tambahkan minimal satu provider chat (`GROQ_API_KEY`,
 ### Mengisi variabel lewat CLI
 
 ```bash
-railway variables --service ai-multimodal-app --environment production \
-  --set "JWT_SECRET=$(openssl rand -base64 32)"
+openssl rand -base64 32 | railway variable set JWT_SECRET --stdin \
+  --service ai-multimodal-app --environment production --project "$PROJECT"
 ```
 
-Mengubah variabel memicu deploy ulang otomatis. Hati-hati:
-`railway variables --json` mencetak **nilai** semua variabel, bukan hanya
+Nilai dibaca dari stdin sehingga tidak masuk ke daftar argumen proses maupun
+riwayat shell. Mengubah variabel memicu deploy ulang otomatis. Hati-hati:
+`railway variable list --json` mencetak **nilai** semua variabel, bukan hanya
 namanya.
 
 ---

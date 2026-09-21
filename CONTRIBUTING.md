@@ -32,6 +32,17 @@ npm install
 npm run dev              # http://localhost:5173
 ```
 
+Pasang hook git-nya sekali di awal. Hook ini menolak commit yang membawa berkas
+mirip kredensial, dan hanya memeriksa berkas yang masuk staging sehingga tidak
+memperlambat commit biasa:
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+Hook disalin ke `.git/hooks/` dan tidak mengubah konfigurasi git, jadi
+melewatkannya tidak masalah — pemeriksaan yang sama juga berjalan di CI.
+
 Kalau MongoDB dijalankan lewat Docker, nyalakan container-nya **sebelum**
 `npm run dev`:
 
@@ -57,6 +68,8 @@ pesan yang jelas.
 ## Pemeriksaan sebelum membuka PR
 
 ```bash
+node scripts/check-no-secrets.js   # berkas/isi mirip kredensial (dari akar repo)
+
 cd backend && npm test          # unit test, tanpa MongoDB/Firebase
 cd frontend && npm run lint     # ESLint (dijalankan dengan --fix)
 cd frontend && npm run build    # pastikan build produksi lolos
@@ -123,6 +136,26 @@ Repo ini **publik**. Yang di-track hanya `backend/.env.example`.
   production.
 - Kredensial produksi diisi di dashboard platform (Railway/Vercel), bukan di
   repo.
+
+Aturan tertulis saja pernah tidak cukup di repo ini: `backend/.env.save.1` sempat
+ter-track berisi `JWT_SECRET`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, dan
+`GEMINI_API_KEY` meskipun bagian ini sudah melarangnya. Karena itu sekarang ada
+penjagaan otomatis, dan dua-duanya **wajib hijau**:
+
+| Lapisan | Kapan jalan | Cara menjalankan |
+|---|---|---|
+| `scripts/check-no-secrets.js` | sebelum commit (hook) dan di job `quality` CI | `node scripts/check-no-secrets.js` |
+| `.gitignore` | saat `git add` | otomatis |
+
+Skrip itu sengaja **tidak pernah mencetak nilai** yang cocok, hanya lokasi dan
+nama aturan, karena log repo ini publik. Kalau pemeriksaan menandai berkas yang
+menurut Anda aman, kirim pengecualian yang sempit lewat perubahan pada skripnya —
+jangan matikan pemeriksaannya.
+
+Satu hal yang sering keliru dipahami: **menghapus berkasnya di commit berikutnya
+tidak menghilangkan isinya dari riwayat**. Kalau kredensial terlanjur ter-push,
+satu-satunya perbaikan yang bekerja adalah menggantinya di provider — langkahnya
+ada di [`docs/rotasi-kredensial.md`](docs/rotasi-kredensial.md).
 
 ## Menambah provider atau model
 

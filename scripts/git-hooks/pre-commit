@@ -1,0 +1,11 @@
+#!/bin/sh
+# Hook pre-commit: menolak commit yang membawa berkas mirip kredensial.
+#
+# Dipasang oleh `npm run hooks:install` atau `bash scripts/install-git-hooks.sh`
+# (menyalin berkas ini ke .git/hooks/pre-commit, sehingga tidak mengubah
+# konfigurasi git dan tidak ikut ter-commit).
+#
+# Hanya memeriksa berkas yang masuk staging, jadi hasilnya cepat dan tidak
+# menghalangi commit atas perubahan yang memang tidak berkaitan dengan rahasia.
+
+node "$(git rev-parse --show-toplevel)/scripts/check-no-secrets.js" --staged

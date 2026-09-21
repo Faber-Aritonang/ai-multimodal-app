@@ -86,12 +86,13 @@ berjalan tanpa downtime; `JWT_SECRET` tidak bisa begitu karena token hanya punya
 satu penandatangan (semua sesi lama langsung mati).
 
 ```bash
-# Ganti satu variabel lalu tunggu deploy selesai
-railway variables --service ai-multimodal-app --environment production \
-  --set "JWT_SECRET=$(openssl rand -base64 32)"
+# Ganti satu variabel lalu tunggu deploy selesai. Nilai lewat stdin supaya tidak
+# masuk ke daftar argumen proses maupun riwayat shell.
+openssl rand -base64 32 | railway variable set JWT_SECRET --stdin \
+  --service ai-multimodal-app --environment production --project "$PROJECT"
 ```
 
-> `railway variables --json` mencetak **nilai** setiap variabel, bukan hanya
+> `railway variable list --json` mencetak **nilai** setiap variabel, bukan hanya
 > namanya — jangan dijalankan di CI atau di terminal yang output-nya disimpan.
 > Untuk memeriksa apakah sebuah key sudah terbaca proses tanpa membocorkan
 > isinya, pakai log startup Railway (lihat bagian provider chat di bawah).

@@ -14,6 +14,23 @@ backend/build/
 .env*
 !.env.example
 
+# Kunci privat, sertifikat, dan kredensial service account.
+# Ini hanya lapisan pertama: aturan ignore tidak berlaku pada berkas yang sudah
+# ter-track dan tidak menahan `git add -f`. Penjagaan yang sebenarnya ada di
+# scripts/check-no-secrets.js (dipanggil hook pre-commit dan job quality di CI).
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+*service-account*.json
+*firebase-adminsdk*.json
+*client_secret*.json
+.railway-token
+railway-token*
+
 # IDE
 .vscode/
 .idea/

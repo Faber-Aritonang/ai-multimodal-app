@@ -69,6 +69,17 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
+      # Menjaga berkas rahasia tidak ikut ter-push. Aturan `.gitignore` saja
+      # tidak cukup: ia tidak berlaku pada berkas yang sudah ter-track dan tidak
+      # menahan `git add -f`. `backend/.env.save.1` pernah lolos ke repo dengan
+      # JWT_SECRET, GROQ_API_KEY, dan OPENROUTER_API_KEY di dalamnya.
+      #
+      # Skrip ini hanya mencetak lokasi dan nama aturan, tidak pernah nilai yang
+      # cocok — log run repo ini publik. Ditempatkan sebelum instalasi
+      # dependency supaya gagal lebih cepat.
+      - name: Tidak ada berkas rahasia yang ter-commit
+        run: node scripts/check-no-secrets.js
+
       - name: Backend - install dependencies
         run: npm ci
         working-directory: backend
