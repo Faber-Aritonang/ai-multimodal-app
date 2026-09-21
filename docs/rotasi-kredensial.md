@@ -29,7 +29,7 @@ Jadi keduanya dihitung sebagai bocor.
 
 | Kunci | Isi yang bocor | Perlu dirotasi? |
 |---|---|---|
-| `JWT_SECRET` | nilai asli, 44 karakter (base64 dari 32 byte) | **Ya — paling mendesak** |
+| `JWT_SECRET` | nilai asli, 44 karakter (base64 dari 32 byte) | Ya — tapi produksi sudah bukan nilai ini (lihat catatan) |
 | `GROQ_API_KEY` | nilai asli, berawalan `gsk_` | **Ya** |
 | `GEMINI_API_KEY` | nilai asli, 138 karakter | **Ya** |
 | `CLOUDFLARE_API_TOKEN` | nilai asli, 53 karakter | **Ya (revoke)** |
@@ -41,11 +41,16 @@ Jadi keduanya dihitung sebagai bocor.
 
 Catatan penting dari tabel di atas:
 
-- **`JWT_SECRET` adalah yang paling berbahaya.** Backend memakainya untuk
-  menandatangani token login. Siapa pun yang memegang nilai lama bisa membuat
-  token yang sah untuk akun mana pun, tanpa pernah login. Kalau secret di
-  Railway masih sama dengan nilai bocor ini, seluruh akun praktis terbuka —
-  rotasi ini bukan opsional.
+- **`JWT_SECRET` adalah yang paling berbahaya *kalau* masih dipakai.** Backend
+  memakainya untuk menandatangani token login, jadi siapa pun yang memegang
+  nilai ini bisa membuat token sah untuk akun mana pun tanpa pernah login.
+  **Hasil ukur 21 September 2026:** token yang ditandatangani dengan nilai dari
+  berkas ini **ditolak** oleh produksi
+  (`GET /api/v1/member/profile` → `401 Invalid token`), yang berarti
+  `JWT_SECRET` di Railway sudah **bukan** nilai bocor ini. Jadi lubang "siapa
+  pun bisa membuat token" sedang tidak terbuka di produksi. Tetap pastikan
+  lewat tab Variables, karena nilai yang sama bisa saja dipakai di environment
+  lain (mis. `.env` lokal yang dipakai bersama).
 - **`MONGODB_URI` yang bocor adalah database lokal**, bukan Atlas. Tidak ada
   password di dalamnya, jadi tidak ada yang perlu dirotasi. Tapi wajib
   dipastikan: nilai `MONGODB_URI` di service Railway **bukan** string yang sama.
@@ -244,10 +249,15 @@ B=https://ai-multimodal-app-production.up.railway.app
 curl -s $B/health
 #    {"status":"OK",...,"database":"connected","storageMode":"cloudinary"}
 
-# 2. JWT: token lama harus DITOLAK setelah JWT_SECRET diganti
-#    Simpan token dari sesi sebelum rotasi, lalu:
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN_LAMA" $B/api/v1/auth/me
-#    401
+# 2. JWT: buktikan secret LAMA sudah tidak berlaku, tanpa perlu sesi login.
+#    Endpoint /api/v1/member/profile memverifikasi tanda tangan JWT lebih dulu,
+#    baru menyentuh database — jadi status 401 vs 404 di sini murni soal rahasia:
+#      401 Invalid token  -> tanda tangan ditolak (secret lama sudah mati)  ✔
+#      404 User not found -> tanda tangan DITERIMA (secret lama masih hidup) ✘
+SECRET_LAMA='<nilai yang mau diuji, mis. dari berkas bocor>'
+TOKEN=$(SECRET="$SECRET_LAMA" node -e 'const jwt=require("./backend/node_modules/jsonwebtoken");process.stdout.write(jwt.sign({uid:"probe-rotasi-tidak-ada"},process.env.SECRET))')
+curl -s -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  $B/api/v1/member/profile
 
 # 3. Endpoint dev tetap mati
 curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/auth/dev-login -d '{}'
