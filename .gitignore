@@ -47,6 +47,11 @@ backend/uploads/
 # Metadata project Vercel (ditulis oleh `vercel pull`, bukan sumber kode)
 .vercel/
 
+# Salinan repo yang tertinggal di dalam working tree. Folder ini punya `.git`
+# sendiri sehingga sempat ter-track sebagai gitlink, padahal isinya duplikat
+# dari repo utama. Jangan commit sebagai embedded repo.
+ai-multimodal-app-clean/
+
 # Testing
 coverage/
 .nyc_output/
