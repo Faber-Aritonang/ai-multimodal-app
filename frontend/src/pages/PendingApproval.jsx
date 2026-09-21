@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { authAPI } from '../config/api'
+import { signOutUser } from '../config/firebase'
 import { CheckIcon, SignOutButton } from '../components/icons'
 import { GlassPanel } from '../components/ui'
 
@@ -41,17 +42,28 @@ const PendingApproval = ({ user, setUser }) => {
   }, [navigate, setUser])
 
   const handleLogout = async () => {
+    if (loading) return
+
     setLoading(true)
-    try {
-      await authAPI.logout()
-      localStorage.removeItem('authToken')
-      localStorage.removeItem('user')
-      navigate('/login')
-    } catch (error) {
-      console.error('Logout failed:', error)
-    } finally {
-      setLoading(false)
-    }
+
+    // Hapus sesi lokal terlebih dahulu agar logout tetap berhasil walaupun API
+    // sedang lambat atau tidak tersedia.
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('user')
+
+    // Informasikan backend tanpa menahan redirect jika request gagal.
+    void authAPI.logout().catch((error) => {
+      console.error('Pending logout API failed:', error)
+    })
+
+    // Putus sesi Google/Firebase dengan batas waktu agar tombol tidak macet.
+    await Promise.race([
+      signOutUser(),
+      new Promise((resolve) => setTimeout(resolve, 1500))
+    ])
+
+    // Reload penuh memastikan state user di App.jsx ikut kosong.
+    window.location.replace('/login')
   }
 
   return (

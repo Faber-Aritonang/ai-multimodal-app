@@ -1,4 +1,7 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { authAPI } from '../config/api'
+import { signOutUser } from '../config/firebase'
 import { HomeIcon, UserIcon, SignOutButton } from './icons'
 
 const NAVIGATION = [
@@ -14,16 +17,38 @@ const NAVIGATION = [
  * sedang berada di area yang berdampak ke akun orang lain.
  */
 const AdminLayout = ({ children }) => {
-  const navigate = useNavigate()
   const location = useLocation()
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const isActive = (href) =>
     location.pathname === href || (href !== '/admin' && location.pathname.startsWith(`${href}/`))
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (loggingOut) return
+
+    setLoggingOut(true)
+
+    // Hapus sesi lokal terlebih dahulu supaya tombol logout tetap berhasil
+    // walaupun request logout backend sedang gagal atau lambat.
     localStorage.removeItem('authToken')
     localStorage.removeItem('user')
-    navigate('/login')
+
+    // Logout backend tidak boleh menahan navigasi. JWT disimpan di localStorage,
+    // jadi pembersihan lokal adalah bagian terpenting untuk mengakhiri sesi.
+    void authAPI.logout().catch((error) => {
+      console.error('Admin logout API failed:', error)
+    })
+
+    // Putus sesi Firebase agar App tidak menghidupkan kembali sesi Google lama.
+    // Batas waktu mencegah tombol terasa macet jika Firebase sedang bermasalah.
+    await Promise.race([
+      signOutUser(),
+      new Promise((resolve) => setTimeout(resolve, 1500))
+    ])
+
+    // Reload penuh mengosongkan state `user` di App.jsx. `navigate()` saja tidak
+    // cukup karena GuestRoute masih melihat state admin yang lama.
+    window.location.replace('/login')
   }
 
   const activeItem = NAVIGATION.find((item) => isActive(item.href))
@@ -47,7 +72,8 @@ const AdminLayout = ({ children }) => {
             type="button"
             onClick={handleLogout}
             aria-label="Logout"
-            className="rounded-lg border border-white/10 p-2 text-rose-300 transition-colors hover:bg-rose-500/10 md:hidden"
+            disabled={loggingOut}
+            className="rounded-lg border border-white/10 p-2 text-rose-300 transition-colors hover:bg-rose-500/10 disabled:cursor-wait disabled:opacity-50 md:hidden"
           >
             <SignOutButton className="h-4 w-4" />
           </button>
@@ -100,9 +126,14 @@ const AdminLayout = ({ children }) => {
           >
             ← Tampilan member
           </Link>
-          <button type="button" onClick={handleLogout} className="btn btn-danger w-full">
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="btn btn-danger w-full disabled:cursor-wait disabled:opacity-50"
+          >
             <SignOutButton className="h-4 w-4" />
-            Logout
+            {loggingOut ? 'Logging out…' : 'Logout'}
           </button>
         </div>
       </aside>

@@ -31,7 +31,8 @@ const ALL_SPECS = [
   require('./specs/text-to-image.spec.cjs'),
   require('./specs/image-to-image.spec.cjs'),
   require('./specs/dashboard-profile.spec.cjs'),
-  require('./specs/pending-approval.spec.cjs')
+  require('./specs/pending-approval.spec.cjs'),
+  require('./specs/admin-logout.spec.cjs')
 ];
 
 // Filter opsional untuk saat mengembangkan satu spec saja, mis.:
@@ -46,13 +47,13 @@ const SPECS = SPEC_FILTER.length
   : ALL_SPECS;
 
 const createApi = (token) => {
-  const request = async (pathname, { method = 'GET', body } = {}) => {
+  const request = async (pathname, { method = 'GET', body, authenticated = true } = {}) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authenticated && token) headers.Authorization = `Bearer ${token}`;
+
     const response = await fetch(`${API_URL}/api/v1${pathname}`, {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body)
     });
 
@@ -71,7 +72,8 @@ const createApi = (token) => {
     request,
     get: (pathname) => request(pathname),
     post: (pathname, body) => request(pathname, { method: 'POST', body }),
-    del: (pathname) => request(pathname, { method: 'DELETE' })
+    del: (pathname) => request(pathname, { method: 'DELETE' }),
+    publicPost: (pathname, body) => request(pathname, { method: 'POST', body, authenticated: false })
   };
 };
 
