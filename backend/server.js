@@ -45,6 +45,26 @@ if (process.env.NODE_ENV !== 'production') {
 
 const app = express();
 
+// Domain produksi utama dan domain custom aplikasi. Keduanya harus bisa
+// mengakses API karena Vercel memakai deployment yang sama untuk dua hostname.
+// Tetap gunakan FRONTEND_URL untuk domain tambahan milik deployment lain.
+const BUILT_IN_PRODUCTION_ORIGINS = [
+  'https://ai-multimodal-app.vercel.app',
+  'https://www.maubuatapa.my.id',
+  'https://maubuatapa.my.id'
+];
+// Whitelist domain aplikasi selalu aktif, bukan hanya saat NODE_ENV tepat
+// bernilai `production`. Jika variabel NODE_ENV lupa diisi di Railway, domain
+// custom tetap harus bisa login; keamanan tetap terjaga karena hanya hostname
+// milik aplikasi yang ditambahkan, bukan wildcard.
+const allowedOrigins = [...new Set([
+  ...getAllowedOrigins(),
+  ...BUILT_IN_PRODUCTION_ORIGINS
+])];
+
+// CORS `origin` menerima daftar string. Whitelist bawaan ini mencegah error
+// jaringan meskipun FRONTEND_URL di Railway masih hanya berisi domain lama.
+
 // Nilai placeholder dari .env.example yang tidak boleh dianggap "sudah dikonfigurasi".
 const PLACEHOLDER_VALUES = new Set([
   'sk-your-openai-key-here',
@@ -78,7 +98,7 @@ const isFirebaseConfigured = () => {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: getAllowedOrigins(),
+  origin: allowedOrigins,
   credentials: true
 }));
 

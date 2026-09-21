@@ -7,7 +7,14 @@ import axios from 'axios';
 //   (lihat vite.config.js) ke http://localhost:3000.
 // - Production  : isi VITE_API_URL dengan URL backend, mis.
 //   https://ai-multimodal-backend.up.railway.app
-const apiRoot = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+// Pada production, jangan jatuh ke URL relatif: domain custom Vercel hanya
+// menyajikan frontend dan tidak menjalankan Express API. Env tetap menjadi
+// pilihan utama, sedangkan fallback ini menjaga alias Vercel/custom domain
+// memakai backend produksi yang sama bila VITE_API_URL belum diisi.
+const configuredApiRoot = (import.meta.env.VITE_API_URL || '').trim();
+const productionApiRoot = 'https://ai-multimodal-app-production.up.railway.app';
+const apiRoot = (configuredApiRoot || (import.meta.env.PROD ? productionApiRoot : ''))
+  .replace(/\/+$/, '');
 
 // Buat instance axios dengan konfigurasi default
 const api = axios.create({

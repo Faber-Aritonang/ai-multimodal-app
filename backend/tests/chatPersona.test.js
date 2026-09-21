@@ -1,4 +1,3 @@
-key
 /**
  * Test: config/chatPersona
  *
