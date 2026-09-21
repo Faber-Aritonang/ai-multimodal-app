@@ -251,7 +251,9 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await connectDB();
-  app.listen(PORT, () => {
+  // Bind explicitly to all interfaces. Railway's proxy cannot reach a server
+    // bound only to the container loopback interface.
+    app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
     // platform (Railway), bukan harus ditebak dari perilaku aplikasi.
