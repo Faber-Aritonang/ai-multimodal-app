@@ -624,6 +624,31 @@ cloud/bucket dan kolom ini tayang di `/health` publik serta di log CI repo publi
 Sebelum kolom ini ada, satu-satunya cara mengetahui sebabnya adalah membaca baris
 `Verifikasi penyimpanan:` di log startup Railway.
 
+### Kalau Cloudinary menjawab `HTTP 401`: mana dari ketiga nilai yang salah?
+
+`HTTP 401` saja tidak memisahkan "kunci salah" dari "nama cloud salah", dan
+keduanya perlu diperiksa di tempat berbeda. Cara memisahkannya: jalankan
+`api.ping()` dengan pasangan key+secret yang ada, lalu ganti **nama cloud**-nya
+dengan nama yang jelas tidak ada, dan bandingkan pesan galatnya.
+
+| Uji | Pesan galat menyebut | Artinya |
+|---|---|---|
+| key+secret asli + cloud asli | `cloud_name` | key+secret **sudah benar** — yang salah nama cloud-nya |
+| key+secret asli + cloud palsu | `cloud_name` (sama seperti di atas) | menegaskan: pesan ini soal nama cloud, bukan pasangan kuncinya |
+| key+secret palsu + cloud asli | `api_secret` | pasangan api_key/api_secret-nya yang salah |
+
+Kalau pesannya menyebut `cloud_name` padahal key+secret-nya sudah lolos,
+penyebab yang paling sering: nama cloud disalin dari tempat lain (mis. nama
+*project* di dashboard), atau `CLOUDINARY_CLOUD_NAME` diisi dari akun Cloudinary
+yang berbeda dengan pemilik api_key. Nama cloud ada di dashboard Cloudinary pada
+baris *API Environment variable*, berbentuk
+`cloudinary://<api_key>:<api_secret>@<cloud_name>` — ambil bagian terakhirnya,
+bukan dari judul halaman.
+
+Yang **bukan** penyebab: spasi atau tanda kutip yang ikut tersalin. Nilai
+variabel di Railway bisa berisi spasi di ujung, tetapi kode sudah memangkasnya
+(`trimmed()` di `config/storage.js`) sebelum dipakai.
+
 ### Yang perlu diketahui
 
 - **Berkas disimpan sebagai `cloudinary://<public_id>`** di kolom `outputFile`,

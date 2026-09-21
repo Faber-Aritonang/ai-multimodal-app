@@ -154,7 +154,7 @@ ulang selesai baru jalankan verifikasi ini.
 |---|---|
 | Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat hostname yang sedang dibuka; setelah deploy kode terbaru, tiga domain aplikasi di-whitelist bawaan, tetapi tetap isi `FRONTEND_URL` agar konfigurasi eksplisit |
 | Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_*` (atau `S3_*`) belum lengkap |
-| Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Sebabnya dibaca dari `storageCheckReason` di `/health`: `HTTP 401`/`403` = nilainya salah, `timeout` = provider tidak menjawab. |
+| Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Sebabnya dibaca dari `storageCheckReason` di `/health`: `HTTP 401`/`403` = nilainya salah, `timeout` = provider tidak menjawab. **Kalau 401-nya dari Cloudinary:** `api_key` dan `api_secret` biasanya sudah benar — yang salah `CLOUDINARY_CLOUD_NAME`. Caranya memastikan ada di `docs/setup-kredensial.md`. |
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |

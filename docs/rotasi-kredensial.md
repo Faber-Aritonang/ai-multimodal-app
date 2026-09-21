@@ -86,6 +86,42 @@ Jadi jangan mengambil nilai apa pun dari berkas ini dengan asumsi satu baris =
 satu variabel. Pisahkan dulu, dan periksa panjangnya wajar untuk provider yang
 bersangkutan.
 
+### Perbandingan langsung dengan variabel produksi (21 September 2026)
+
+Dijalankan terhadap service yang sebenarnya — project `truthful-imagination`,
+service `ai-multimodal-app`, environment `production` — dengan nilai
+dibandingkan **di dalam skrip**, sehingga tidak ada satu pun nilai yang tercetak.
+Service itu punya 24 variabel; 21 nama dari berkas bocor dicocokkan satu per satu.
+
+| Variabel dari berkas bocor | Di produksi | Tindakan |
+|---|---|---|
+| `GROQ_API_KEY` | BEDA | rotasi selesai ✅ |
+| `JWT_SECRET` | BEDA | tidak perlu diganti ✅ |
+| `MONGODB_URI` | BEDA | tidak perlu diganti ✅ |
+| `FIREBASE_SERVICE_ACCOUNT` | BEDA | tidak perlu diganti ✅ |
+| `FRONTEND_URL`, `NODE_ENV` | BEDA | bukan rahasia |
+| `OPENROUTER_API_KEY` | **SAMA** | satu-satunya nilai bocor yang masih terpasang — lihat di bawah |
+| 14 nama lain (lihat catatan) | tidak ada di Railway | sebagian punya akibat fungsional |
+
+**`OPENROUTER_API_KEY` adalah satu-satunya yang masih cocok**, dan kuncinya sudah
+mati — diuji ulang: `401 User not found`. Jadi tidak ada paparan, tetapi ada dua
+akibat yang perlu diketahui: cadangan chat OpenRouter tidak pernah bekerja, dan
+menggantinya dengan kunci baru akan memulihkannya. Membiarkannya berarti chat
+hanya punya jalur Groq.
+
+**14 nama yang tidak ada di Railway, per akibarnya:**
+
+- `GEMINI_API_KEY` — dipakai `config/chatProviders.js`. Tidak ada di produksi
+  berarti cadangan chat **Gemini memang tidak tersedia**.
+- `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `OPENAI_API_KEY` — dipakai
+  `config/imageProviders.js`. Tidak ada berarti provider gambar itu mati dan
+  hanya Pollinations (tanpa API key) yang jalan.
+- `PORT`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS`, `UPLOAD_DIR`,
+  `OPENROUTER_CHAT_MODEL`, `OPENAI_CHAT_MODEL` — semuanya punya nilai bawaan di
+  kode, dan `PORT` disuntikkan platform sendiri. Aman.
+- `ADMIN_EMAIL`, `ADMIN_UID`, `ADMIN_NAME` — hanya dipakai
+  `scripts/createAdmin.js`, bukan oleh server.
+
 Catatan penting dari tabel di atas:
 
 - **`JWT_SECRET` adalah yang paling berbahaya *kalau* masih dipakai.** Backend
@@ -412,7 +448,8 @@ Berkas yang memakainya: [`.github/workflows/deploy.yml`](../.github/workflows/de
 ## H. Checklist
 
 - [ ] **`GROQ_API_KEY`** (satu-satunya lubang yang masih terbuka): kunci baru dipasang di Railway → chat diverifikasi `via groq` → kunci lama **dicabut di console.groq.com**
-- [ ] Dipastikan `OPENROUTER_API_KEY` di Railway bukan nilai bocor (nilai itu `401 User not found`, jadi cadangan chat OpenRouter tidak pernah aktif)
+- [x] Dipastikan `OPENROUTER_API_KEY` di produksi **masih** nilai bocor (dibandingkan langsung, 21 Sep 2026). Nilainya `401 User not found`, jadi tidak ada paparan — tetapi cadangan chat OpenRouter tetap mati sampai kuncinya diganti
+- [ ] Diganti `OPENROUTER_API_KEY` di Railway dengan kunci baru (atau dihapus, kalau memang tidak dipakai) supaya cadangan chat hidup lagi
 - [ ] Dipastikan `GEMINI_API_KEY` di Railway bukan nilai bocor (nilai itu tidak berhasil diautentikasi, jadi kalau itu yang terpasang, Gemini memang tidak pernah jalan)
 - [ ] Tidak ada token asing yang masih aktif di halaman API Tokens Cloudflare
 - [ ] `JWT_SECRET` diperiksa di tab Variables, dan diganti **hanya kalau** nilainya masih sama dengan yang bocor (kalau diganti: semua user login ulang)
