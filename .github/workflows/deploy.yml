@@ -170,9 +170,13 @@ jobs:
       # Karena itu deploy baru dianggap selesai hanya kalau `/health` produksi
       # menjawab `status: OK`, `database: connected`, mode penyimpanannya bukan
       # `local`, dan `storageCheck` — hasil benar-benar memanggil providernya —
-      # sudah selesai serta tidak `failed`. Langkah ini tidak mencetak nilai
-      # rahasia: `/health` sengaja hanya mengirim satu kata per kolom, bukan
-      # kredensial, dan baris lognya pun hanya memuat kode galat.
+      # sudah selesai serta tidak `failed`. Sebab kegagalannya dibaca dari
+      # `storageCheckReason` supaya pesan error di sini bisa menuntun ke tindakan
+      # yang tepat.
+      #
+      # Langkah ini tidak mencetak nilai rahasia: `/health` sengaja hanya
+      # mengirim satu kata per kolom plus KODE galat (`HTTP 401`, `timeout`),
+      # tidak pernah nilai kredensial maupun pesan dari provider.
       - name: Verifikasi produksi - database, penyimpanan & kredensialnya
         run: |
           python3 - <<'PY'
@@ -228,13 +232,19 @@ jobs:
           # hanya memuat status HTTP/kode galat, tidak pernah pesan dari provider
           # (pesannya memuat endpoint dan nama bucket, dan log run repo ini publik).
           if check == "failed":
+              # `failed` saja tidak menuntun ke tindakan apa pun, jadi kodenya
+              # ikut dilaporkan: `HTTP 401/403` berarti nilainya salah,
+              # `timeout` berarti providernya tidak menjawab. Sebelum kolom ini
+              # ada, satu-satunya cara mengetahui sebabnya adalah membuka
+              # dashboard Railway dan membaca log startup.
+              sebab = terakhir.get("storageCheckReason", "tidak dilaporkan")
               print(
                   "::error::Kredensial penyimpanan ditolak provider: mode "
-                  f"'{mode}' terkonfigurasi, tetapi pemeriksaannya gagal, sehingga "
-                  "SETIAP generate gambar akan ditolak. Periksa ulang nilai "
-                  "CLOUDINARY_* (atau S3_*) di service Railway dan pastikan disalin "
-                  "utuh. Kode galatnya ada di log startup Railway pada baris "
-                  "'Verifikasi penyimpanan:'."
+                  f"'{mode}' terkonfigurasi, tetapi pemeriksaannya gagal "
+                  f"({sebab}), sehingga SETIAP generate gambar akan ditolak. "
+                  "Periksa ulang nilai CLOUDINARY_* (atau S3_*) di service Railway "
+                  "dan pastikan disalin utuh tanpa tanda kutip atau spasi ikut "
+                  "terbawa."
               )
               sys.exit(1)
           elif check is None:
@@ -248,7 +258,11 @@ jobs:
                   "Jalankan ulang verifikasi ini setelah deploy berikutnya."
               )
           else:
-              print(f"::notice::Kredensial penyimpanan terverifikasi: {check}.")
+              sebab = terakhir.get("storageCheckReason")
+              print(
+                  "::notice::Kredensial penyimpanan terverifikasi: "
+                  f"{check}{f' ({sebab})' if sebab else ''}."
+              )
           PY
 
   # Verifikasi deploy Frontend (Vercel).

@@ -113,11 +113,22 @@ describe('verifyRemoteStorage', () => {
   test('Cloudinary: kredensial ditolak hanya melaporkan kode HTTP, bukan pesannya', async () => {
     setEnv(CLOUDINARY_ENV);
 
-    const galat = new Error(
-      `Invalid credentials for cloud ${CLOUDINARY_ENV.CLOUDINARY_CLOUD_NAME} ` +
-        `(api_key ${CLOUDINARY_ENV.CLOUDINARY_API_KEY})`
-    );
-    galat.http_code = 401;
+    // Bentuk ini PERSIS seperti yang dilempar SDK Cloudinary 2.x pada HTTP 401:
+    // statusnya bersarang di `error.error.http_code`. Versi pertama fungsi
+    // ringkasannya hanya membaca `error.http_code` yang datar, sehingga setiap
+    // penolakan kredensial Cloudinary dilaporkan sebagai `gagal` — tepat kasus
+    // yang pemeriksaan ini dibuat untuk menjelaskan. Bentuknya diambil dari
+    // SDK yang terpasang, bukan dari asumsi.
+    const galat = {
+      request_options: {},
+      query_params: {},
+      error: {
+        message:
+          `Invalid credentials for cloud ${CLOUDINARY_ENV.CLOUDINARY_CLOUD_NAME} ` +
+          `(api_key ${CLOUDINARY_ENV.CLOUDINARY_API_KEY})`,
+        http_code: 401
+      }
+    };
     mockPing.mockRejectedValueOnce(galat);
 
     const hasil = await storage.verifyRemoteStorage();
@@ -129,6 +140,22 @@ describe('verifyRemoteStorage', () => {
     expect(tercetak).not.toContain(CLOUDINARY_ENV.CLOUDINARY_API_KEY);
     expect(tercetak).not.toContain(CLOUDINARY_ENV.CLOUDINARY_CLOUD_NAME);
     expect(tercetak).not.toContain('Invalid credentials');
+  });
+
+  test('Cloudinary: bentuk galat tanpa kode status tidak dilaporkan sebagai `gagal`', async () => {
+    // Regresi untuk bug yang lolos ke produksi: yang dilaporkan harus tetap
+    // berguna walau SDK mengubah bentuk galatnya. Kalau status benar-benar tidak
+    // ada, minimal `error.code` yang dipakai — bukan kata "gagal" tanpa isi.
+    setEnv(CLOUDINARY_ENV);
+
+    const galat = new Error('ditolak');
+    galat.error = { status: 403 };
+    mockPing.mockRejectedValueOnce(galat);
+
+    expect(await storage.verifyRemoteStorage()).toEqual({
+      state: 'failed',
+      alasan: 'HTTP 403'
+    });
   });
 
   test('S3: HeadBucket dijalankan pada bucket yang dikonfigurasi', async () => {
@@ -211,6 +238,7 @@ describe('startStorageCheck', () => {
 
   test('kegagalan dicatat lengkap dengan alasannya', async () => {
     setEnv(CLOUDINARY_ENV);
+    // Bentuk datar (S3/AWS memakai $metadata, SDK lain memakai http_code di akar).
     const galat = new Error('nope');
     galat.http_code = 403;
     mockPing.mockRejectedValueOnce(galat);
@@ -257,5 +285,39 @@ describe('/health melaporkan hasilnya', () => {
         expect(res.body).toHaveProperty('storageCheck');
         expect(['pending', 'ok', 'failed', 'skipped']).toContain(res.body.storageCheck);
       });
+  });
+
+  test('penyebab kegagalan ikut dilaporkan, jadi bisa ditindaklanjuti tanpa log server', () => {
+    const { app } = require('../server');
+    const request = require('supertest');
+
+    setEnv(CLOUDINARY_ENV);
+    // Bentuk galat Cloudinary yang sebenarnya.
+    mockPing.mockRejectedValueOnce({ error: { message: 'rahasia-jangan-tayang', http_code: 401 } });
+
+    return storage
+      .startStorageCheck(jest.fn())
+      .then(() => request(app).get('/health').expect(200))
+      .then((res) => {
+        expect(res.body.storageCheck).toBe('failed');
+        // `failed` saja tidak menuntun ke tindakan apa pun; kode inilah yang
+        // membedakan kredensial salah dari provider yang tidak menjawab.
+        expect(res.body.storageCheckReason).toBe('HTTP 401');
+        expect(JSON.stringify(res.body)).not.toContain('rahasia-jangan-tayang');
+      });
+  });
+
+  test('saat verifikasi berhasil tidak ada kolom penyebab yang menyesatkan', async () => {
+    const { app } = require('../server');
+    const request = require('supertest');
+
+    setEnv(CLOUDINARY_ENV);
+    mockPing.mockResolvedValueOnce({ status: 'ok' });
+    await storage.startStorageCheck(jest.fn());
+
+    const res = await request(app).get('/health').expect(200);
+
+    expect(res.body.storageCheck).toBe('ok');
+    expect(res.body).not.toHaveProperty('storageCheckReason');
   });
 });

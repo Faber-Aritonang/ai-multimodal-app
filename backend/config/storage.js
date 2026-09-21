@@ -505,10 +505,26 @@ const denganBatasWaktu = (janji, ms, label) =>
  * log ini ikut tayang di CI yang repo-nya publik. Kode HTTP sudah cukup untuk
  * membedakan "kredensial salah" (401/403) dari "bucket tidak ada" (404), dan
  * `timeout` membedakan keduanya dari provider yang tidak merespons.
+ *
+ * PENTING — setiap SDK menyimpan statusnya di tempat yang berbeda, dan ini
+ * sempat salah diasumsikan: SDK Cloudinary menolak dengan objek BERSARANG,
+ * statusnya ada di `error.error.http_code`, bukan `error.http_code`:
+ *
+ *   { request_options, query_params, error: { message, http_code: 401 } }
+ *
+ * Versi pertama fungsi ini hanya membaca bentuk datar, sehingga SETIAP
+ * penolakan kredensial Cloudinary dilaporkan sebagai `gagal` — persis kasus
+ * yang pemeriksaan ini dibuat untuk menjelaskan. SDK AWS memakai
+ * `$metadata.httpStatusCode`, sedangkan galat biasa memakai `http_code` datar.
  */
 const kodeGalat = (error) => {
   const status =
-    error?.http_code || error?.status || error?.$metadata?.httpStatusCode || null;
+    error?.http_code ||
+    error?.status ||
+    error?.error?.http_code ||
+    error?.error?.status ||
+    error?.$metadata?.httpStatusCode ||
+    null;
 
   if (status) return `HTTP ${status}`;
   if (error?.code && /^[A-Za-z0-9_]+$/.test(String(error.code))) return String(error.code);

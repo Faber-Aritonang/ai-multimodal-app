@@ -186,6 +186,8 @@ app.use('/api/v1/media', mediaRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
+  const hasilPenyimpanan = getStorageCheck();
+
   const payload = {
     status: 'OK',
     timestamp: new Date().toISOString(),
@@ -205,7 +207,18 @@ app.get('/health', (req, res) => {
     // `cloudinary` (pemeriksaannya hanya "tidak kosong"), dan dulu itu baru
     // ketahuan saat user pertama kali men-generate gambar. Satu kata, tidak
     // membocorkan nilai maupun detail infrastruktur.
-    storageCheck: getStorageCheck().state
+    storageCheck: hasilPenyimpanan.state,
+    // Penyebab kegagalan, muncul HANYA saat verifikasi gagal. Isinya kode —
+    // `HTTP 401`, `HTTP 403`, `timeout` — bukan pesan dari provider: pesan
+    // aslinya memuat endpoint dan nama bucket, sedangkan kolom ini tampil di
+    // `/health` publik dan di log CI repo publik.
+    //
+    // Kolom ini ada karena `failed` saja tidak bisa ditindaklanjuti: `HTTP 401`
+    // berarti nilai kredensialnya salah, `timeout` berarti providernya tidak
+    // menjawab, dan keduanya butuh tindakan yang berbeda. Sebelumnya penyebabnya
+    // hanya terbaca dari log server, yang berarti satu-satunya cara mengetahui
+    // kenapa deploy merah adalah membuka dashboard Railway.
+    ...(hasilPenyimpanan.alasan ? { storageCheckReason: hasilPenyimpanan.alasan } : {})
   };
 
   // Status konfigurasi layanan pihak ketiga, berguna untuk debugging lokal.
