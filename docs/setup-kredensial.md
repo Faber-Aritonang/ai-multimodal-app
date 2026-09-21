@@ -55,7 +55,7 @@ mongodb+srv://appuser:PASSWORD_ANDA@cluster0.xxxxx.mongodb.net/ai-multimodal?ret
 2. Beri nama (mis. `ai-multimodal`). Google Analytics boleh dimatikan.
 3. Di sidebar: **Build** → **Authentication** → **Get started**.
 4. Tab **Sign-in method** → **Google** → **Enable** → pilih email support → **Save**.
-5. Tab **Settings** → **Authorized domains** → **Add domain** → tambahkan `localhost`.
+5. Tab **Settings** → **Authorized domains** → **Add domain** → tambahkan `localhost`, `ai-multimodal-app.vercel.app`, `maubuatapa.my.id`, dan `www.maubuatapa.my.id`.
    `localhost` biasanya sudah ada, tapi tanpa ini login akan ditolak dengan
    `auth/unauthorized-domain` saat dijalankan dari dev server.
 
@@ -715,7 +715,7 @@ aman dipakai untuk menguji fitur tanpa menunggu setup Google Sign-In.
 | `FIREBASE_SERVICE_ACCOUNT is not set` | `backend/.env` belum diisi, atau file service account belum ada di path yang ditulis. Path relatif dihitung dari folder `backend/`. |
 | `FIREBASE_SERVICE_ACCOUNT contains invalid JSON` | File key rusak, atau JSON di-paste sebagian. Unduh ulang dari Firebase Console. |
 | Frontend error `auth/invalid-api-key` | `frontend/.env.local` belum diisi, atau dev server belum di-restart setelah diedit. |
-| `auth/unauthorized-domain` | Domain belum diizinkan. Tambahkan `localhost` (development) atau domain Vercel (produksi) di Firebase Console → Authentication → Settings → **Authorized domains**. |
+| `auth/unauthorized-domain` | Domain belum diizinkan. Tambahkan `localhost`, `ai-multimodal-app.vercel.app`, `maubuatapa.my.id`, dan `www.maubuatapa.my.id` di Firebase Console → Authentication → Settings → **Authorized domains**. |
 | `auth/configuration-not-found` | Provider Google belum diaktifkan: Authentication → Sign-in method → Google → Enable. |
 | `auth/api-key-not-valid` | `VITE_FIREBASE_API_KEY` salah/tercampur. Salin ulang dari Project Settings → General → Your apps, lalu restart dev server. |
 | `firebase: "missing"` di `/health` padahal `FIREBASE_SERVICE_ACCOUNT` sudah diisi | Isinya path default (`./config/firebase-service-account.json`) tapi file key belum di-download. Lihat langkah 2c. |

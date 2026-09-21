@@ -20,7 +20,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `NODE_ENV` | `production` | `trust proxy` tidak aktif sehingga `req.ip` berisi IP proxy: **semua pengunjung berbagi satu hitungan rate limit** → 429 massal. Route `dev-login` juga ikut hidup (siapa pun bisa membuat token). | `POST /api/v1/auth/dev-login` harus menjawab **404** |
 | `MONGODB_URI` | `mongodb+srv://…` | `server.js` memanggil `process.exit(1)` saat connect gagal → tidak ada satu pun endpoint yang naik | `/health` → `"database":"connected"` |
 | `JWT_SECRET` | `openssl rand -base64 32` | verifikasi token gagal; endpoint auth menjawab `JWT_SECRET is not set. Isi backend/.env terlebih dahulu.` | login dari UI berhasil, `/health` → `"status":"OK"` |
-| `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app` (beberapa domain boleh, dipisah koma) | browser memblokir **setiap** panggilan API sebagai CORS error, padahal backend menjawab 200 | header `access-control-allow-origin` memuat domain Vercel yang aktif |
+| `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id,https://www.maubuatapa.my.id` (beberapa domain dipisah koma) | browser memblokir **setiap** panggilan API sebagai CORS error, padahal backend menjawab 200 | header `access-control-allow-origin` memuat domain yang sedang dibuka |
 | `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. Job deploy juga sengaja gagal. | `/health` → `"storageMode":"cloudinary"` |
 | `FIREBASE_SERVICE_ACCOUNT` | isi JSON service account dalam satu baris, atau path berkas | login Google tidak bisa dipakai (`auth/…` gagal) | login Google dari frontend produksi |
 
@@ -93,9 +93,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/auth/dev-login -d '{}
 #    404
 
 # 3. CORS mengizinkan frontend yang sedang dipakai
-curl -s -D - -o /dev/null -H 'Origin: https://ai-multimodal-app.vercel.app' $B/health \
-  | grep -i access-control-allow-origin
-#    access-control-allow-origin: https://ai-multimodal-app.vercel.app
+for O in https://ai-multimodal-app.vercel.app https://maubuatapa.my.id https://www.maubuatapa.my.id; do
+  curl -s -D - -o /dev/null -H "Origin: $O" "$B/health" \
+    | grep -i access-control-allow-origin
+done
+#    access-control-allow-origin: <origin yang sedang diuji>
 
 # 4. Origin asing tetap ditolak (tidak boleh ada header di atas)
 curl -s -D - -o /dev/null -H 'Origin: https://situs-asing.example' $B/health \
@@ -111,7 +113,7 @@ ulang selesai baru jalankan verifikasi ini.
 
 | Gejala di produksi | Penyebab yang paling sering |
 |---|---|
-| Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat domain Vercel yang sedang aktif |
+| Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat hostname yang sedang dibuka; setelah deploy kode terbaru, tiga domain aplikasi di-whitelist bawaan, tetapi tetap isi `FRONTEND_URL` agar konfigurasi eksplisit |
 | Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_*` (atau `S3_*`) belum lengkap |
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
