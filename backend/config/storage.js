@@ -34,7 +34,12 @@
 
 const fs = require('fs/promises');
 const path = require('path');
-const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  HeadBucketCommand
+} = require('@aws-sdk/client-s3');
 const cloudinary = require('cloudinary').v2;
 
 const trimmed = (value) => String(value || '').trim();
@@ -150,10 +155,15 @@ const getClient = () => {
   return client;
 };
 
-/** Hanya untuk test: buang klien yang sudah dibuat agar env baru ikut terbaca. */
+/**
+ * Hanya untuk test: buang klien yang sudah dibuat agar env baru ikut terbaca,
+ * dan kembalikan status verifikasi ke awal.
+ */
 const resetClientForTests = () => {
   client = null;
   cloudinaryConfigured = false;
+  storageCheck = { state: 'pending' };
+  storageCheckBerjalan = false;
 };
 
 const getPublicBaseUrl = () => trimmed(process.env.S3_PUBLIC_BASE_URL).replace(/\/+$/, '');
@@ -441,6 +451,130 @@ const describeStorage = () => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// Verifikasi kredensial penyimpanan
+//
+// `isCloudinaryConfigured()` dan `isS3Configured()` hanya memeriksa bahwa
+// variabelnya TIDAK KOSONG. Nilai yang salah tulis tetap lolos, dan akibatnya
+// baru terlihat saat user pertama kali men-generate gambar — sementara
+// `/health` sudah melaporkan `storageMode: cloudinary` dan job deploy tetap
+// hijau. Pemeriksaan di bawah benar-benar memanggil providernya, dan hasilnya
+// dilaporkan lewat `/health` supaya rilis dengan kredensial tidak berlaku bisa
+// ditolak sebelum sampai ke user.
+//
+// Sengaja TIDAK memblokir startup: server tetap naik walau penyimpanan sedang
+// tidak bisa dihubungi, sehingga fitur non-media tetap terpakai dan pesannya
+// tetap bisa dibaca dari log. Healthcheck platform tidak ikut melambat —
+// `/health` hanya membaca hasil yang sudah tersimpan, dan `pending` berarti
+// pemeriksaannya belum selesai.
+// ---------------------------------------------------------------------------
+
+/** Batas waktu satu panggilan verifikasi; cukup longgar untuk jaringan lambat. */
+const STORAGE_CHECK_TIMEOUT_MS = 10000;
+
+let storageCheck = { state: 'pending' };
+let storageCheckBerjalan = false;
+
+/** Hasil terakhir verifikasi: { state: 'pending'|'ok'|'failed'|'skipped', alasan? }. */
+const getStorageCheck = () => storageCheck;
+
+/**
+ * Batasi satu panggilan jaringan dengan batas waktu, karena SDK tidak selalu
+ * punya timeout default yang wajar di semua jalur.
+ */
+const denganBatasWaktu = (janji, ms, label) =>
+  Promise.race([
+    janji,
+    new Promise((_, tolak) => {
+      const timer = setTimeout(() => {
+        const galat = new Error(`${label}_timeout`);
+        // Kode ini yang membedakan "provider tidak merespons" dari "kredensial
+        // ditolak" di log — dua hal dengan tindakan perbaikan yang berbeda.
+        galat.code = 'timeout';
+        tolak(galat);
+      }, ms);
+      // Timer tidak boleh menahan proses tetap hidup saat server dimatikan.
+      if (typeof timer.unref === 'function') timer.unref();
+    })
+  ]);
+
+/**
+ * Ringkas galat jadi kode yang aman dicatat.
+ *
+ * Pesan asli dari Cloudinary/S3 memuat endpoint dan nama bucket, sedangkan baris
+ * log ini ikut tayang di CI yang repo-nya publik. Kode HTTP sudah cukup untuk
+ * membedakan "kredensial salah" (401/403) dari "bucket tidak ada" (404), dan
+ * `timeout` membedakan keduanya dari provider yang tidak merespons.
+ */
+const kodeGalat = (error) => {
+  const status =
+    error?.http_code || error?.status || error?.$metadata?.httpStatusCode || null;
+
+  if (status) return `HTTP ${status}`;
+  if (error?.code && /^[A-Za-z0-9_]+$/.test(String(error.code))) return String(error.code);
+  return 'gagal';
+};
+
+/**
+ * Uji kredensial penyimpanan yang sedang dipakai ke providernya.
+ * - `cloudinary` : `api.ping()` — endpoint yang memang disediakan untuk ini.
+ * - `s3`         : `HeadBucket` — memvalidasi kredensial sekaligus akses bucket.
+ * - `local`      : tidak ada yang bisa diuji; dev memang tanpa kredensial.
+ *
+ * @returns {Promise<{state: 'ok'|'failed'|'skipped', alasan?: string}>}
+ */
+const verifyRemoteStorage = async () => {
+  const mode = getStorageMode();
+
+  if (mode === 'local') return { state: 'skipped', alasan: 'mode=local' };
+
+  try {
+    if (mode === 'cloudinary') {
+      const hasil = await denganBatasWaktu(
+        getCloudinary().api.ping(),
+        STORAGE_CHECK_TIMEOUT_MS,
+        'cloudinary'
+      );
+      return hasil && hasil.status === 'ok' ? { state: 'ok' } : { state: 'failed', alasan: 'respons tak terduga' };
+    }
+
+    await denganBatasWaktu(
+      getClient().send(new HeadBucketCommand({ Bucket: trimmed(process.env.S3_BUCKET) })),
+      STORAGE_CHECK_TIMEOUT_MS,
+      's3'
+    );
+    return { state: 'ok' };
+  } catch (error) {
+    return { state: 'failed', alasan: kodeGalat(error) };
+  }
+};
+
+/**
+ * Jalankan verifikasi sekali per proses, tanpa memblokir pemanggilnya.
+ * Aman dipanggil berkali-kali: pemanggilan berikutnya dilewati selama hasil
+ * pertama sudah ada atau sedang berjalan.
+ */
+const startStorageCheck = (catat = console.log) => {
+  if (storageCheckBerjalan || storageCheck.state !== 'pending') return null;
+  storageCheckBerjalan = true;
+
+  // Promise-nya dikembalikan agar bisa di-await test (dan siapa pun yang ingin
+  // tahu kapan selesai). Pemanggil yang tidak peduli boleh mengabaikannya —
+  // memang begitu cara server.js memakainya, supaya startup tidak tertahan.
+  return verifyRemoteStorage()
+    .then((hasil) => {
+      storageCheck = hasil;
+    })
+    .catch(() => {
+      storageCheck = { state: 'failed', alasan: 'gagal' };
+    })
+    .finally(() => {
+      storageCheckBerjalan = false;
+      const { state, alasan } = storageCheck;
+      catat(`Verifikasi penyimpanan: ${state}${alasan ? ` (${alasan})` : ''}`);
+    });
+};
+
 module.exports = {
   getStorageMode,
   isRemoteStorage,
@@ -452,5 +586,9 @@ module.exports = {
   removeByUrl,
   describeStorage,
   getUploadDir,
+  getStorageCheck,
+  verifyRemoteStorage,
+  startStorageCheck,
+  STORAGE_CHECK_TIMEOUT_MS,
   resetClientForTests
 };

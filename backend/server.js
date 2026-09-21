@@ -27,7 +27,12 @@ const memberRoutes = require('./routes/member');
 const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
 const { getProviderStatus } = require('./config/imageProviders');
-const { describeStorage, getStorageMode } = require('./config/storage');
+const {
+  describeStorage,
+  getStorageMode,
+  getStorageCheck,
+  startStorageCheck
+} = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { preferEnvFile } = require('./config/envFile');
 
@@ -191,7 +196,16 @@ app.get('/health', (req, res) => {
     // tidak bisa dilihat dari kode maupun dari UI. Blok `services` di bawah tetap
     // hanya untuk non-production (isinya detail infrastruktur), sedangkan satu
     // kata ini tidak membocorkan apa pun.
-    storageMode: getStorageMode()
+    storageMode: getStorageMode(),
+    // Hasil verifikasi kredensial penyimpanan: 'pending' | 'ok' | 'failed' |
+    // 'skipped'. Alasan dilaporkannya sama dengan `storageMode`, tetapi untuk
+    // masalah yang berbeda: `storageMode` menjawab "mode apa yang dipakai",
+    // sedangkan kolom ini menjawab "apakah kredensialnya benar-benar berlaku".
+    // Keduanya bisa berbeda — nilai yang salah tulis tetap membuat mode terbaca
+    // `cloudinary` (pemeriksaannya hanya "tidak kosong"), dan dulu itu baru
+    // ketahuan saat user pertama kali men-generate gambar. Satu kata, tidak
+    // membocorkan nilai maupun detail infrastruktur.
+    storageCheck: getStorageCheck().state
   };
 
   // Status konfigurasi layanan pihak ketiga, berguna untuk debugging lokal.
@@ -258,6 +272,10 @@ const startServer = async () => {
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
     // platform (Railway), bukan harus ditebak dari perilaku aplikasi.
     console.log(`Penyimpanan media: mode=${getStorageMode()}`);
+    // Dijalankan tanpa di-await: hasilnya menyusul di /health dan di log
+    // ("Verifikasi penyimpanan: ..."). Server tidak boleh tertahan atau gagal
+    // naik hanya karena penyimpanan sedang tidak bisa dihubungi.
+    startStorageCheck();
     // Rantai provider chat dicatat di sini dengan alasan yang sama: `/health`
     // sengaja menyembunyikan blok `services` di production, sehingga tanpa baris
     // ini satu-satunya cara tahu apakah OpenRouter (atau provider lain) benar

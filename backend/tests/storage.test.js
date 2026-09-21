@@ -25,7 +25,10 @@ const mockCloudinaryConfig = jest.fn();
 jest.mock('@aws-sdk/client-s3', () => ({
   S3Client: jest.fn().mockImplementation((config) => ({ config, send: mockSend })),
   PutObjectCommand: jest.fn().mockImplementation((input) => ({ type: 'PutObject', input })),
-  DeleteObjectCommand: jest.fn().mockImplementation((input) => ({ type: 'DeleteObject', input }))
+  DeleteObjectCommand: jest.fn().mockImplementation((input) => ({ type: 'DeleteObject', input })),
+  // Dipakai verifikasi kredensial; ikut didaftarkan supaya mock ini sama dengan
+  // modul aslinya (lihat tests/storageCheck.test.js untuk perilakunya).
+  HeadBucketCommand: jest.fn().mockImplementation((input) => ({ type: 'HeadBucket', input }))
 }));
 
 jest.mock('cloudinary', () => ({

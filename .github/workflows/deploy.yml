@@ -160,11 +160,20 @@ jobs:
       # gambar user tanpa satu pun error. Build tetap hijau, aplikasi tetap
       # jalan; hanya berkasnya yang hilang.
       #
+      # Kelas kegagalan kedua, yang tidak tertangkap oleh pemeriksaan mode:
+      # kredensial yang TERISI tetapi TIDAK BERLAKU. Pemeriksaan konfigurasi hanya
+      # bertanya "apakah variabelnya kosong", jadi nilai placeholder atau nilai
+      # yang salah salin tetap membuat `/health` melaporkan `cloudinary` sementara
+      # SETIAP unggahan ditolak provider. Akibatnya job tetap hijau dan yang
+      # menemukannya adalah user.
+      #
       # Karena itu deploy baru dianggap selesai hanya kalau `/health` produksi
-      # menjawab `status: OK`, `database: connected`, dan mode penyimpanannya
-      # bukan `local`. Langkah ini tidak mencetak nilai rahasia: `/health` memang
-      # sengaja hanya mengirim SATU kata mode penyimpanan, bukan kredensial.
-      - name: Verifikasi produksi - database & mode penyimpanan
+      # menjawab `status: OK`, `database: connected`, mode penyimpanannya bukan
+      # `local`, dan `storageCheck` — hasil benar-benar memanggil providernya —
+      # sudah selesai serta tidak `failed`. Langkah ini tidak mencetak nilai
+      # rahasia: `/health` sengaja hanya mengirim satu kata per kolom, bukan
+      # kredensial, dan baris lognya pun hanya memuat kode galat.
+      - name: Verifikasi produksi - database, penyimpanan & kredensialnya
         run: |
           python3 - <<'PY'
           import json
@@ -183,7 +192,13 @@ jobs:
                   with urllib.request.urlopen(url, timeout=30) as respons:
                       terakhir = json.loads(respons.read().decode())
                   print(" ", json.dumps(terakhir), flush=True)
-                  if terakhir.get("status") == "OK" and terakhir.get("database") == "connected":
+                  # `storageCheck` boleh tidak ada di deployment lama; kalau ada,
+                  # tunggu sampai selesai ('pending' -> 'ok'/'failed').
+                  if (
+                      terakhir.get("status") == "OK"
+                      and terakhir.get("database") == "connected"
+                      and terakhir.get("storageCheck") != "pending"
+                  ):
                       break
               except Exception as galat:
                   print(f"  {url} belum siap: {type(galat).__name__}", flush=True)
@@ -194,6 +209,7 @@ jobs:
               sys.exit(1)
 
           mode = terakhir.get("storageMode")
+          check = terakhir.get("storageCheck")
 
           if mode is None:
               print("::warning::/health tidak melaporkan storageMode sehingga tidak bisa diverifikasi.")
@@ -207,6 +223,32 @@ jobs:
               sys.exit(1)
           else:
               print(f"::notice::Mode penyimpanan produksi: {mode}.")
+
+          # Mode saja tidak cukup — lihat catatan di atas langkah ini. Kodenya
+          # hanya memuat status HTTP/kode galat, tidak pernah pesan dari provider
+          # (pesannya memuat endpoint dan nama bucket, dan log run repo ini publik).
+          if check == "failed":
+              print(
+                  "::error::Kredensial penyimpanan ditolak provider: mode "
+                  f"'{mode}' terkonfigurasi, tetapi pemeriksaannya gagal, sehingga "
+                  "SETIAP generate gambar akan ditolak. Periksa ulang nilai "
+                  "CLOUDINARY_* (atau S3_*) di service Railway dan pastikan disalin "
+                  "utuh. Kode galatnya ada di log startup Railway pada baris "
+                  "'Verifikasi penyimpanan:'."
+              )
+              sys.exit(1)
+          elif check is None:
+              print(
+                  "::warning::/health tidak melaporkan storageCheck (deployment lama), "
+                  "jadi kredensial penyimpanan tidak ikut diverifikasi."
+              )
+          elif check == "pending":
+              print(
+                  "::warning::Pemeriksaan kredensial penyimpanan belum selesai dalam 5 menit. "
+                  "Jalankan ulang verifikasi ini setelah deploy berikutnya."
+              )
+          else:
+              print(f"::notice::Kredensial penyimpanan terverifikasi: {check}.")
           PY
 
   # Verifikasi deploy Frontend (Vercel).
