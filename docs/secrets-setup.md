@@ -22,9 +22,51 @@ Catatan nama yang mudah salah:
   `VERCEL_PROJECT_ID_FRONTEND`; nama itu membuat `project-id` terkirim **kosong**
   dan job verifikasi gagal seolah-olah tokennya yang salah. `VERCEL_ORG_ID`
   tidak dipakai workflow ini, jadi tidak perlu diisi.
-- `RAILWAY_TOKEN` di sini adalah **project token**, bukan token akun. Token akun
-  (`railway login`) dan project token memakai variabel yang sama tetapi tidak
-  bisa saling menggantikan.
+- `RAILWAY_TOKEN` di sini adalah **project token**, bukan token akun, dan
+  keduanya memakai variabel yang **berbeda**: project token lewat
+  `RAILWAY_TOKEN`, token akun/workspace lewat `RAILWAY_API_TOKEN`. Versi lama
+  dokumen ini menulis "memakai variabel yang sama" — itu tidak benar. Token akun
+  yang ditaruh di `RAILWAY_TOKEN` akan diperlakukan sebagai project token dan
+  ditolak `Unauthorized`.
+
+## `RAILWAY_TOKEN` harus milik project yang benar
+
+Project token terikat pada **satu project dan satu environment**. Kalau ia dibuat
+untuk project lain, `railway up` menolaknya dengan
+
+```
+Unauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the
+resource you're trying to use.
+```
+
+Itu penyebab nyata job `deploy-backend` merah di **setiap** run: token yang
+terpasang dibuat di project `vibrant-victory` (13 Sep 2026, 15:18), sedangkan
+service `ai-multimodal-app` ada di project `truthful-imagination` (dibuat 15:36
+di hari yang sama). Karena tokennya tidak punya akses ke project itu, tidak ada
+satu pun deployment yang pernah dihasilkan oleh `railway up`.
+
+**Cara memastikan.** Buka Railway → project yang benar
+(`truthful-imagination`) → *Project Settings* → **Tokens**. Token yang dipakai
+harus muncul di daftar project itu. Kalau tidak muncul, ia milik project lain
+atau memang token akun.
+
+**Perbaikan.** Buat token baru dari halaman itu dengan environment `production`,
+lalu perbarui secret `RAILWAY_TOKEN` di GitHub. Periksa sekaligus
+`RAILWAY_PROJECT_ID`: harus
+`d63db879-cc03-4d43-840c-4caf2e9710c9`.
+
+> Project `truthful-imagination` juga punya environment sisa bernama
+> `" MONGODB_URI"` (dengan spasi di depan) — akibat nilai variabel yang pernah
+> tertempel ke kolom "environment baru". Hapus supaya tidak terpilih keliru saat
+> membuat token, karena environment yang dipilih menentukan token ini bisa
+> dipakai di mana.
+
+**Akibat samping yang perlu diketahui:** karena step `Deploy ke Railway` adalah
+step paling awal di job itu, kegagalannya membuat step sesudahnya — termasuk
+`Verifikasi produksi - database, penyimpanan & kredensialnya` — berstatus
+*skipped*. Artinya selama token ini masih salah, pemeriksaan kredensial
+penyimpanan **tidak pernah berjalan di CI**, meskipun kodenya ada. Selama itu
+pula satu-satunya cara memeriksanya adalah `curl` manual ke `/health`.
 
 ## Catatan untuk job `quality` di CI
 
