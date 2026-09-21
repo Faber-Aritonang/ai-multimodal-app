@@ -8,12 +8,11 @@ frontend/dist/
 backend/build/
 
 # Environment
-.env
-.env.local
-.env.*.local
-# Salinan cadangan .env (mis. sebelum mengubah kredensial) juga memuat rahasia
-.env.bak*
-.env.*.bak
+# `.env*` sudah menutup seluruh varian rahasia sekaligus: .env, .env.local,
+# .env.production, .env.bak, .env.save, dst. Jadi tidak perlu didaftar satu per
+# satu. Hanya berkas contoh yang boleh ter-commit karena isinya placeholder.
+.env*
+!.env.example
 
 # IDE
 .vscode/
@@ -21,8 +20,6 @@ backend/build/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
 # OS
 .DS_Store
@@ -43,6 +40,7 @@ backend/uploads/
 # Cache
 .cache/
 .temp/
+.npm-cache/
 
 # Metadata project Vercel (ditulis oleh `vercel pull`, bukan sumber kode)
 .vercel/
@@ -55,12 +53,3 @@ ai-multimodal-app-clean/
 # Testing
 coverage/
 .nyc_output/
-
-# Optional npm cache
-.npm-cache/.env
-.env.local
-.env*
-.env
-.env.save
-backend/config/firebase-service-account.json
-backend/config/firebase-service-account.json
