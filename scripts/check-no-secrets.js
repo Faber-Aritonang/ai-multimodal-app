@@ -37,7 +37,11 @@ const NAME_RULES = [
     nama: 'berkas .env (kecuali .env.example)',
     cocok: (p) => {
       const dasar = path.basename(p);
-      return dasar.startsWith('.env') && !dasar.endsWith('.env.example');
+      if (dasar.endsWith('.env.example')) return false;
+      // `.env`, `.env.local`, `.env.save.1`, sekaligus nama seperti `prod.env`
+      // dan `staging.env` yang muncul saat seseorang menyimpan salinan per
+      // environment. Keduanya sama-sama berisi kredensial asli.
+      return dasar.startsWith('.env') || dasar.endsWith('.env');
     }
   },
   {
@@ -46,8 +50,13 @@ const NAME_RULES = [
   },
   {
     nama: 'kredensial service account',
-    cocok: (p) =>
-      /(service-account|firebase-adminsdk|client_secret|credentials).*\.json$/i.test(p)
+    cocok: (p) => {
+      // Template (mis. `firebase-service-account.example.json`) memang untuk
+      // di-commit, sama seperti `.env.example`. Yang dilarang adalah berkas
+      // kredensial aslinya.
+      if (/\.(example|sample|template)\.json$/i.test(p)) return false;
+      return /(service-account|firebase-adminsdk|client_secret|credentials).*\.json$/i.test(p);
+    }
   },
   {
     nama: 'berkas token',
@@ -142,15 +151,45 @@ function biner( isi ) {
 
 // ---------------------------------------------------------------------------
 // Pemeriksaan
+//
+// Dipisah jadi tiga fungsi murni supaya bisa diuji tanpa menyentuh git, dan
+// tanpa memanggil process.exit di tengah test.
 // ---------------------------------------------------------------------------
-function periksa( berkas ) {
+function periksaNama( berkas ) {
+  return NAME_RULES.filter((aturan) => aturan.cocok(berkas)).map((aturan) => ({
+    baris: 1,
+    aturan: aturan.nama,
+    jenis: 'nama'
+  }));
+}
+
+function periksaIsi( teks ) {
   const temuan = [];
 
-  for (const aturan of NAME_RULES) {
-    if (aturan.cocok(berkas)) {
-      temuan.push({ baris: 1, aturan: aturan.nama, jenis: 'nama' });
+  for (const aturan of CONTENT_RULES) {
+    const global = aturan.pola.global;
+    aturan.pola.lastIndex = 0;
+
+    let cocok;
+    while ((cocok = aturan.pola.exec(teks)) !== null) {
+      if (aturan.abaikan && aturan.abaikan(cocok)) {
+        if (!global) break;
+        continue;
+      }
+      temuan.push({
+        baris: teks.slice(0, cocok.index).split('\n').length,
+        aturan: aturan.nama,
+        jenis: 'isi'
+      });
+      if (!global) break;
     }
   }
+
+  return temuan;
+}
+
+function periksaBerkas( berkas ) {
+  const temuan = periksaNama(berkas);
 
   let isi;
   try {
@@ -163,25 +202,7 @@ function periksa( berkas ) {
 
   if (biner(isi)) return temuan;
 
-  const teks = isi.toString('utf8');
-  const barisBaris = teks.split('\n');
-
-  for (const aturan of CONTENT_RULES) {
-    if (!aturan.pola.global) aturan.pola.lastIndex = 0;
-    let cocok;
-    while ((cocok = aturan.pola.exec(teks)) !== null) {
-      if (aturan.abaikan && aturan.abaikan(cocok)) {
-        if (!aturan.pola.global) break;
-        continue;
-      }
-      const sebelum = teks.slice(0, cocok.index);
-      const baris = sebelum.split('\n').length;
-      temuan.push({ baris, aturan: aturan.nama, jenis: 'isi' });
-      if (!aturan.pola.global) break;
-    }
-  }
-
-  return temuan;
+  return temuan.concat(periksaIsi(isi.toString('utf8')));
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +212,7 @@ function main() {
 
   const hasil = [];
   for (const b of berkas) {
-    for (const t of periksa(b)) {
+    for (const t of periksaBerkas(b)) {
       hasil.push({ berkas: b, ...t });
     }
   }
@@ -227,4 +248,16 @@ function main() {
   return 1;
 }
 
-process.exit(main());
+module.exports = {
+  periksaNama,
+  periksaIsi,
+  periksaBerkas,
+  MAX_BYTES,
+  NAME_RULES,
+  CONTENT_RULES
+};
+
+// Hanya jalan sebagai CLI kalau dipanggil langsung, bukan saat di-require test.
+if (require.main === module) {
+  process.exit(main());
+}

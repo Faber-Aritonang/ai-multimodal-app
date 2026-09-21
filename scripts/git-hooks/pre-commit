@@ -1,11 +1,26 @@
 #!/bin/sh
 # Hook pre-commit: menolak commit yang membawa berkas mirip kredensial.
 #
-# Dipasang oleh `npm run hooks:install` atau `bash scripts/install-git-hooks.sh`
-# (menyalin berkas ini ke .git/hooks/pre-commit, sehingga tidak mengubah
-# konfigurasi git dan tidak ikut ter-commit).
+# Dipasang oleh `bash scripts/install-git-hooks.sh` (menyalin berkas ini ke
+# .git/hooks/pre-commit, sehingga tidak mengubah konfigurasi git dan tidak ikut
+# ter-commit).
 #
 # Hanya memeriksa berkas yang masuk staging, jadi hasilnya cepat dan tidak
 # menghalangi commit atas perubahan yang memang tidak berkaitan dengan rahasia.
 
-node "$(git rev-parse --show-toplevel)/scripts/check-no-secrets.js" --staged
+set -eu
+
+akar=$(git rev-parse --show-toplevel)
+skrip="$akar/scripts/check-no-secrets.js"
+
+# Hook terpasang di .git/hooks, yang berlaku untuk SEMUA branch di klon ini.
+# Di commit yang lebih lama (sebelum penjaga ini ada) skripnya belum ada, dan
+# hook yang langsung memanggil node di situ akan menggagalkan setiap commit
+# dengan error yang membingungkan. Dalam keadaan itu pemeriksaan memang tidak
+# bisa dilakukan, jadi dilewati dengan pesan yang jelas.
+if [ ! -f "$skrip" ]; then
+  echo "pre-commit: scripts/check-no-secrets.js belum ada di commit ini — dilewati." >&2
+  exit 0
+fi
+
+exec node "$skrip" --staged
