@@ -743,6 +743,33 @@ ai-multimodal-app/
 - [ ] Rate limiting per feature
 - [ ] Caching (Redis)
 
+### Phase 4: Kesehatan Dependency
+
+- [x] `npm audit fix` (21 Sep 2026) — `qs` 6.15.3 → 6.16.0, `express` 4.22.2 →
+  4.22.3, satu salinan `qs` bersarang ikut di-dedup. Kerentanan backend turun
+  12 → 10. `package.json` tidak berubah (semua masih dalam rentang semver),
+  diverifikasi dengan 290 test backend, lint + build frontend, dan
+  `npm ls --depth=0` yang bersih.
+- [ ] **Backend: `firebase-admin` 11 → 14** — menutup 1 critical (`protobufjs`)
+  dan 5 high. Penghalangnya bukan sekadar versi: v14 mensyaratkan **Node >=22**
+  sedangkan `.github/workflows/deploy.yml` dipin ke Node 20, dan
+  `backend/package.json` belum punya field `engines` sehingga versi Node di
+  Railway bersifat implisit — naik tanpa itu berisiko gagal saat runtime di
+  produksi, bukan saat build. Urutannya: pin Node 22 di CI → tambah `engines` →
+  baru naikkan paketnya, lalu **uji login Google secara manual** (Firebase Auth
+  tidak terjangkau unit test).
+
+  Jangkauan praktisnya sekarang rendah: `protobufjs` masuk lewat
+  `firebase-admin → @google-cloud/firestore → google-gax`, tetapi aplikasi ini
+  memakai firebase-admin **hanya untuk Auth** (`admin.credential.cert` +
+  `verifyIdToken`); Firestore dan Storage Admin tidak pernah diinstansiasi, dan
+  advisory "arbitrary code execution"-nya menyangkut pembuatan kode lewat CLI
+  `pbjs`, bukan runtime.
+- [ ] **Frontend: `undici` (high) + 12 moderate** lewat `firebase` dan
+  `@firebase/*`. `npm audit fix --force` akan memasang `vite@8` (dari 4) dan
+  `react-router-dom@7` (dari 6) — itu migrasi konfigurasi Vite dan API router,
+  bukan pembaruan dependensi, jadi perlu dikerjakan sebagai perubahan tersendiri.
+
 ## Contributing
 
 Panduan lengkapnya ada di **[CONTRIBUTING.md](CONTRIBUTING.md)** — menyiapkan
