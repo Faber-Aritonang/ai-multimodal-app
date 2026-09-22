@@ -40,6 +40,18 @@ const DEFAULT_POLLINATIONS_BASE_URL = 'https://image.pollinations.ai';
 const DEFAULT_POLLINATIONS_MODEL = 'flux';
 const DEFAULT_FALLBACK_PROVIDER = 'pollinations';
 
+// Batas laju Pollinations dihitung PER MODEL, bukan per alamat IP saja. Yang
+// benar-benar terlihat di produksi (22 Sep 2026):
+//
+//   Pollinations error (HTTP 500): Gen Sana request failed with 429:
+//   {"message":"Per-user limit of 300 RPM exceeded for model lykon/dreamshaper-8-lcm"}
+//
+// Satu model yang penuh tidak berarti model lain ikut penuh. Karena itu satu
+// permintaan user dicoba ke beberapa model berurutan: permintaan pertama yang
+// gagal hanya karena kuota model, bukan lagi langsung menjadi 502 di UI.
+const DEFAULT_POLLINATIONS_FALLBACK_MODELS = ['turbo', 'flux-realism'];
+const DEFAULT_POLLINATIONS_ATTEMPTS = 3;
+
 // Nilai placeholder di .env.example tidak boleh dianggap konfigurasi valid.
 const PLACEHOLDER_VALUES = new Set([
   'your-cloudflare-account-id',
@@ -435,6 +447,75 @@ const cloudflare = {
 };
 
 /**
+ * Daftar model yang dicoba berurutan untuk satu permintaan Pollinations.
+ *
+ * Model pertama dari `POLLINATIONS_MODEL` (bawaan `flux`), lalu cadangannya.
+ * `POLLINATIONS_FALLBACK_MODELS=none` mematikan rotasi; daftar juga dibatasi
+ * `POLLINATIONS_ATTEMPTS` supaya jumlah percobaan tetap terkendali.
+ *
+ * @returns {string[]} minimal satu nama model
+ */
+const getPollinationsModels = () => {
+  const utama = String(process.env.POLLINATIONS_MODEL || DEFAULT_POLLINATIONS_MODEL).trim();
+  const cadanganMentah =
+    process.env.POLLINATIONS_FALLBACK_MODELS === undefined
+      ? DEFAULT_POLLINATIONS_FALLBACK_MODELS.join(',')
+      : process.env.POLLINATIONS_FALLBACK_MODELS;
+
+  const cadangan = String(cadanganMentah)
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item && item !== 'none');
+
+  const maks = Number(process.env.POLLINATIONS_ATTEMPTS) || DEFAULT_POLLINATIONS_ATTEMPTS;
+
+  return [utama, ...cadangan]
+    .filter((item, index, semua) => semua.indexOf(item) === index)
+    .slice(0, Math.max(1, maks));
+};
+
+/**
+ * Satu permintaan gambar ke Pollinations untuk satu model.
+ *
+ * Dipisah dari provider supaya percobaan ke model berikutnya benar-benar
+ * memakai seed baru, bukan mengulang URL yang sama.
+ *
+ * @returns {Promise<{buffer: Buffer, format: string, mimeType: string, provider: string, model: string}>}
+ */
+const requestPollinationsImage = async ({ baseUrl, prompt, model, width, height }) => {
+  const url = new URL(`${baseUrl}/prompt/${encodeURIComponent(prompt)}`);
+  url.searchParams.set('width', String(width));
+  url.searchParams.set('height', String(height));
+  url.searchParams.set('model', model);
+  url.searchParams.set('nologo', 'true');
+  url.searchParams.set('seed', String(randomSeed()));
+
+  if (isSet(process.env.POLLINATIONS_TOKEN)) {
+    url.searchParams.set('token', sanitizeSecret(process.env.POLLINATIONS_TOKEN));
+  }
+
+  const response = await fetchWithTimeout(url);
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw createError(
+      `Pollinations error (HTTP ${response.status}): ${
+        detail.slice(0, 200) || response.statusText
+      }`,
+      'PROVIDER_ERROR'
+    );
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  if (buffer.length === 0) {
+    throw createError('Pollinations returned an empty image', 'PROVIDER_ERROR');
+  }
+
+  return { buffer, ...detectFormat(buffer), provider: 'pollinations', model };
+};
+
+/**
  * Pollinations — FLUX publik, tanpa API key (fallback terakhir yang selalu ada).
  * Token bersifat opsional dan hanya menaikkan limit.
  */
@@ -449,39 +530,24 @@ const pollinations = {
   async generate({ prompt, size }) {
     const baseUrl = (process.env.POLLINATIONS_BASE_URL || DEFAULT_POLLINATIONS_BASE_URL)
       .replace(/\/+$/, '');
-    const model = process.env.POLLINATIONS_MODEL || DEFAULT_POLLINATIONS_MODEL;
     const { width, height } = parseSize(size);
+    const models = getPollinationsModels();
+    const kegagalan = [];
 
-    const url = new URL(`${baseUrl}/prompt/${encodeURIComponent(prompt)}`);
-    url.searchParams.set('width', String(width));
-    url.searchParams.set('height', String(height));
-    url.searchParams.set('model', model);
-    url.searchParams.set('nologo', 'true');
-    url.searchParams.set('seed', String(randomSeed()));
-
-    if (isSet(process.env.POLLINATIONS_TOKEN)) {
-      url.searchParams.set('token', sanitizeSecret(process.env.POLLINATIONS_TOKEN));
+    for (const model of models) {
+      try {
+        return await requestPollinationsImage({ baseUrl, prompt, model, width, height });
+      } catch (error) {
+        // Termasuk kuota model yang habis (HTTP 500/429 dari Pollinations):
+        // model berikutnya punya jatah sendiri, jadi masih layak dicoba.
+        kegagalan.push(`${model}: ${error.message}`);
+      }
     }
 
-    const response = await fetchWithTimeout(url);
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw createError(
-        `Pollinations error (HTTP ${response.status}): ${
-          detail.slice(0, 200) || response.statusText
-        }`,
-        'PROVIDER_ERROR'
-      );
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    if (buffer.length === 0) {
-      throw createError('Pollinations returned an empty image', 'PROVIDER_ERROR');
-    }
-
-    return { buffer, ...detectFormat(buffer), provider: 'pollinations', model };
+    throw createError(
+      `Pollinations gagal di ${models.length} model (${kegagalan.join('; ')})`,
+      'PROVIDER_ERROR'
+    );
   },
 
   /**

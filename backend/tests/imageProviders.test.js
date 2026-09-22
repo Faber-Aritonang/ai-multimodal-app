@@ -28,6 +28,8 @@ const PROVIDER_ENV_VARS = [
   'POLLINATIONS_MODEL',
   'POLLINATIONS_BASE_URL',
   'POLLINATIONS_EDIT_MODEL',
+  'POLLINATIONS_FALLBACK_MODELS',
+  'POLLINATIONS_ATTEMPTS',
   'OPENAI_API_KEY',
   'IMAGE_EDIT_PROVIDER',
   'IMAGE_EDIT_FALLBACK_PROVIDER',
@@ -383,6 +385,47 @@ describe('pollinations', () => {
     await expect(generateImage({ prompt: 'a cat', size: '1024x1024' })).rejects.toThrow(
       /All image providers failed/
     );
+  });
+
+  test('model yang kena limit dicoba ulang dengan model lain', async () => {
+    process.env.IMAGE_PROVIDER = 'pollinations';
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+
+    // Bentuk kegagalan nyata di produksi 22 Sep 2026: HTTP 500 dari Pollinations
+    // yang isinya kuota per-model habis. Model pertama dan kedua penuh, ketiga lolos.
+    mockFetch
+      .mockResolvedValueOnce(
+        jsonResponse({ message: 'Per-user limit of 300 RPM exceeded' }, { ok: false, status: 500 })
+      )
+      .mockResolvedValueOnce(jsonResponse({ message: 'slow down' }, { ok: false, status: 429 }))
+      .mockResolvedValueOnce(binaryResponse(JPEG_BYTES));
+
+    const result = await generateImage({ prompt: 'a cat', size: '1024x1024' });
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(result.provider).toBe('pollinations');
+    // Setiap percobaan memakai model yang berbeda, karena limitnya dihitung per model.
+    expect(mockFetch.mock.calls.map((call) => new URL(call[0]).searchParams.get('model'))).toEqual([
+      'flux',
+      'turbo',
+      'flux-realism'
+    ]);
+  });
+
+  test('daftar model mengikuti env dan bisa dimatikan', async () => {
+    process.env.IMAGE_PROVIDER = 'pollinations';
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+    process.env.POLLINATIONS_MODEL = 'flux';
+    process.env.POLLINATIONS_FALLBACK_MODELS = 'none';
+    mockFetch.mockResolvedValue(
+      jsonResponse({ message: 'boom' }, { ok: false, status: 500 })
+    );
+
+    await expect(generateImage({ prompt: 'a cat', size: '1024x1024' })).rejects.toThrow(
+      /pollinations: Pollinations gagal di 1 model \(flux: Pollinations error \(HTTP 500\): .*boom/
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
