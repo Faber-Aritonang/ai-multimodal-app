@@ -600,6 +600,45 @@ describe('editImage (image-to-image)', () => {
     expect(pollinationsUrl).toContain('image=https%3A%2F%2Fapp.example.com%2Fuploads%2Fmedia_1_input.jpg');
   });
 
+  test('gambar input di penyimpanan remote sudah publik tanpa PUBLIC_BASE_URL', async () => {
+    // Kondisi produksi setelah penyimpanan pindah ke Cloudinary: URL inputnya
+    // absolut dan bisa diambil siapa pun, jadi Pollinations layak dipakai walau
+    // PUBLIC_BASE_URL tidak diisi. Sebelum ini rantai edit kosong dan
+    // image-to-image selalu gagal dengan "no provider available".
+    mockFetch.mockResolvedValueOnce(binaryResponse(pngBytes(768, 768)));
+
+    const inputUrl =
+      'https://res.cloudinary.com/contoh-cloud/image/upload/v1790055783/media_1_input.jpg';
+    const result = await editImage({
+      prompt: 'make it blue',
+      imageBuffer: INPUT,
+      mimeType: 'image/jpeg',
+      size: '1024x1024',
+      inputPublicUrl: inputUrl
+    });
+
+    expect(result.provider).toBe('pollinations');
+    expect(String(mockFetch.mock.calls[0][0])).toContain(`image=${encodeURIComponent(inputUrl)}`);
+  });
+
+  test('URL input privat tetap tidak membuka provider berbasis URL', async () => {
+    mockFetch.mockResolvedValue(binaryResponse(pngBytes(512, 512)));
+
+    // localhost/alamat privat ditolak: provider hanya akan mengabaikannya dan
+    // mengembalikan gambar dari prompt saja, yang bukan hasil edit.
+    await expect(
+      editImage({
+        prompt: 'x',
+        imageBuffer: INPUT,
+        mimeType: 'image/jpeg',
+        size: '512x512',
+        inputPublicUrl: 'http://localhost:4000/uploads/media_1_input.jpg'
+      })
+    ).rejects.toMatchObject({ code: 'MISSING_CREDENTIALS' });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   test('tanpa provider edit yang layak: gagal jelas, tanpa menembak provider', async () => {
     // Tanpa kredensial Cloudflare dan tanpa PUBLIC_BASE_URL, tidak ada provider
     // yang bisa dipakai — dan itu harus terlihat sebagai error, bukan gambar hasil

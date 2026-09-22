@@ -799,12 +799,32 @@ const generateImage = async ({ prompt, size, quality }) => {
  * Urutan provider untuk image-to-image (image edit).
  * Dipisah dari text-to-image karena kredensial & modelnya berbeda.
  */
-const canUseProviderForEdit = (name) =>
-  !URL_BASED_EDIT_PROVIDERS.has(name) || isPubliclyReachableUrl(process.env.PUBLIC_BASE_URL);
+/**
+ * Boleh dipakai untuk image-to-image?
+ *
+ * Provider berbasis URL hanya layak kalau gambar inputnya benar-benar bisa
+ * diambil dari internet. Ada dua sumber yang sah, dan keduanya harus diakui:
+ *
+ *   - `inputPublicUrl` milik permintaan ini. Penyimpanan remote
+ *     (Cloudinary/S3) mengembalikan URL absolut, jadi alamatnya sudah publik —
+ *     tidak perlu PUBLIC_BASE_URL lagi. Sebelum ini diakui, image-to-image di
+ *     produksi selalu berakhir "tidak ada provider" walaupun berkas inputnya
+ *     ada di Cloudinary dan bisa dibuka siapa pun.
+ *   - `PUBLIC_BASE_URL`, untuk penyimpanan lokal yang berkasnya diambil dari
+ *     `/uploads/` aplikasi.
+ *
+ * `remoteStorage` dipakai laporan status (/health) yang tidak punya konteks
+ * permintaan: kalau penyimpanannya remote, URL publiknya selalu tersedia.
+ */
+const canUseProviderForEdit = (name, { inputPublicUrl = null, remoteStorage = false } = {}) =>
+  !URL_BASED_EDIT_PROVIDERS.has(name) ||
+  isPubliclyReachableUrl(inputPublicUrl) ||
+  remoteStorage ||
+  isPubliclyReachableUrl(process.env.PUBLIC_BASE_URL);
 
-const getEditProviderChain = () => {
+const getEditProviderChain = (opsi = {}) => {
   const requested = normalizeName(process.env.IMAGE_EDIT_PROVIDER);
-  const available = EDIT_PROVIDER_NAMES.filter(canUseProviderForEdit);
+  const available = EDIT_PROVIDER_NAMES.filter((name) => canUseProviderForEdit(name, opsi));
 
   if (requested && !EDIT_PROVIDER_NAMES.includes(requested)) {
     throw createError(
@@ -813,11 +833,12 @@ const getEditProviderChain = () => {
     );
   }
 
-  if (requested && !canUseProviderForEdit(requested)) {
+  if (requested && !canUseProviderForEdit(requested, opsi)) {
     throw createError(
       `IMAGE_EDIT_PROVIDER "${requested}" mengambil gambar input lewat URL, jadi butuh ` +
-        'PUBLIC_BASE_URL yang bisa diakses publik. Set variabel itu atau pakai provider ' +
-        'yang menerima bytes gambar (cloudflare).',
+        'alamat yang bisa diakses publik: penyimpanan remote (Cloudinary/S3) atau ' +
+        'PUBLIC_BASE_URL. Set salah satunya, atau pakai provider yang menerima bytes ' +
+        'gambar (cloudflare).',
       'MISSING_CREDENTIALS'
     );
   }
@@ -841,7 +862,7 @@ const getEditProviderChain = () => {
     );
   }
 
-  if (canUseProviderForEdit(fallbackRaw) && !chain.includes(fallbackRaw)) {
+  if (canUseProviderForEdit(fallbackRaw, opsi) && !chain.includes(fallbackRaw)) {
     chain.push(fallbackRaw);
   }
 
@@ -863,7 +884,11 @@ const editImage = async ({
   guidance,
   inputPublicUrl = null
 }) => {
-  const chain = getEditProviderChain();
+  // Rantai dipilih dari URL input yang benar-benar dipakai permintaan ini, bukan
+  // dari dugaan lewat env: berkas di Cloudinary/S3 sudah publik, sedangkan mode
+  // lokal baru publik kalau PUBLIC_BASE_URL menyebut alamatnya.
+  const opsiEdit = { inputPublicUrl };
+  const chain = getEditProviderChain(opsiEdit);
   const attempts = [];
 
   // Tidak ada provider edit yang bisa dipakai: jelaskan sebabnya, jangan
@@ -871,8 +896,9 @@ const editImage = async ({
   if (!chain.length) {
     throw createError(
       'No image edit provider is available. Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN ' +
-        '(free, dipakai FLUX.2 [klein]) atau set PUBLIC_BASE_URL ke alamat publik agar ' +
-        'Pollinations bisa mengambil gambar input.',
+        '(free, dipakai FLUX.2 [klein]), atau simpan berkas di penyimpanan remote ' +
+        '(Cloudinary/S3) / set PUBLIC_BASE_URL ke alamat publik agar Pollinations bisa ' +
+        'mengambil gambar input.',
       'MISSING_CREDENTIALS'
     );
   }
@@ -912,12 +938,13 @@ const editImage = async ({
   // Sebutkan provider yang sengaja tidak dipakai, supaya operator tahu kenapa
   // jalur tanpa API key tidak muncul di daftar percobaan.
   const excluded = EDIT_PROVIDER_NAMES.filter(
-    (name) => URL_BASED_EDIT_PROVIDERS.has(name) && !canUseProviderForEdit(name)
+    (name) => URL_BASED_EDIT_PROVIDERS.has(name) && !canUseProviderForEdit(name, opsiEdit)
   );
   const hint = excluded.length
-    ? ` Provider ${excluded.join(', ')} tidak dipakai karena butuh PUBLIC_BASE_URL yang bisa ` +
-      'diakses publik (kalau URL input tidak terjangkau, provider itu tetap membalas 200 dengan ' +
-      'gambar dari prompt saja, jadi hasilnya bukan hasil edit).'
+    ? ` Provider ${excluded.join(', ')} tidak dipakai karena gambar inputnya tidak punya ` +
+      'alamat publik (penyimpanan remote atau PUBLIC_BASE_URL). Kalau URL input tidak ' +
+      'terjangkau, provider itu tetap membalas 200 dengan gambar dari prompt saja, jadi ' +
+      'hasilnya bukan hasil edit.'
     : '';
 
   throw createError(
@@ -930,7 +957,7 @@ const editImage = async ({
 /**
  * Ringkasan konfigurasi provider, dipakai oleh endpoint /health.
  */
-const getProviderStatus = () => {
+const getProviderStatus = (opsi = {}) => {
   const status = {};
   for (const [name, provider] of Object.entries(PROVIDERS)) {
     status[name] = provider.isConfigured() ? 'configured' : 'missing';
@@ -945,7 +972,7 @@ const getProviderStatus = () => {
 
   let editChain = [];
   try {
-    editChain = getEditProviderChain();
+    editChain = getEditProviderChain(opsi);
   } catch {
     editChain = [];
   }

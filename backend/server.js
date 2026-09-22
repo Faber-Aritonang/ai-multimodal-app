@@ -30,6 +30,7 @@ const { getProviderStatus } = require('./config/imageProviders');
 const {
   describeStorage,
   getStorageMode,
+  isRemoteStorage,
   getStorageCheck,
   startStorageCheck,
   cloudinaryCredentialSource
@@ -237,7 +238,11 @@ app.get('/health', (req, res) => {
   if (process.env.NODE_ENV !== 'production') {
     // Provider gambar & chat yang aktif, supaya error fitur AI bisa langsung
     // dicocokkan dengan konfigurasi yang sebenarnya.
-    const image = getProviderStatus();
+    // `remoteStorage` ikut dikirim: berkas di Cloudinary/S3 selalu punya URL
+    // absolut, jadi provider edit berbasis URL (Pollinations) layak dipakai tanpa
+    // PUBLIC_BASE_URL. Tanpa info ini /health melaporkan imageEditReady=false
+    // padahal fiturnya bisa jalan.
+    const image = getProviderStatus({ remoteStorage: isRemoteStorage() });
     const chat = getChatProviderStatus();
 
     payload.services = {
