@@ -79,11 +79,16 @@ const TextToImagePage = ({ user, setUser }) => {
       }
 
       const items = await fetchHistory()
-      const terbaru = items?.find((item) => item.outputUrl)
+      // Hanya record TERBARU yang dipakai. Mencari yang pertama punya outputUrl
+      // (`find`) pernah dipakai di sini dan akibatnya menyesatkan: selama
+      // permintaan baru masih diproses, record lama yang sudah selesai ikut
+      // terangkat ke panel "Latest result" — user melihat gambar sebelumnya
+      // seolah itu hasil yang baru saja diminta.
+      const terbaru = items?.[0]
 
       // Dibandingkan lewat contentId supaya hasil yang sudah tampil tidak
       // ditimpa ulang objek yang sama pada setiap putaran.
-      if (terbaru) {
+      if (terbaru?.outputUrl) {
         setResult((sebelumnya) => (sebelumnya?.contentId === terbaru.contentId ? sebelumnya : terbaru))
       }
     }, 5000)
@@ -126,10 +131,14 @@ const TextToImagePage = ({ user, setUser }) => {
       // itu (koneksi tidak stabil atau tab dimuat ulang di tengah proses).
       // Riwayat diambil ulang supaya gambar yang benar-benar tersimpan tetap
       // muncul, bukan hanya kotak error yang menyuruh menekan tombol lagi.
+      // Record TERBARU saja: kalau server sudah menyimpan hasil permintaan ini,
+      // ia ada di posisi pertama. Kalau yang pertama masih diproses atau gagal,
+      // gambar lama tidak dipakai sebagai pengganti — panel cukup menampilkan
+      // pesan errornya.
       const items = await fetchHistory()
-      const tersimpan = items?.find((item) => item.outputUrl)
+      const tersimpan = items?.[0]
 
-      if (tersimpan) setResult(tersimpan)
+      if (tersimpan?.outputUrl) setResult(tersimpan)
 
       setError(
         err.response?.data?.message ||

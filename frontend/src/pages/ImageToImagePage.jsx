@@ -162,9 +162,13 @@ const ImageToImagePage = ({ user, setUser }) => {
       }
 
       const items = await fetchHistory()
-      const terbaru = items?.find((item) => item.outputUrl)
+      // Hanya record TERBARU yang dipakai. Mencari yang pertama punya outputUrl
+      // (`find`) akan mengangkat hasil edit lama ke panel "Latest result" selama
+      // permintaan baru masih diproses — user melihat gambar sebelumnya seolah
+      // itu hasil yang baru saja diminta.
+      const terbaru = items?.[0]
 
-      if (terbaru) {
+      if (terbaru?.outputUrl) {
         setResult((sebelumnya) => (sebelumnya?.contentId === terbaru.contentId ? sebelumnya : terbaru))
       }
 
@@ -234,10 +238,13 @@ const ImageToImagePage = ({ user, setUser }) => {
       // Respons yang gagal sampai ke browser tidak berarti server ikut gagal:
       // hasilnya sudah disimpan lebih dulu, dan permintaan bisa putus sesudahnya.
       // Riwayat diambil ulang agar gambar yang benar-benar ada tetap terlihat.
+      // Record TERBARU saja: kalau server sudah menyimpan hasil permintaan ini,
+      // ia ada di posisi pertama. Kalau yang pertama masih diproses atau gagal,
+      // gambar lama tidak dipakai sebagai pengganti.
       const items = await fetchHistory()
-      const tersimpan = items?.find((item) => item.outputUrl)
+      const tersimpan = items?.[0]
 
-      if (tersimpan) setResult(tersimpan)
+      if (tersimpan?.outputUrl) setResult(tersimpan)
 
       const detail = err.response?.data?.message
       const reason = err.response?.data?.error
