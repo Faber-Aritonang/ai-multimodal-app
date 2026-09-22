@@ -4,34 +4,44 @@ import Layout from '../components/Layout'
 import MediaAudio from '../components/MediaAudio'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
-// Voice bawaan model `mimo-v2.5-tts`. Daftar ini harus sama dengan yang
-// divalidasi backend (config/soundProviders.js) — nilai yang tidak dikenal
-// dijawab 400 dengan daftar yang benar.
-const VOICES = [
-  { value: 'mimo_default', label: 'Default', hint: 'netral' },
-  { value: 'Mia', label: 'Mia', hint: 'female' },
-  { value: 'Chloe', label: 'Chloe', hint: 'female' },
-  { value: 'Milo', label: 'Milo', hint: 'male' },
-  { value: 'Dean', label: 'Dean', hint: 'male' },
-  { value: '冰糖', label: '冰糖', hint: '中文' },
-  { value: '茉莉', label: '茉莉', hint: '中文' },
-  { value: '苏打', label: '苏打', hint: '中文' },
-  { value: '白桦', label: '白桦', hint: '中文' }
+// Cadangan kalau GET /media/sound-voices tidak bisa dihubungi. Daftar yang
+// benar-benar ditampilkan datang dari backend (config/soundProviders.js),
+// karena providernya bisa ditukar lewat env — dan tiap provider memakai nama
+// voice yang sama sekali berbeda. Yang dipakai sebagai cadangan adalah suara
+// Indonesia milik provider default tanpa kunci (Edge), karena itulah yang
+// melayani permintaan kalau tidak ada kredensial apa pun yang diisi.
+const FALLBACK_VOICES = [
+  { value: 'id-ID-GadisNeural', label: 'Gadis', hint: 'wanita ID' },
+  { value: 'id-ID-ArdiNeural', label: 'Ardi', hint: 'pria ID' }
 ]
 
-const FORMATS = [
+// Cadangan kalau GET /media/sound-voices tidak bisa dihubungi. Format yang sah
+// bergantung provider: Gemini TTS hanya menghasilkan WAV (PCM yang dibungkus),
+// Edge hanya MP3, sedangkan ElevenLabs/OpenAI/MiMo bisa keduanya.
+const FALLBACK_FORMATS = [
   { value: 'wav', label: 'WAV', hint: 'kualitas penuh' },
   { value: 'mp3', label: 'MP3', hint: 'berkas kecil' }
 ]
+
+const LABEL_FORMAT = {
+  wav: { label: 'WAV', hint: 'kualitas penuh' },
+  mp3: { label: 'MP3', hint: 'berkas kecil' }
+}
 
 const MAX_TEXT_LENGTH = 2000
 const MAX_STYLE_LENGTH = 300
 
 const TextToSoundPage = ({ user, setUser }) => {
   const [text, setText] = useState('')
-  const [voice, setVoice] = useState('mimo_default')
+  const [voices, setVoices] = useState(FALLBACK_VOICES)
+  const [voice, setVoice] = useState(FALLBACK_VOICES[0].value)
+  // Provider MiMo membuat suara BARU dari deskripsi gaya dan mengabaikan voice
+  // bawaan; OpenAI memakai keduanya sekaligus. Flag ini datang dari backend
+  // supaya dropdown voice hanya dinonaktifkan saat memang tidak berpengaruh.
+  const [styleOverridesVoice, setStyleOverridesVoice] = useState(true)
   const [style, setStyle] = useState('')
-  const [format, setFormat] = useState('wav')
+  const [format, setFormat] = useState(FALLBACK_FORMATS[0].value)
+  const [formats, setFormats] = useState(FALLBACK_FORMATS)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
@@ -47,7 +57,53 @@ const TextToSoundPage = ({ user, setUser }) => {
   useEffect(() => {
     fetchHistory()
     fetchQuota()
+    fetchVoices()
   }, [])
+
+  // Daftar voice diambil dari backend supaya dropdown tidak pernah menawarkan
+  // nilai yang pasti ditolak provider yang aktif (dan tidak perlu dijaga manual
+  // setiap kali provider ditukar). Kegagalannya tidak fatal: daftar cadangan
+  // tetap dipakai supaya halaman tidak menampilkan dropdown kosong.
+  const fetchVoices = async () => {
+    try {
+      const response = await mediaAPI.getSoundVoices()
+      const daftar = response.data.voices
+
+      if (!Array.isArray(daftar) || daftar.length === 0) return
+
+      setVoices(daftar)
+      setStyleOverridesVoice(response.data.styleOverridesVoice !== false)
+
+      // Format yang sah ikut provider yang aktif; pilihan yang sedang dipakai
+      // dipindahkan kalau providernya ternyata tidak sanggup menghasilkannya
+      // (mis. Gemini TTS + MP3).
+      const daftarFormat = (response.data.formats || [])
+        .map((value) => ({ value, ...(LABEL_FORMAT[value] || { label: value.toUpperCase() }) }))
+
+      if (daftarFormat.length > 0) {
+        const bawaan = response.data.defaultFormat
+
+        setFormats(daftarFormat)
+        setFormat((sebelumnya) => {
+          if (daftarFormat.some((option) => option.value === sebelumnya)) return sebelumnya
+          // Format bawaan provider dipakai lebih dulu daripada urutan daftar:
+          // provider yang hanya sanggup satu format tidak selalu menaruhnya di
+          // depan, dan memilih yang salah berarti permintaannya ditolak 400.
+          return daftarFormat.some((option) => option.value === bawaan)
+            ? bawaan
+            : daftarFormat[0].value
+        })
+      }
+      // Pilihan yang sedang aktif tidak boleh hilang saat daftarnya diganti.
+      setVoice((sebelumnya) =>
+        daftar.some((option) => option.value === sebelumnya)
+          ? sebelumnya
+          : response.data.defaultVoice || daftar[0].value
+      )
+    } catch (err) {
+      console.error('Failed to fetch sound voices:', err)
+    }
+  }
 
   const fetchQuota = async () => {
     try {
@@ -237,10 +293,10 @@ const TextToSoundPage = ({ user, setUser }) => {
                 data-testid="voice-select"
                 value={voice}
                 onChange={(e) => setVoice(e.target.value)}
-                disabled={style.trim().length > 0}
+                disabled={styleOverridesVoice && style.trim().length > 0}
                 className="field disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {VOICES.map((option) => (
+                {voices.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label} ({option.hint})
                   </option>
@@ -264,15 +320,16 @@ const TextToSoundPage = ({ user, setUser }) => {
                 className="field"
               />
               <p className="mt-1.5 text-xs text-slate-500">
-                Isi kolom ini untuk membuat suara baru dari deskripsi — pilihan voice di atas
-                diabaikan karena provider memakai model voice design.
+                {styleOverridesVoice
+                  ? 'Isi kolom ini untuk membuat suara baru dari deskripsi — pilihan voice di atas diabaikan karena provider memakai model voice design.'
+                  : 'Isi kolom ini untuk mengatur gaya bicara (contoh: “hangat, santai, tempo lambat”). Voice di atas tetap dipakai.'}
               </p>
             </div>
 
             <div className="mt-5">
               <span className="hud mb-2 block">format</span>
               <div className="grid grid-cols-2 gap-2">
-                {FORMATS.map((option) => (
+                {formats.map((option) => (
                   <button
                     key={option.value}
                     type="button"

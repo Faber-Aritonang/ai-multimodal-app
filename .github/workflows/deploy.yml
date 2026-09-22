@@ -144,20 +144,100 @@ jobs:
       # sehingga `backend/` terbentuk benar.
       # Kegagalan yang pernah terjadi: `railway up` berhenti dengan
       # `Service 'ai-multimodal-app' not found`. Penyebabnya BUKAN kode, melainkan
-      # nilai secret: `RAILWAY_PROJECT_ID` menunjuk project yang tidak memuat
-      # service backend. Di akun ini ada dua project, dan hanya satu yang punya
-      # service tersebut — memasang id project yang lain menghasilkan kegagalan
-      # yang tidak menjelaskan apa pun dan mengulang di setiap push.
+      # nilai secret — dan ada DUA sebab yang menghasilkan pesan identik:
+      # `RAILWAY_PROJECT_ID` menunjuk project yang tidak memuat service backend
+      # (di akun ini hanya satu dari dua project yang punya service itu), atau
+      # `RAILWAY_TOKEN` adalah token PROJECT milik project lain — token project
+      # hanya berlaku pada project tempat ia dibuat dan tidak mengenal project lain
+      # sama sekali. Keduanya mengulang di setiap push tanpa menjelaskan apa pun.
       #
-      # Karena itu output-nya direkam: kalau pesannya memang "not found", job ini
-      # mencetak langkah perbaikannya (tanpa mencetak nilai secret — GitHub sudah
-      # menyamarkan secret di log, dan URI/log Railway tidak memuat kredensial).
+      # Karena itu output `railway up` direkam: kalau pesannya memang "not found",
+      # job ini mencetak langkah perbaikannya (tanpa mencetak nilai secret — GitHub
+      # sudah menyamarkan secret di log, dan URI/log Railway tidak memuat
+      # kredensial).
+      #
+      # Step di bawah memisahkan kedua sebab itu LEBIH DULU, dengan membandingkan
+      # daftar project yang benar-benar bisa dibaca token terhadap id project dan
+      # nama service yang dipakai.
+      #
+      # Langkah ini hanya MELAPORKAN: langkah deploy tetap penilainya, dan
+      # `continue-on-error` menjaga agar diagnosa yang gagal tidak ikut
+      # menggagalkan job. Yang dicetak hanya NAMA project dan service, tidak pernah
+      # nilai token. Pesan pentingnya dinaikkan jadi anotasi job supaya terbaca
+      # dari halaman commit tanpa membuka log.
+      - name: Kenali kredensial Railway
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          echo "Target: project=$RAILWAY_PROJECT_ID service=${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
+
+          if ! railway list --json > /tmp/projects.json 2>/tmp/projects.err; then
+            echo "::warning::Token Railway ini tidak bisa membaca daftar project."
+            sed -n '1,5p' /tmp/projects.err | sed 's/^/    /'
+            echo "    Daftar project hanya bisa dibaca token AKUN. Token PROJECT (dibuat dari"
+            echo "    Project Settings -> Tokens) tidak mengenal project lain, sehingga nama"
+            echo "    service yang benar pun bisa dijawab 'Service ... not found'."
+            exit 0
+          fi
+
+          RAILWAY_TARGET_PROJECT="$RAILWAY_PROJECT_ID" \
+          RAILWAY_TARGET_SERVICE="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" \
+          python3 - <<'PY'
+          import json
+          import os
+
+          projects = json.load(open("/tmp/projects.json"))
+          target = os.environ["RAILWAY_TARGET_PROJECT"]
+          service = os.environ["RAILWAY_TARGET_SERVICE"]
+
+          def services(project):
+              return [e["node"]["name"] for e in (project.get("services") or {}).get("edges", [])]
+
+          print("Project yang terlihat token ini:")
+          for p in projects:
+              daftar = ", ".join(services(p)) or "(tanpa service)"
+              print(f"  - {p['name']} [{p['id']}] -> {daftar}")
+
+          ditunjuk = next((p for p in projects if p["id"] == target), None)
+          if ditunjuk is None:
+              print(
+                  "::error::RAILWAY_PROJECT_ID tidak ada di daftar project yang bisa dibaca "
+                  "token ini — periksa juga environment-nya."
+              )
+          elif service in services(ditunjuk):
+              print(f"::notice::Kredensial cocok: project {ditunjuk['name']} memuat service {service}.")
+          else:
+              print(f"::error::Project {ditunjuk['name']} tidak memuat service {service}.")
+              pemilik = [p for p in projects if service in services(p)]
+              if pemilik:
+                  for p in pemilik:
+                      print(f"RAILWAY_PROJECT_ID untuk service {service} adalah {p['id']} (project {p['name']}).")
+              else:
+                  print(f"Token ini tidak melihat satu pun project yang memuat service {service}.")
+          PY
+
       - name: Deploy ke Railway
         working-directory: .
         run: |
           set -o pipefail
           service="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
           echo "Target: service=$service environment=$RAILWAY_ENVIRONMENT"
+
+          # Penanda build. `railway up` mengunggah direktori lokal dan tidak
+          # membawa metadata git, sehingga Railway TIDAK mengisi
+          # RAILWAY_GIT_COMMIT_SHA untuk deployment hasil CLI. Tanpa penanda ini,
+          # `/health` tidak bisa membedakan kode baru dari kode lama, dan langkah
+          # verifikasi kehilangan pembandingnya.
+          #
+          # Berkasnya sengaja TIDAK masuk `.gitignore`: `railway up` menghormati
+          # `.gitignore` (lihat flag `--no-gitignore` di CLI-nya), jadi berkas yang
+          # di-ignore justru hilang dari unggahan. Karena itu ia ditulis di sini,
+          # dihapus lagi setelah unggahan selesai (`trap`), dan tidak pernah
+          # ter-commit.
+          meta="backend/build-meta.json"
+          printf '{"commit": "%s", "builtAt": "%s"}\n' \
+            "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$meta"
+          trap 'rm -f "$meta"' EXIT
 
           if railway up \
             --project "$RAILWAY_PROJECT_ID" \
@@ -215,6 +295,13 @@ jobs:
       # `storageCheckReason` supaya pesan error di sini bisa menuntun ke tindakan
       # yang tepat.
       #
+      # Kelas kegagalan KETIGA, yang tidak tertangkap oleh apa pun di atas: kode
+      # LAMA yang tetap live. Seluruh pemeriksaan di atas membaca kolom yang sama
+      # benarnya di kode lama maupun baru, jadi deployment yang gagal — sementara
+      # kode lama terus melayani user — tetap terlihat hijau. Karena itu `/health`
+      # melaporkan commit yang sedang berjalan, dan langkah ini menuntut nilainya
+      # sama dengan commit yang baru di-push.
+      #
       # Langkah ini tidak mencetak nilai rahasia: `/health` sengaja hanya
       # mengirim satu kata per kolom plus KODE galat (`HTTP 401`, `timeout`),
       # tidak pernah nilai kredensial maupun pesan dari provider.
@@ -231,6 +318,7 @@ jobs:
           url = os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + "/health"
           batas = time.time() + 300
           terakhir = None
+          diharapkan = (os.environ.get("GITHUB_SHA") or "").strip().lower()
 
           while time.time() < batas:
               try:
@@ -244,7 +332,14 @@ jobs:
                       and terakhir.get("database") == "connected"
                       and terakhir.get("storageCheck") != "pending"
                   ):
-                      break
+                      # `/health` boleh belum melaporkan commit (deployment lama).
+                      # Kalau sudah dilaporkan tetapi belum sama, deployment baru
+                      # masih berjalan — jangan berhenti menunggu, karena itu
+                      # persis keadaan yang membuat "kode lama masih live" tidak
+                      # pernah terdeteksi.
+                      berjalan = (terakhir.get("commit") or "").strip().lower()
+                      if not diharapkan or not berjalan or berjalan == diharapkan:
+                          break
               except Exception as galat:
                   print(f"  {url} belum siap: {type(galat).__name__}", flush=True)
               time.sleep(15)
@@ -304,6 +399,32 @@ jobs:
                   "::notice::Kredensial penyimpanan terverifikasi: "
                   f"{check}{f' ({sebab})' if sebab else ''}."
               )
+
+          # Commit yang berjalan. Inilah yang membedakan "perintah deploy selesai"
+          # dari "kode baru benar-benar melayani user".
+          jalur = terakhir.get("commitSource") or "tidak dilaporkan"
+          berjalan = (terakhir.get("commit") or "").strip().lower()
+
+          if not diharapkan:
+              print("::warning::GITHUB_SHA tidak tersedia sehingga commit produksi tidak bisa dibandingkan.")
+          elif not berjalan:
+              # Deployment yang berjalan SEBELUM kolom ini ada memang belum
+              # memuatnya, jadi ini belum tentu masalah. Ketidakadaannya pada
+              # deploy berikutnya berarti penandanya tidak terbaca.
+              print(
+                  "::warning::/health tidak melaporkan commit, jadi produksi tidak bisa "
+                  "dipastikan menjalankan kode baru. Deployment yang lebih tua memang belum "
+                  f"memuat kolom ini (jalur penanda: {jalur})."
+              )
+          elif berjalan != diharapkan:
+              print(
+                  f"::error::Produksi menjalankan commit {berjalan[:7]}, bukan {diharapkan[:7]} "
+                  "yang baru di-push — deploy-nya belum selesai, gagal, atau diambil alih "
+                  "deployment lain. Periksa Deploy Logs di Railway."
+              )
+              sys.exit(1)
+          else:
+              print(f"::notice::Produksi menjalankan commit {diharapkan[:7]} (sumber: {jalur}).")
           PY
 
   # Verifikasi deploy Frontend (Vercel).

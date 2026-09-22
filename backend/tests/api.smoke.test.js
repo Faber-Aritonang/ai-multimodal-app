@@ -15,6 +15,10 @@ process.env.UPLOAD_DIR = tempUploadDir;
 
 const request = require('supertest');
 const { app } = require('../server');
+// Daftar voice diambil dari sumbernya, bukan disalin ke test: kalau daftarnya
+// berubah, yang gagal adalah test ini — bukan user yang menemukan dropdown
+// berisi voice milik provider lain.
+const { VOICES_BY_PROVIDER } = require('../config/soundProviders');
 
 afterAll(() => {
   fs.rmSync(tempUploadDir, { recursive: true, force: true });
@@ -47,6 +51,28 @@ describe('GET /health', () => {
 
       expect(dev.body.storageMode).toBe('local');
     } finally {
+      if (asli === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = asli;
+    }
+  });
+
+  test('commit yang berjalan dilaporkan, termasuk di production', async () => {
+    const asli = process.env.NODE_ENV;
+    const sha = '56e1648641c4a7cd9a534f6339742021f319fc7c';
+    process.env.RAILWAY_GIT_COMMIT_SHA = sha;
+
+    try {
+      // Di production blok `services` disembunyikan, jadi kalau penanda commit
+      // ikut ditaruh di sana, langkah verifikasi deploy tidak akan pernah bisa
+      // membandingkannya dengan commit yang di-push.
+      process.env.NODE_ENV = 'production';
+      const produksi = await request(app).get('/health');
+
+      expect(produksi.body.commit).toBe(sha);
+      expect(produksi.body.commitSource).toBe('railway-git');
+      expect(produksi.body.services).toBeUndefined();
+    } finally {
+      delete process.env.RAILWAY_GIT_COMMIT_SHA;
       if (asli === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = asli;
     }
@@ -119,6 +145,13 @@ describe('GET /health', () => {
       'IMAGE_EDIT_FALLBACK_PROVIDER',
       'PUBLIC_BASE_URL',
       'SOUND_PROVIDER',
+      'SOUND_FALLBACK_PROVIDER',
+      'GEMINI_API_KEY',
+      'GEMINI_TTS_MODEL',
+      'ELEVENLABS_API_KEY',
+      'ELEVENLABS_MODEL',
+      'ELEVENLABS_VOICE_ID',
+      'OPENAI_TTS_MODEL',
       'MIMO_API_KEY',
       'MIMO_BASE_URL',
       'MIMO_TTS_MODEL',
@@ -134,6 +167,32 @@ describe('GET /health', () => {
       'CLOUDINARY_API_KEY',
       'CLOUDINARY_API_SECRET'
     ];
+
+    /**
+     * Bersihkan semua kredensial suara.
+     *
+     * Dipisah dari clearChatAndImageEnv karena test suara harus bisa berjalan di
+     * mesin pengembang yang .env-nya sudah berisi GEMINI_API_KEY (dipakai fitur
+     * chat juga) — tanpa ini provider utama yang terdeteksi berbeda-beda antar
+     * mesin dan hasil testnya ikut berbeda.
+     */
+    const clearSoundEnv = () => {
+      [
+        'SOUND_PROVIDER',
+        'SOUND_FALLBACK_PROVIDER',
+        'GEMINI_API_KEY',
+        'GEMINI_TTS_MODEL',
+        'ELEVENLABS_API_KEY',
+        'ELEVENLABS_MODEL',
+        'ELEVENLABS_VOICE_ID',
+        'OPENAI_TTS_MODEL',
+        'MIMO_API_KEY',
+        'MIMO_BASE_URL',
+        'MIMO_TTS_MODEL',
+        'MIMO_TTS_VOICEDESIGN_MODEL',
+        'MIMO_TTS_OPTIMIZE_TEXT'
+      ].forEach((key) => delete process.env[key]);
+    };
 
     const clearChatAndImageEnv = () => {
       [
@@ -160,16 +219,14 @@ describe('GET /health', () => {
         'S3_PUBLIC_BASE_URL',
         'IMAGE_EDIT_PROVIDER',
         'IMAGE_EDIT_FALLBACK_PROVIDER',
-        'PUBLIC_BASE_URL',
-        // Kredensial suara juga dibersihkan: nilainya ikut menentukan isi blok
-        // `services`, dan mesin pengembang bisa saja sudah mengisi MIMO_API_KEY.
-        'SOUND_PROVIDER',
-        'MIMO_API_KEY',
-        'MIMO_BASE_URL',
-        'MIMO_TTS_MODEL',
-        'MIMO_TTS_VOICEDESIGN_MODEL',
-        'MIMO_TTS_OPTIMIZE_TEXT'
+        'PUBLIC_BASE_URL'
       ].forEach((key) => delete process.env[key]);
+
+      // Kredensial suara juga dibersihkan: nilainya ikut menentukan isi blok
+      // `services`, dan mesin pengembang bisa saja sudah mengisi MIMO_API_KEY
+      // atau GEMINI_API_KEY. OPENAI_API_KEY dihapus pemanggilnya masing-masing
+      // karena dipakai juga oleh fitur gambar/chat.
+      clearSoundEnv();
     };
 
     let saved;
@@ -225,12 +282,26 @@ describe('GET /health', () => {
           pollinations: false,
           openai: false
         },
-        // Text-to-sound hanya punya satu provider (MiMo TTS), dan tanpa
-        // MIMO_API_KEY halaman /tools/text-to-sound harus melaporkan belum siap
-        // alih-alih menawarkan tombol yang pasti gagal.
-        soundProvider: 'mimo',
-        soundProviders: { mimo: 'missing' },
-        soundReady: false,
+        // Text-to-sound: Gemini untuk suara Indonesia yang logatnya bisa
+        // diarahkan lewat deskripsi gaya, dan Edge sebagai provider yang TIDAK
+        // butuh kredensial sama sekali (suara neural Indonesia bawaan Microsoft)
+        // — jadi tanpa kredensial apa pun fiturnya tetap siap, bukan mati.
+        // MiMo hanya untuk Mandarin/Inggris, dan ElevenLabs/OpenAI hanya dipakai
+        // bila diminta. Yang dilaporkan sebagai provider utama adalah yang
+        // kredensialnya tersedia.
+        soundProvider: 'edge',
+        // 'none' di sini artinya rantainya hanya berisi satu provider: Edge
+        // sudah menjadi cadangannya sendiri, jadi tidak ada provider kedua.
+        soundFallback: 'none',
+        soundProviders: {
+          gemini: 'missing',
+          elevenlabs: 'missing',
+          openai: 'missing',
+          mimo: 'missing',
+          edge: 'configured'
+        },
+        soundVoices: VOICES_BY_PROVIDER.edge.map((item) => item.value),
+        soundReady: true,
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
@@ -249,7 +320,8 @@ describe('GET /health', () => {
       });
     });
 
-    test('MIMO_API_KEY membuat text-to-sound siap dipakai', async () => {
+    test('MIMO_API_KEY sendirian membuat text-to-sound siap dipakai', async () => {
+      clearSoundEnv();
       process.env.MIMO_API_KEY = 'mimo-kunci-uji';
 
       const status = await services();
@@ -257,6 +329,48 @@ describe('GET /health', () => {
       expect(status.soundProvider).toBe('mimo');
       expect(status.soundProviders.mimo).toBe('configured');
       expect(status.soundReady).toBe(true);
+      // Cadangan defaultnya Edge: provider gratis yang tidak butuh kunci, jadi
+      // cadangannya benar-benar bisa dipakai, bukan menunggu admin mengisi kunci.
+      expect(status.soundFallback).toBe('edge');
+    });
+
+    test('GEMINI_API_KEY mendahulukan provider gratis bersuara Indonesia', async () => {
+      clearSoundEnv();
+      process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
+
+      const status = await services();
+
+      expect(status.soundProvider).toBe('gemini');
+      expect(status.soundProviders.gemini).toBe('configured');
+      expect(status.soundReady).toBe(true);
+      // Daftar voice ikut provider yang aktif — nama voice MiMo/OpenAI tidak
+      // dikenal Gemini, jadi daftar gabungan justru menawarkan nilai yang salah.
+      expect(status.soundVoices).toContain('Kore');
+      expect(status.soundVoices).not.toContain('Mia');
+      expect(status.soundVoices).not.toContain('alloy');
+    });
+
+    test('kunci OpenAI tidak lagi mendahului provider gratis', async () => {
+      clearSoundEnv();
+      process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
+      process.env.OPENAI_API_KEY = 'sk-kunci-uji';
+
+      const status = await services();
+
+      expect(status.soundProvider).toBe('gemini');
+      expect(status.soundFallback).toBe('edge');
+    });
+
+    test('SOUND_FALLBACK_PROVIDER muncul di blok layanan', async () => {
+      clearSoundEnv();
+      process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
+      process.env.SOUND_FALLBACK_PROVIDER = 'mimo';
+      process.env.MIMO_API_KEY = 'mimo-kunci-uji';
+
+      const status = await services();
+
+      expect(status.soundProvider).toBe('gemini');
+      expect(status.soundFallback).toBe('mimo');
     });
 
     test('kredensial Cloudflare mengaktifkan image-to-image lewat FLUX.2 [klein]', async () => {

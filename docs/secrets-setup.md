@@ -85,12 +85,52 @@ lalu perbarui secret `RAILWAY_TOKEN` di GitHub. Periksa sekaligus
 > membuat token, karena environment yang dipilih menentukan token ini bisa
 > dipakai di mana.
 
+**Sejak 22 Sep 2026, sebabnya dipisahkan sendiri oleh CI.** Job `deploy-backend`
+dimulai dengan step `Kenali kredensial Railway` yang membaca daftar project yang
+bisa diakses token, lalu membandingkannya dengan `RAILWAY_PROJECT_ID` dan nama
+service. Hasilnya dinaikkan jadi anotasi job, jadi terbaca dari halaman commit
+tanpa membuka log:
+
+| Temuan | Arti & tindakan |
+|---|---|
+| `::notice::Kredensial cocok: …` | kedua secret sudah menunjuk project yang benar |
+| `::error::Project X tidak memuat service Y` + baris `RAILWAY_PROJECT_ID untuk service Y adalah <id>` | project-nya salah; pakai id yang disebut baris berikutnya |
+| `::warning::Token Railway ini tidak bisa membaca daftar project` | token yang dipasang adalah token **project** (hanya berlaku di project tempat ia dibuat) atau sudah dicabut |
+
+Step itu **tidak pernah menggagalkan job** (`continue-on-error: true`) — penilainya
+tetap step deploy; ia hanya memisahkan dua sebab yang pesannya sama persis.
+
 **Akibat samping yang perlu diketahui:** karena step `Deploy ke Railway` adalah
 step paling awal di job itu, kegagalannya membuat step sesudahnya — termasuk
 `Verifikasi produksi - database, penyimpanan & kredensialnya` — berstatus
 *skipped*. Artinya selama token ini masih salah, pemeriksaan kredensial
 penyimpanan **tidak pernah berjalan di CI**, meskipun kodenya ada. Selama itu
 pula satu-satunya cara memeriksanya adalah `curl` manual ke `/health`.
+
+## Verifikasi deploy: kode yang live harus commit yang di-push
+
+Job `deploy-backend` dulu hanya tahu "perintah deploy-nya selesai", dan itu tidak
+membedakan "kode baru sudah live" dari "deploy gagal sementara kode lama masih
+melayani user" — yang kedua tetap terlihat hijau. Pemeriksaan `/health` yang lain
+(database, penyimpanan, kredensialnya) membaca kolom yang sama benarnya di kode
+lama maupun baru, jadi tak satu pun menangkapnya. Karena itu `/health`
+melaporkan commit yang berjalan, dan step `Verifikasi produksi` menuntut nilainya
+sama dengan `GITHUB_SHA`:
+
+| Keadaan di `/health` | Perilaku job |
+|---|---|
+| `commit` sama dengan commit yang di-push | `::notice::` — deploy terbukti |
+| `commit` berbeda | `::error::` dan job **gagal** (setelah menunggu sampai 5 menit, karena deployment barunya bisa jadi masih berjalan) |
+| `commit` tidak dilaporkan | `::warning::` — deployment sebelum kolom ini ada memang belum memuatnya; pada deploy berikutnya, ketiadaannya berarti penandanya tidak terbaca |
+
+Kolom `commitSource` menyebut jalur penandanya, karena hanya salah satu jalur
+yang membawa metadata git: Railway mengisi `RAILWAY_GIT_COMMIT_SHA` untuk
+deployment dari **integrasi GitHub**, sedangkan `railway up` mengunggah direktori
+lokal tanpa metadata git — karena itu step `Deploy ke Railway` menulis
+`backend/build-meta.json` sebelum mengunggah dan menghapusnya lagi sesudahnya
+(`trap`). Berkas itu sengaja **tidak** masuk `.gitignore`: `railway up`
+menghormati `.gitignore` (lihat flag `--no-gitignore` di CLI-nya), sehingga
+berkas yang di-ignore justru hilang dari unggahan.
 
 ## Catatan untuk job `quality` di CI
 
@@ -161,11 +201,15 @@ Minimum supaya aplikasi hidup (bukan sekadar build hijau):
 | `FIREBASE_SERVICE_ACCOUNT` | JSON dalam satu baris, atau path | login Google |
 
 Untuk fitur AI, tambahkan minimal satu provider chat (`GROQ_API_KEY`,
-`GEMINI_API_KEY`, atau `OPENROUTER_API_KEY`), kredensial Cloudflare
-(`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`) untuk text-to-image, dan
-`MIMO_API_KEY` (platform MiMo) untuk text-to-sound. Fitur yang key-nya belum
-ada tetap tampil di UI tetapi menjawab dengan pesan yang menyebut variabel mana
-yang harus diisi.
+`GEMINI_API_KEY`, atau `OPENROUTER_API_KEY`) dan kredensial Cloudflare
+(`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`) untuk text-to-image.
+**Text-to-sound tidak butuh variabel apa pun**: Edge TTS (suara neural Indonesia
+bawaan Microsoft) melayaninya tanpa kunci API. Opsional, `GEMINI_API_KEY` yang
+sudah dipakai fitur chat juga menjadi provider suara dengan logat yang bisa
+diarahkan (gratis, tanpa billing), dan `ELEVENLABS_API_KEY` menyediakan
+cadangan free tier 10.000 karakter/bulan. MiMo (`MIMO_API_KEY`) hanya mendukung
+Mandarin/Inggris. Fitur yang key-nya belum ada tetap tampil di UI tetapi
+menjawab dengan pesan yang menyebut variabel mana yang harus diisi.
 
 ### Mengisi variabel lewat CLI
 

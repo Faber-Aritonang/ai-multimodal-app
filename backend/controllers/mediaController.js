@@ -21,7 +21,8 @@
  *
  * text-to-sound:
  *   1. validasi teks yang diucapkan + suara/gaya + format keluaran
- *   2. minta audio dari provider TTS (MiMo, lihat config/soundProviders.js)
+ *   2. minta audio dari provider TTS (Gemini/Edge/ElevenLabs/OpenAI/MiMo,
+ *      lihat config/soundProviders.js)
  *   3. simpan berkasnya ke penyimpanan media, lalu kurangi quota user
  *
  * Kuota: audio memakai `videoGeneration` yang sudah ada, bukan field baru. Fitur
@@ -47,10 +48,8 @@ const {
 } = require('../config/imageProviders');
 const {
   generateSpeech,
-  BUILT_IN_VOICES,
-  ALLOWED_FORMATS: ALLOWED_SOUND_FORMATS,
+  getSoundVoiceOptions,
   DEFAULT_FORMAT: DEFAULT_SOUND_FORMAT,
-  DEFAULT_VOICE,
   MAX_TEXT_LENGTH,
   MAX_STYLE_LENGTH
 } = require('../config/soundProviders');
@@ -483,23 +482,58 @@ const parseSoundRequest = (body = {}) => {
     return { error: `Voice style is too long (max ${MAX_STYLE_LENGTH} characters)` };
   }
 
-  // Voice bawaan hanya berlaku tanpa deskripsi gaya (model voicedesign menolak
-  // field `voice`). Divalidasi di sini supaya salah tulis dijawab 400 dengan
-  // daftar yang benar, bukan diteruskan ke provider lalu gagal di sana.
-  let voice = DEFAULT_VOICE;
+  // Divalidasi terhadap voice milik PROVIDER YANG AKTIF, bukan gabungan semua
+  // provider: nama voice MiMo tidak dikenal OpenAI dan sebaliknya, jadi daftar
+  // gabungan justru menerima nilai yang pasti ditolak providernya. Daftar yang
+  // sama juga dilayani GET /media/sound-voices, jadi dropdown di frontend tidak
+  // pernah menawarkan nilai yang salah.
+  // `voices` berbentuk {value,label,hint} karena daftar yang sama dilayani ke
+  // frontend; yang divalidasi di sini hanya nilainya.
+  const {
+    provider,
+    voices: voiceOptions,
+    defaultVoice,
+    formats: allowedFormats,
+    defaultFormat
+  } = getSoundVoiceOptions();
+  const allowedVoices = voiceOptions.map((option) => option.value);
+
+  let voice = defaultVoice;
   if (body.voice !== undefined && body.voice !== null && body.voice !== '') {
-    if (typeof body.voice !== 'string' || !BUILT_IN_VOICES.includes(body.voice)) {
-      return { error: `Invalid voice. Allowed values: ${BUILT_IN_VOICES.join(', ')}` };
+    if (typeof body.voice !== 'string' || !allowedVoices.includes(body.voice)) {
+      return { error: `Invalid voice. Allowed values: ${allowedVoices.join(', ')}` };
     }
     voice = body.voice;
   }
 
-  const format = body.format || DEFAULT_SOUND_FORMAT;
-  if (!ALLOWED_SOUND_FORMATS.includes(format)) {
-    return { error: `Invalid format. Allowed values: ${ALLOWED_SOUND_FORMATS.join(', ')}` };
+  // Format yang sah ikut provider yang aktif: Gemini TTS hanya menghasilkan
+  // WAV dan Edge hanya MP3, jadi format yang tidak mungkin dijawab 400 dengan
+  // pesan yang menyebut providernya — bukan diteruskan lalu gagal di sana.
+  // Format bawaannya pun milik provider itu, bukan satu nilai global: tanpa ini
+  // permintaan yang tidak menyebut format akan meminta WAV dari Edge, yang
+  // memang tidak bisa dilayaninya.
+  const format = body.format || defaultFormat || DEFAULT_SOUND_FORMAT;
+  if (!allowedFormats.includes(format)) {
+    return {
+      error:
+        `Invalid format. Allowed values for provider ${provider}: ` +
+        allowedFormats.join(', ')
+    };
   }
 
   return { text, voice, style, format };
+};
+
+/**
+ * @GET /api/v1/media/sound-voices
+ * Voice yang sah untuk provider TTS yang sedang aktif.
+ *
+ * Halaman /tools/text-to-sound mengambil daftarnya dari sini, supaya dropdown
+ * tidak pernah basi: MiMo dan OpenAI memakai nama voice yang sama sekali
+ * berbeda, dan providernya bisa ditukar lewat env tanpa mengubah frontend.
+ */
+exports.getSoundVoices = (req, res) => {
+  res.status(200).json({ success: true, ...getSoundVoiceOptions() });
 };
 
 /**
@@ -558,8 +592,11 @@ exports.textToSound = async (req, res) => {
       mimeType: result.mimeType,
       // Durasi hanya bisa dibaca dari header WAV; null untuk MP3.
       duration: result.duration || null,
-      // Kosong saat voice design dipakai, karena suaranya dibuat dari deskripsi.
-      voice: parsed.style ? null : parsed.voice,
+      // Provider melaporkan voice yang benar-benar dipakai. MiMo voice design
+      // mengirim null (suaranya dibuat dari deskripsi), sedangkan OpenAI tetap
+      // memakai voice bawaan walau ada deskripsi gaya — jadi hasilnya dicatat apa
+      // adanya, bukan disimpulkan dari ada/tidaknya `style`.
+      voice: result.voice === undefined ? (parsed.style ? null : parsed.voice) : result.voice,
       style: parsed.style || null,
       provider: result.provider,
       model: result.model

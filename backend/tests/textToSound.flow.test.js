@@ -31,7 +31,22 @@ const User = require('../models/User');
 const MediaContent = require('../models/MediaContent');
 const { app } = require('../server');
 
+// Provider suara dipatok supaya daftar voice yang divalidasi tidak bergantung
+// pada kredensial yang kebetulan sudah ada di mesin pengembang: begitu
+// OPENAI_API_KEY terisi, provider aktif berpindah dan voice MiMo jadi tidak sah.
+const ENV_PROVIDER = ['SOUND_PROVIDER', 'SOUND_FALLBACK_PROVIDER'];
+const envAwal = Object.fromEntries(ENV_PROVIDER.map((key) => [key, process.env[key]]));
+
+beforeEach(() => {
+  process.env.SOUND_PROVIDER = 'mimo';
+});
+
 afterAll(() => {
+  ENV_PROVIDER.forEach((key) => {
+    if (envAwal[key] === undefined) delete process.env[key];
+    else process.env[key] = envAwal[key];
+  });
+
   fs.rmSync(tempUploadDir, { recursive: true, force: true });
 });
 
@@ -194,6 +209,46 @@ describe('POST /api/v1/media/text-to-sound', () => {
     expect(mockGenerateSpeech).not.toHaveBeenCalled();
   });
 
+  test('voice provider lain ditolak: nama MiMo bukan nilai sah untuk OpenAI', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+    process.env.SOUND_PROVIDER = 'openai';
+
+    const response = await request(app)
+      .post('/api/v1/media/text-to-sound')
+      .set(authHeader())
+      .send({ text: 'halo', voice: 'Mia' });
+
+    expect(response.status).toBe(400);
+    // Pesannya menyebut daftar provider yang AKTIF, supaya user tahu nilai
+    // benar yang harus dikirim — bukan daftar gabungan yang menyesatkan.
+    expect(response.body.message).toMatch(/alloy/);
+    expect(response.body.message).not.toMatch(/mimo_default/);
+  });
+
+  test('voice yang dilaporkan provider dicatat apa adanya, bukan dari request', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+    mockGenerateSpeech.mockResolvedValue({
+      buffer: WAV_BYTES,
+      format: 'wav',
+      mimeType: 'audio/wav',
+      provider: 'openai',
+      model: 'gpt-4o-mini-tts',
+      // Terjadi saat voice dari request diganti voice bawaan provider.
+      voice: 'alloy',
+      duration: null,
+      attempts: []
+    });
+
+    const response = await request(app)
+      .post('/api/v1/media/text-to-sound')
+      .set(authHeader())
+      .send({ text: 'halo', voice: 'Mia' });
+
+    expect(response.status).toBe(201);
+    expect(response.body.media.metadata.voice).toBe('alloy');
+    expect(response.body.media.metadata.provider).toBe('openai');
+  });
+
   test('format yang tidak didukung ditolak 400', async () => {
     User.findOne.mockResolvedValue(approvedMember(3));
 
@@ -254,5 +309,71 @@ describe('GET /api/v1/media/status', () => {
 
     expect(response.body.availableEndpoints).toContain('POST /api/v1/media/text-to-sound');
     expect(response.body.comingSoonEndpoints).not.toContain('POST /api/v1/media/text-to-sound');
+  });
+});
+
+describe('GET /api/v1/media/sound-voices', () => {
+  const ambil = () =>
+    request(app).get('/api/v1/media/sound-voices').set(authHeader());
+
+  test('member mendapat voice milik provider yang aktif', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+
+    const response = await ambil();
+
+    expect(response.status).toBe(200);
+    expect(response.body.provider).toBe('mimo');
+    expect(response.body.defaultVoice).toBe('mimo_default');
+    expect(response.body.voices.map((item) => item.value)).toContain('Mia');
+    // MiMo voicedesign mengabaikan voice bawaan, jadi dropdown-nya dinonaktifkan.
+    expect(response.body.styleOverridesVoice).toBe(true);
+  });
+
+  test('daftar berpindah begitu providernya ditukar, tanpa mengubah frontend', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+    process.env.SOUND_PROVIDER = 'openai';
+
+    const response = await ambil();
+
+    expect(response.body.provider).toBe('openai');
+    expect(response.body.defaultVoice).toBe('alloy');
+    // Voice MiMo tidak dikenal OpenAI — inilah yang membuat salah pilih tidak
+    // mungkin terjadi dari UI.
+    expect(response.body.voices.map((item) => item.value)).not.toContain('Mia');
+    // OpenAI memakai voice BERSAMA deskripsi gaya, jadi dropdown tetap aktif.
+    expect(response.body.styleOverridesVoice).toBe(false);
+  });
+
+  test('format yang sah ikut provider: Gemini hanya WAV', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+    process.env.SOUND_PROVIDER = 'gemini';
+
+    const response = await ambil();
+
+    expect(response.body.provider).toBe('gemini');
+    // Gemini mengembalikan PCM yang dibungkus WAV; MP3 bukan sesuatu yang bisa
+    // dihasilkannya di sini, jadi tidak ditawarkan ke user.
+    expect(response.body.formats).toEqual(['wav']);
+  });
+
+  test('MP3 ditolak 400 saat provider yang aktif tidak sanggup menghasilkannya', async () => {
+    User.findOne.mockResolvedValue(approvedMember(3));
+    process.env.SOUND_PROVIDER = 'gemini';
+
+    const response = await request(app)
+      .post('/api/v1/media/text-to-sound')
+      .set(authHeader())
+      .send({ text: 'halo', format: 'mp3' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/Invalid format/);
+    expect(response.body.message).toMatch(/gemini/);
+    expect(mockGenerateSpeech).not.toHaveBeenCalled();
+  });
+
+  test('tanpa token ditolak 401', async () => {
+    const response = await request(app).get('/api/v1/media/sound-voices');
+
+    expect(response.status).toBe(401);
   });
 });

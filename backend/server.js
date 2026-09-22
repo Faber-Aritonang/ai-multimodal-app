@@ -38,6 +38,7 @@ const {
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { getSpeechProviderStatus } = require('./config/soundProviders');
 const { preferEnvFile } = require('./config/envFile');
+const { getBuildInfo } = require('./config/buildInfo');
 
 // Di development, kredensial AI diambil dari .env walau variabel shell berisi
 // nilai lain (mis. sisa `export GROQ_API_KEY=...` yang rusak di ~/.bashrc).
@@ -190,11 +191,26 @@ app.use('/api/v1/media', mediaRoutes);
 // Health check
 app.get('/health', (req, res) => {
   const hasilPenyimpanan = getStorageCheck();
+  const build = getBuildInfo();
 
   const payload = {
     status: 'OK',
     timestamp: new Date().toISOString(),
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    // Commit yang sedang berjalan. Dilaporkan SELALU, termasuk di produksi,
+    // karena inilah satu-satunya cara membuktikan dari luar bahwa kode yang live
+    // adalah commit yang baru di-push. Tanpa kolom ini, langkah verifikasi deploy
+    // hanya bisa tahu "proses deploy-nya selesai" — dan itu tetap terlihat hijau
+    // walau kode lama yang melayani user. Bentuknya SHA git, yang sudah publik
+    // (repo ini publik), jadi tidak ada apa pun yang dibocorkan. `null` berarti
+    // penandanya tidak terbaca, bukan berarti gagal.
+    commit: build.commit,
+    // Dibedakan karena dua jalur deployment berperilaku sama saat benar tetapi
+    // berbeda saat salah: `railway-git` berarti Railway mengisinya untuk
+    // deployment dari integrasi GitHub, `build-meta` berarti dari penanda yang
+    // ditulis job CI sebelum `railway up`. Hanya dikirim saat nilainya ada, sama
+    // seperti `storageCredentialSource`.
+    ...(build.source ? { commitSource: build.source } : {}),
     // Mode penyimpanan dilaporkan SELALU, termasuk di production.
     // Alasannya konkret: kalau nilainya `local` di produksi, setiap deploy akan
     // menghapus gambar user — dan itu satu-satunya fakta operasional penting yang
@@ -256,12 +272,17 @@ app.get('/health', (req, res) => {
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
       imageEditCapabilities: image.editCapabilities,
-      // Provider text-to-sound (MiMo TTS). `soundReady` menentukan apakah halaman
-      // /tools/text-to-sound bisa benar-benar menghasilkan audio, dan spec browser
-      // memakainya untuk memilih antara menguji alur lengkap atau menguji pesan
-      // kegagalan yang jelas — sama seperti imageEditReady.
+      // Provider text-to-sound (Gemini/Edge untuk suara Indonesia, ElevenLabs
+      // free tier sebagai pilihan cadangan, MiMo untuk Mandarin/Inggris).
+      // `soundReady` menentukan apakah halaman /tools/text-to-sound bisa
+      // benar-benar menghasilkan audio, dan spec browser memakainya untuk
+      // memilih antara menguji alur lengkap atau menguji pesan kegagalan yang
+      // jelas — sama seperti imageEditReady. Dengan Edge di rantai, nilainya
+      // true bahkan tanpa kredensial apa pun.
       soundProvider: speech.chain[0] || 'none',
+      soundFallback: speech.chain[1] || 'none',
       soundProviders: speech.status,
+      soundVoices: speech.voices,
       soundReady: speech.ready,
       // Di produksi nilainya harus `cloudinary` atau `s3`; kalau `local`, gambar
       // akan hilang pada setiap deploy (filesystem container sementara).
@@ -348,7 +369,9 @@ const startServer = async () => {
       `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`
     );
     // Text-to-sound: tanpa baris ini, "audio gagal" tidak bisa dibedakan antara
-    // MIMO_API_KEY yang belum sampai ke container dan provider yang bermasalah.
+    // OPENAI_API_KEY/MIMO_API_KEY yang belum sampai ke container dan provider
+    // yang bermasalah — dan provider yang dipakai ikut terlihat (openai untuk
+    // suara Indonesia, mimo untuk Mandarin/Inggris).
     const speech = getSpeechProviderStatus();
     const speechStatus = Object.entries(speech.status)
       .map(([name, state]) => `${name}=${state}`)

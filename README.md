@@ -45,7 +45,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI/OpenRouter sebagai fallback)
 - **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
-- **Text-to-Sound**: Ubah teks menjadi suara (MiMo-V2.5-TTS dari Xiaomi, lewat endpoint kompatibel OpenAI). Bisa memakai voice bawaan (Mia, Chloe, Milo, Dean, …) atau membuat suara baru dari deskripsi gaya, format WAV/MP3, lengkap dengan riwayat & hapus
+- **Text-to-Sound**: Ubah teks menjadi suara — provider bisa ditukar (**Gemini TTS gratis** untuk suara Indonesia, **ElevenLabs free tier** sebagai cadangan saat kuota Gemini habis, MiMo-V2.5-TTS untuk Mandarin/Inggris). Bisa memakai voice bawaan (Kore, Puck, … untuk Gemini; Rachel, Adam, … untuk ElevenLabs) atau mengatur gaya bicara, format WAV/MP3, lengkap dengan riwayat & hapus
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -67,7 +67,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
 | **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
-| **Text-to-Sound** | Xiaomi MiMo — MiMo-V2.5-TTS (endpoint OpenAI-compatible) | ⚠️ butuh `MIMO_API_KEY` | akun MiMo berbayar |
+| **Text-to-Sound** | Microsoft Edge TTS (suara neural Indonesia, **tanpa kunci API**) + Google Gemini TTS (`gemini-3.1-flash-tts-preview`) ; ElevenLabs free tier bila dipilih; MiMo-V2.5-TTS untuk Mandarin/Inggris | ✅ Edge tanpa akun; kuota gratis Gemini tanpa billing; ElevenLabs 10.000 karakter/bulan | OpenAI TTS berbayar |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -158,18 +158,26 @@ CHAT_FALLBACK_PROVIDER=gemini,openrouter
 # OPENROUTER_FAILURE_COOLDOWN_MS=60000
 # Lihat docs/setup-kredensial.md bagian 3c untuk hasil pembandingannya.
 
-# Text-to-Sound (TTS) — Xiaomi MiMo, seri MiMo-V2.5-TTS (lihat
-# docs/setup-kredensial.md bagian 3e). Endpointnya kompatibel OpenAI, tetapi
-# BUKAN /v1/audio/speech: teks yang diucapkan dikirim sebagai pesan `assistant`
-# ke /v1/chat/completions dan audionya kembali sebagai base64.
-# Kunci dari https://mimo.mi.com — tanpa ini halaman /tools/text-to-sound
-# menjawab 503 dengan pesan yang menyebut variabel ini.
-MIMO_API_KEY=mimo-your-key-here
-# Model dipilih otomatis: voice bawaan -> MIMO_TTS_MODEL, deskripsi gaya suara
-# -> MIMO_TTS_VOICEDESIGN_MODEL.
+# Text-to-Sound (TTS) — TIDAK butuh kunci apa pun: Edge TTS sudah melayani
+# dengan suara neural Indonesia bawaan Microsoft (id-ID-GadisNeural,
+# id-ID-ArdiNeural), MP3. Opsional: GEMINI_API_KEY di atas (logat bisa diarahkan,
+# WAV) dan ElevenLabs free tier (lihat docs/setup-kredensial.md bagian 3e).
+# Urutan default: Gemini -> ElevenLabs -> OpenAI -> MiMo -> Edge, dengan Edge
+# sebagai cadangan karena ia tidak butuh kredensial.
+ELEVENLABS_API_KEY=sk_your-elevenlabs-key
+# SOUND_PROVIDER=gemini            # gemini | edge | elevenlabs | openai | mimo | none
+# SOUND_FALLBACK_PROVIDER=edge
+# GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
+# ELEVENLABS_MODEL=eleven_multilingual_v2
+# EDGE_TTS_WSS_URL=                # hanya bila Microsoft memindahkan endpointnya
+#
+# Alternatif Xiaomi MiMo (hanya Mandarin + Inggris). Endpointnya kompatibel
+# OpenAI, tetapi BUKAN /v1/audio/speech: teks yang diucapkan dikirim sebagai
+# pesan `assistant` ke /v1/chat/completions dan audionya kembali sebagai base64.
+# Kunci dari https://mimo.mi.com
+# MIMO_API_KEY=mimo-your-key-here
 # MIMO_TTS_MODEL=mimo-v2.5-tts
 # MIMO_TTS_VOICEDESIGN_MODEL=mimo-v2.5-tts-voicedesign
-# SOUND_PROVIDER=mimo
 
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
@@ -300,7 +308,7 @@ Yang diuji:
 | `chat.spec.cjs` | buat sesi, badge kuota, kirim pesan, balasan AI, label provider, markdown dirender, kuota berkurang, bersihkan sesi |
 | `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), berkas di object storage memakai URL absolut, berkas yang hilang dijelaskan ke user, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
-| `text-to-sound.spec.cjs` | daftar voice terisi, audio hasil benar-benar termuat di browser (`readyState`), metadata format+provider, kuota, riwayat, dan — kalau `MIMO_API_KEY` belum ada — pastikan gagal dengan pesan yang menyebut cara mengaktifkannya tanpa memakai kuota |
+| `text-to-sound.spec.cjs` | daftar voice terisi, audio hasil benar-benar termuat di browser (`readyState`), metadata format+provider, kuota, riwayat, dan — kalau provider suara belum siap sama sekali — pastikan gagal dengan pesan yang menyebut cara mengaktifkannya tanpa memakai kuota. Karena Edge tidak butuh kunci, jalur "alur lengkap" inilah yang berjalan di mesin kosong |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
 | `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
 
@@ -325,9 +333,11 @@ yang dipush, memeriksa tautan langsung `/`, `/login`, `/tools/text-to-image`, da
 memeriksa CORS dari origin produksi).
 
 Catatan: spec memakai akun dev member, jadi setiap eksekusi memakai
-**1 kuota chat**, **1 kuota gambar**, dan — bila `MIMO_API_KEY` sudah diisi —
-**1 kuota video/audio**. Data yang dibuat (sesi chat, media) dihapus kembali oleh
-spec, tapi kuotanya tidak bisa dikembalikan dari sini.
+**1 kuota chat**, **1 kuota gambar**, dan **1 kuota video/audio** untuk
+`text-to-sound` — kuota aplikasi itu memang berkurang, sedangkan biaya di sisi
+provider tetap nol karena Edge TTS tidak memerlukan akun maupun kunci. Data yang
+dibuat (sesi chat, media) dihapus kembali oleh spec, tapi kuotanya tidak bisa
+dikembalikan dari sini.
 
 ## API Documentation
 
@@ -357,7 +367,8 @@ spec, tapi kuotanya tidak bisa dikembalikan dari sini.
 | GET | `/api/v1/member/referral-stats` | Statistik referral (jumlah yang diundang) | ✅ Member |
 | POST | `/api/v1/media/text-to-image` | Generate gambar dari prompt | ✅ Member |
 | POST | `/api/v1/media/image-to-image` | Transformasi gambar sesuai prompt | ✅ Member |
-| POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (MiMo TTS) | ✅ Member |
+| POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (Edge TTS tanpa kunci, atau Gemini/ElevenLabs/OpenAI/MiMo) | ✅ Member |
+| GET | `/api/v1/media/sound-voices` | Voice & format yang sah untuk provider TTS yang aktif | ✅ Member |
 | GET | `/api/v1/media/history` | Riwayat media user | ✅ Member |
 | DELETE | `/api/v1/media/:contentId` | Hapus media (record + file) | ✅ Member |
 | GET | `/api/v1/media/status` | Daftar endpoint media | ❌ No |
@@ -429,21 +440,35 @@ curl -X POST http://localhost:3000/api/v1/media/text-to-sound \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Selamat pagi, ini contoh suara.",
-    "voice": "Mia",
-    "format": "wav"
+    "voice": "id-ID-GadisNeural",
+    "format": "mp3"
   }'
 ```
 
-Isi `style` (mis. `"suara pria muda yang hangat"`) sebagai ganti `voice` untuk
-membuat suara baru dari deskripsi — backend otomatis berpindah ke model voice
-design. Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>`
-di `/tools/text-to-sound`. Kuota yang berkurang adalah `videoGeneration` (satu
-jatah untuk media non-gambar), dan berkurang hanya bila audionya benar-benar
-berhasil dibuat.
+Daftar voice, format, dan format bawaannya diambil dari
+`GET /api/v1/media/sound-voices` — nama voice Edge (`id-ID-GadisNeural`, …) tidak
+dikenal Gemini/ElevenLabs/MiMo dan sebaliknya, jadi halaman
+`/tools/text-to-sound` mengambil daftarnya dari sana alih-alih menyimpannya di
+frontend. `voice` dan `format` boleh dikosongkan: yang dipakai adalah voice dan
+format bawaan provider yang aktif.
 
-> MiMo memakai endpoint **chat completion**, bukan `/v1/audio/speech`: teks yang
-diucapkan dikirim sebagai pesan `assistant` dan audionya kembali sebagai base64.
-> Rincian penyiapannya ada di
+Isi `style` (mis. `"logat Indonesia baku, tempo santai"`) untuk mengatur gaya
+bicara. Pada Gemini gaya itu dikirim sebagai arahan bahasa alami di depan teks;
+pada MiMo backend berpindah ke model voice design, jadi voice bawaan diabaikan.
+Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>` di
+`/tools/text-to-sound`. Kuota yang berkurang adalah `videoGeneration` (satu jatah
+untuk media non-gambar), dan berkurang hanya bila audionya benar-benar berhasil
+dibuat.
+
+> Biaya: **nol untuk menyiapkan** — Edge TTS melayani suara Indonesia tanpa kunci
+> API sama sekali. Gemini TTS gratis juga (kuotanya tidak butuh billing) dan
+> logatnya bisa diarahkan lewat kolom `style`; ElevenLabs free tier 10.000
+> karakter/bulan tersedia bila tidak ingin bergantung pada Edge. Cadangan default
+> adalah Edge (tanpa kredensial), dan begitu provider utama gagal — paling sering
+> karena kuota gratis Gemini habis (HTTP 429) — percobaan yang gagal dicatat di
+> log serta di metadata hasil, yang selalu menyebut provider yang benar-benar
+> melayani. MiMo **tidak punya suara Indonesia** (dokumentasi resminya: hanya
+> Mandarin dan Inggris). Rincian penyiapannya ada di
 > [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3e.
 
 ## Deployment
@@ -502,7 +527,11 @@ CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 IMAGE_PROVIDER=cloudflare
 IMAGE_FALLBACK_PROVIDER=pollinations
-MIMO_API_KEY=mimo-your-key-here
+SOUND_PROVIDER=gemini
+SOUND_FALLBACK_PROVIDER=edge
+# Alternatif Mandarin/Inggris: MIMO_API_KEY=mimo-your-key-here
+# Catatan: text-to-sound juga jalan TANPA variabel SOUND_* di atas — Edge TTS
+# (suara Indonesia, tanpa kunci API) menjadi providernya.
 
 # WAJIB di produksi — tanpa ini gambar hilang setiap deploy (lihat bagian
 # "Penyimpanan media" di bawah). Diperiksa lewat GET /health → services.storage.
@@ -646,7 +675,11 @@ Setiap push ke `main` menjalankan tiga job:
    kalau gagal, deploy tidak dijalankan.
 2. **deploy-backend** — `railway up` lewat **Railway CLI**, dijalankan dari
    **akar repo** sehingga konteks unggahannya sama dengan konteks deployment
-   GitHub (subfolder `backend/` terbentuk benar).
+   GitHub (subfolder `backend/` terbentuk benar). Job ini juga **memeriksa
+   kredensialnya lebih dulu** (menyebut project/service yang sebenarnya dipegang)
+   dan **memverifikasi produksi setelahnya**: database, penyimpanan,
+   kredensialnya, dan **commit yang benar-benar berjalan** — supaya "deploy
+   selesai" tidak lagi bisa berarti "kode lama masih live".
 3. **deploy-frontend** — **memverifikasi** deployment Vercel untuk commit yang
    di-push lewat REST API: menunggu sampai `READY`, gagal kalau `ERROR` atau
    lewat 10 menit, lalu memastikan `/`, `/login`, dan `/tools/text-to-image`
@@ -777,7 +810,7 @@ ai-multimodal-app/
 ### Phase 2: Media Features
 - [x] Text-to-Image — provider bisa ditukar (Cloudflare Workers AI gratis / Pollinations tanpa API key / DALL·E 3), plus riwayat & hapus
 - [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
-- [x] Text-to-Sound — seri MiMo-V2.5-TTS (Xiaomi) lewat endpoint kompatibel OpenAI; voice bawaan atau voice design dari deskripsi, format WAV/MP3, riwayat & hapus
+- [x] Text-to-Sound — provider bisa ditukar (Gemini TTS **gratis** untuk suara Indonesia dengan ElevenLabs free tier sebagai cadangan, MiMo-V2.5-TTS untuk Mandarin/Inggris); voice bawaan atau deskripsi gaya, format WAV/MP3, riwayat & hapus
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
 - [ ] Sound-to-Text (Whisper)

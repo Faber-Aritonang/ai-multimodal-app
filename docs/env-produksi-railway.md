@@ -40,7 +40,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Chat — cadangan OpenRouter | `OPENROUTER_API_KEY` | badge `via openrouter` muncul saat Groq/Gemini kehabisan kuota. Tanpa key ini provider hanya dilewati, bukan error. |
 | Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
-| Text-to-Sound | `MIMO_API_KEY` (kunci platform MiMo) | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: mimo (mimo=configured)`. Tanpa key, halaman menjawab 503 dengan pesan yang menyebut `MIMO_API_KEY`. |
+| Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY`; MiMo/Mandarin-Inggris: `MIMO_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
@@ -72,9 +72,15 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `BYNARA_API_KEY` | — | kunci NaraRouter (`sk-nry-`); cukup satu variabel untuk generate + unduh hasil |
 | `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
 | `IMAGE_EDIT_PROVIDER` / `IMAGE_EDIT_FALLBACK_PROVIDER` | `bynara` lalu `cloudflare` | urutan provider image-to-image; `pollinations` tidak tersedia di sini |
-| `SOUND_PROVIDER` | `mimo` | provider text-to-sound; `none` mematikan fiturnya |
+| `SOUND_PROVIDER` | provider pertama yang punya key, urut `gemini → elevenlabs → openai → mimo → edge` | provider text-to-sound; `none` mematikan fiturnya |
+| `SOUND_FALLBACK_PROVIDER` | `edge` | provider cadangan saat provider utama gagal/kuotanya habis — jalur yang dipakai begitu kuota gratis Gemini (HTTP 429) habis. Edge dipilih sebagai default karena tidak butuh kunci, jadi cadangannya benar-benar bisa dipakai |
+| `EDGE_TTS_WSS_URL` | endpoint Read Aloud Edge | alamat WebSocket provider Edge; diisi hanya bila Microsoft memindahkannya |
 | `SOUND_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu request sintesis suara |
-| `MIMO_TTS_MODEL` / `MIMO_TTS_VOICEDESIGN_MODEL` | `mimo-v2.5-tts` / `mimo-v2.5-tts-voicedesign` | model TTS untuk voice bawaan dan untuk voice design |
+| `GEMINI_TTS_MODEL` | `gemini-3.1-flash-tts-preview` | model Gemini TTS (status preview). Hanya model ini yang dipakai untuk permintaan WAV karena backend membungkus PCM-nya sendiri |
+| `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | model ElevenLabs; ini yang mendukung Bahasa Indonesia |
+| `ELEVENLABS_VOICE_ID` | — | paksa satu ID voice ElevenLabs. Tanpa ini, ID dibaca dari akun pemilik kunci (`GET /v1/voices`) karena daftar voice bawaan berbeda antar akun |
+| `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | model OpenAI TTS (berbayar, tidak dipakai otomatis). Hanya model `gpt-4o-*` yang menerima `instructions`, jadi pada `tts-1`/`tts-1-hd` deskripsi gaya diabaikan |
+| `MIMO_TTS_MODEL` / `MIMO_TTS_VOICEDESIGN_MODEL` | `mimo-v2.5-tts` / `mimo-v2.5-tts-voicedesign` | model TTS MiMo (hanya Mandarin/Inggris) |
 | `MIMO_TTS_OPTIMIZE_TEXT` | `false` | `true` meminta provider memoles teks sebelum diucapkan (audio jadi tidak persis sama dengan teks yang diketik) |
 | `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
@@ -124,6 +130,8 @@ curl -s $B/health
 #    Dua kolom ini menjawab dua hal berbeda dan keduanya harus bagus:
 #      storageMode  = mode apa yang dipakai            -> local | cloudinary | s3
 #      storageCheck = apakah kredensialnya BERLAKU     -> pending | ok | failed | skipped
+#      commit       = kode VERSI APA yang sedang live    -> SHA git; null bila penandanya
+#                     tidak terbaca (lihat "Kode versi apa yang sedang live" di bawah)
 #    Nilai yang salah tulis tetap membuat storageMode terbaca `cloudinary`,
 #    karena pemeriksaan konfigurasi hanya bertanya "apakah variabelnya kosong".
 #
@@ -175,13 +183,16 @@ ulang selesai baru jalankan verifikasi ini.
 ### Kenapa status provider tidak terlihat di `/health` produksi
 
 `/health` sengaja **hanya** melaporkan `status`, `database`, `storageMode`,
-`storageCheck` (+ `storageCheckReason` saat gagal), dan `storageCredentialSource`
-saat `NODE_ENV=production`; objek `services` (daftar provider gambar & chat)
-hanya muncul di development/test supaya info infrastruktur tidak dibocorkan ke
-repo publik. Kolom penyimpanan tetap dilaporkan karena mode `local` dan
-kredensial yang ditolak keduanya **merusak data user secara diam-diam**, dan
-`storageCredentialSource` hanya berisi nama variabel — bukan nilainya. Karena itu
-verifikasi provider chat di produksi dilakukan lewat:
+`storageCheck` (+ `storageCheckReason` saat gagal), `commit` (+ `commitSource`),
+dan `storageCredentialSource` saat `NODE_ENV=production`; objek `services` (daftar
+provider gambar & chat) hanya muncul di development/test supaya info
+infrastruktur tidak dibocorkan ke repo publik. Kolom penyimpanan tetap
+dilaporkan karena mode `local` dan kredensial yang ditolak keduanya **merusak
+data user secara diam-diam**, dan `storageCredentialSource` hanya berisi nama
+variabel — bukan nilainya. Kolom `commit` juga tidak membocorkan apa pun (SHA
+git repo ini sudah publik), dan tanpanya job deploy tidak bisa membedakan kode
+baru dari kode lama. Karena itu verifikasi provider chat di produksi dilakukan
+lewat:
 
 1. **badge provider di UI chat** — setiap balasan menyimpan dan menampilkan
    provider yang benar-benar menjawab (`via groq`, `via openrouter`, …); atau
@@ -203,3 +214,29 @@ verifikasi provider chat di produksi dilakukan lewat:
    container belum restart) — bukan soal modelnya. Kalau `openrouter=configured`,
    namanya pasti muncul juga di rantai (`groq > … > openrouter`). Nilainya hanya
    `configured`/`missing`, tidak pernah memuat isi key.
+
+### Kode versi apa yang sedang live (`commit`)
+
+Kolom `commit` menjawab pertanyaan yang berbeda dari semua kolom di atas: bukan
+"apakah konfigurasinya benar", melainkan "kode **versi apa** yang sedang
+melayani user". Dua jalur deploy membawa penandanya dengan cara berbeda:
+
+| `commitSource` | Dari mana nilainya |
+|---|---|
+| `railway-git` | Railway mengisi `RAILWAY_GIT_COMMIT_SHA` untuk deployment yang berasal dari **integrasi GitHub** (setiap push ke `main`) |
+| `build-meta` | dari `backend/build-meta.json` yang ditulis job CI tepat sebelum `railway up` — jalur CLI mengunggah direktori lokal, jadi tidak ada metadata git yang bisa dibaca |
+
+`commit: null` berarti tidak ada satu pun sumber yang terbaca (mis. deployment
+dibangun dari mesin lokal tanpa penanda). Ini bukan kegagalan: job deploy hanya
+memberi `::warning::` saat penandanya tidak dilaporkan, dan **gagal** saat
+nilainya ada tetapi berbeda dari commit yang baru di-push — karena itu berarti
+deploy-nya belum selesai atau kode lama yang masih live.
+
+```bash
+curl -s https://ai-multimodal-app-production.up.railway.app/health | python3 -m json.tool | grep -E '"commit"|"commitSource"'
+#    "commit": "56e1648641c4a7cd9a534f6339742021f319fc7c",
+#    "commitSource": "railway-git",
+#
+# Cocokkan dengan commit yang seharusnya live:
+#    git rev-parse HEAD
+```

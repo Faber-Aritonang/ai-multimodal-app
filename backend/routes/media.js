@@ -13,6 +13,7 @@ const {
   textToImage,
   imageToImage,
   textToSound,
+  getSoundVoices,
   getMediaHistory,
   deleteMedia
 } = require('../controllers/mediaController');
@@ -26,6 +27,7 @@ router.get('/status', (req, res) => {
       'POST /api/v1/media/text-to-image',
       'POST /api/v1/media/image-to-image',
       'POST /api/v1/media/text-to-sound',
+      'GET /api/v1/media/sound-voices',
       'GET /api/v1/media/history',
       'DELETE /api/v1/media/:contentId'
     ],
@@ -63,6 +65,9 @@ router.post(
   checkQuota('videoGeneration'),
   textToSound
 );
+
+// Voice TTS yang sah untuk provider yang aktif (dropdown halaman text-to-sound)
+router.get('/sound-voices', authenticate, requireMember, getSoundVoices);
 
 // Riwayat & hapus media milik user
 router.get('/history', authenticate, requireMember, getMediaHistory);

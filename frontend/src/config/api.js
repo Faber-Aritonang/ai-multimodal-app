@@ -133,6 +133,11 @@ export const mediaAPI = {
   // Info endpoint yang tersedia + yang belum diimplementasi
   getStatus: () => api.get('/media/status'),
 
+  // Voice TTS yang sah untuk provider yang sedang aktif. Diambil dari backend
+  // karena providernya bisa ditukar lewat env dan nama voice MiMo berbeda
+  // sepenuhnya dari voice OpenAI.
+  getSoundVoices: () => api.get('/media/sound-voices'),
+
   // Text to image
   textToImage: ({ prompt, size, quality }) =>
     api.post('/media/text-to-image', { prompt, size, quality }, { timeout: 120000 }),
