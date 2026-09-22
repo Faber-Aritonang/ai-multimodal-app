@@ -15,9 +15,10 @@
  *   CHROME_BIN         path binary Chrome bila tidak terdeteksi otomatis
  *
  * Catatan: spec memakai akun dev member dan akan memakai 1 kuota chat
- * (chat.spec) serta 1 kuota gambar (text-to-image.spec). Keduanya menghapus
- * kembali data yang dibuatnya lewat API, tapi kuota tidak bisa dikembalikan
- * dari sini — jalankan saat kuota dev masih tersedia.
+ * (chat.spec), 1 kuota gambar (text-to-image.spec), dan 1 kuota video/audio
+ * (text-to-sound.spec) — yang terakhir hanya bila kredensial provider TTS-nya
+ * sudah diisi. Semuanya menghapus kembali data yang dibuatnya lewat API, tapi
+ * kuota tidak bisa dikembalikan dari sini — jalankan saat kuota dev tersedia.
  */
 
 const { launchSession, Reporter, findChrome, sleep } = require('./lib/harness.cjs');
@@ -30,6 +31,7 @@ const ALL_SPECS = [
   require('./specs/chat.spec.cjs'),
   require('./specs/text-to-image.spec.cjs'),
   require('./specs/image-to-image.spec.cjs'),
+  require('./specs/text-to-sound.spec.cjs'),
   require('./specs/dashboard-profile.spec.cjs'),
   require('./specs/pending-approval.spec.cjs'),
   require('./specs/admin-logout.spec.cjs')

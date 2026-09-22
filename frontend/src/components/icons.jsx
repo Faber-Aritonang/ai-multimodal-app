@@ -165,6 +165,28 @@ export const TransformIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 )
 
+export const SoundIcon = ({ className = "w-6 h-6" }) => (
+  <svg 
+    className={className} 
+    fill="none" 
+    stroke="currentColor" 
+    viewBox="0 0 24 24" 
+  >
+    <path 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      strokeWidth={2} 
+      d="M11 5L6 9H3v6h3l5 4V5z" 
+    />
+    <path 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      strokeWidth={2} 
+      d="M15.54 8.46a5 5 0 010 7.07M18.36 5.64a9 9 0 010 12.73" 
+    />
+  </svg>
+)
+
 export const GoogleIcon = ({ className = "w-5 h-5" }) => (
   <svg 
     className={className} 
@@ -260,6 +282,8 @@ export default {
   ChatIcon,
   UserIcon,
   ImageIcon,
+  TransformIcon,
+  SoundIcon,
   CogIcon,
   GoogleIcon,
   SignOutButton,

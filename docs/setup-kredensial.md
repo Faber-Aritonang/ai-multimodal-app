@@ -140,6 +140,10 @@ OPENAI_API_KEY=sk-...
 # CHAT_PROVIDER=groq
 # CHAT_FALLBACK_PROVIDER=gemini
 
+# Provider text-to-sound (lihat langkah 3e)
+# MIMO_API_KEY=...
+# SOUND_PROVIDER=mimo
+
 # Opsional: lokasi penyimpanan hasil generate (default: backend/uploads)
 # UPLOAD_DIR=uploads
 ```
@@ -739,6 +743,88 @@ variabel di Railway bisa berisi spasi di ujung, tetapi kode sudah memangkasnya
   Cloudinary tidak.
 - Kredensial yang pernah ditempel di chat sebaiknya dirotasi setelah setup:
   **API Secret** bisa di-*regenerate* dari halaman API Keys yang sama.
+
+---
+
+## 3e. Text-to-Sound — Xiaomi MiMo (MiMo-V2.5-TTS)
+
+Fitur **Text to Sound** (`/tools/text-to-sound`) mengubah teks menjadi audio.
+Providerya seri MiMo-V2.5-TTS dari Xiaomi.
+
+### Satu hal yang membedakannya dari provider lain
+
+MiMo **tidak** memakai endpoint `/v1/audio/speech` seperti OpenAI. Endpoint-nya
+kompatibel OpenAI, tetapi berupa **chat completion biasa**:
+
+- teks yang diucapkan dikirim sebagai pesan ber-`role: assistant`,
+- audionya kembali sebagai base64 di `choices[0].message.audio.data`,
+- parameter `audio: { format: "wav" }` menentukan format keluaran.
+
+Karena bentuknya chat completion, klien OpenAI SDK yang sudah dipakai modul chat
+bisa dipakai ulang — tidak ada dependency baru, dan `base_url`-nya cukup
+`https://api.xiaomimimo.com/v1`.
+
+### Dua model, dan kapan masing-masing dipakai
+
+Aplikasi memilih modelnya dari isi permintaan, jadi satu halaman mengerjakan
+keduanya:
+
+| Kolom di halaman | Model | Isi pesan |
+|---|---|---|
+| **voice** dipilih | `mimo-v2.5-tts` | `assistant` = teks yang diucapkan; `audio.voice` = voice bawaan |
+| **voice style** diisi | `mimo-v2.5-tts-voicedesign` | `user` = deskripsi suara; `assistant` = teks yang diucapkan (model ini menolak `audio.voice`) |
+
+Voice bawaan yang tersedia: `mimo_default`, `冰糖`, `茉莉`, `苏打`, `白桦`,
+`Mia`, `Chloe`, `Milo`, `Dean`.
+
+> `optimize_text_preview` (yang memoles teks sebelum diucapkan) **dimatikan**
+> secara default, walau contoh resmi provider menyalakannya. Alasannya: teks
+> hasil polesan membuat audio tidak lagi sesuai dengan teks yang diketik user.
+> Nyalakan dengan `MIMO_TTS_OPTIMIZE_TEXT=true` bila memang ingin begitu.
+
+### Langkah mengaktifkan
+
+1. Buat akun / ambil API key di platform MiMo: <https://mimo.mi.com>
+2. Isi `backend/.env`:
+
+   ```env
+   MIMO_API_KEY=kunci-dari-platform-mimo
+   # Opsional, semuanya punya default:
+   # MIMO_TTS_MODEL=mimo-v2.5-tts
+   # MIMO_TTS_VOICEDESIGN_MODEL=mimo-v2.5-tts-voicedesign
+   # SOUND_REQUEST_TIMEOUT_MS=120000
+   ```
+
+3. Restart backend, lalu buka `/health` (di luar production) dan pastikan:
+
+   ```bash
+   curl -s http://localhost:3000/health | python3 -m json.tool | grep -i sound
+   # "soundProvider": "mimo",
+   # "soundProviders": { "mimo": "configured" },
+   # "soundReady": true,
+   ```
+
+   Di produksi blok `services` tidak ditampilkan (isinya detail infrastruktur).
+   Yang tersedia hanyalah baris log saat boot:
+
+   ```
+   Provider suara: mimo (mimo=configured)
+   ```
+
+### Kuota
+
+Audio memakai kuota **`videoGeneration`** yang sudah ada, bukan field kuota baru
+— jatah media non-gambar. Angkanya berkurang 1 hanya setelah audionya benar-benar
+berhasil dibuat dan tersimpan, dan kartu di dashboard menampilkannya sebagai
+`video & audio`.
+
+### Penyimpanan berkasnya
+
+Hasilnya disimpan lewat modul penyimpanan yang sama dengan gambar. Satu detail
+Cloudinary yang penting: **tidak ada kategori "audio"** di sana — berkas suara
+masuk ke kategori `video`, dan referensinya disimpan sebagai
+`cloudinary://video/<public_id>` supaya penghapusannya memakai kategori yang
+sama. Mode `local`/S3 tidak terpengaruh.
 
 ---
 

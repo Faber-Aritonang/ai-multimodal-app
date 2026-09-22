@@ -72,8 +72,8 @@ module.exports = {
     // Angka ini berubah saat fitur baru diaktifkan — assertion-nya menyengaja
     // agar daftar fitur di dashboard tidak diam-diam bergeser.
     reporter.equal('jumlah kartu tool', dashboard?.jumlahKartu, 7);
-    reporter.equal('kartu yang bisa dipakai', dashboard?.kartuTersedia, 3);
-    reporter.equal('kartu "Coming Soon"', dashboard?.kartuSegera, 4);
+    reporter.equal('kartu yang bisa dipakai', dashboard?.kartuTersedia, 4);
+    reporter.equal('kartu "Coming Soon"', dashboard?.kartuSegera, 3);
 
     if (kuotaApi.body?.quota) {
       reporter.equal('kuota chat di dashboard sesuai API', dashboard?.kuota?.chat, String(kuotaApi.body.quota.chat));

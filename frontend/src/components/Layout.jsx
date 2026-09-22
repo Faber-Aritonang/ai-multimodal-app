@@ -9,15 +9,19 @@ import {
   ChatIcon,
   ImageIcon,
   TransformIcon,
+  SoundIcon,
   UserIcon
 } from '../components/icons'
 
+// `short` adalah label untuk navigasi bawah di mobile: kata pertama nama saja
+// membuat "Text to Image" dan "Text to Sound" sama-sama tertulis "Text".
 const NAVIGATION = [
-  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, code: '01' },
-  { name: 'Chat', href: '/chat', icon: ChatIcon, code: '02' },
-  { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon, code: '03' },
-  { name: 'Image to Image', href: '/tools/image-to-image', icon: TransformIcon, code: '04' },
-  { name: 'Profile', href: '/profile', icon: UserIcon, code: '05' }
+  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, code: '01', short: 'Home' },
+  { name: 'Chat', href: '/chat', icon: ChatIcon, code: '02', short: 'Chat' },
+  { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon, code: '03', short: 'Image' },
+  { name: 'Image to Image', href: '/tools/image-to-image', icon: TransformIcon, code: '04', short: 'Transform' },
+  { name: 'Text to Sound', href: '/tools/text-to-sound', icon: SoundIcon, code: '05', short: 'Sound' },
+  { name: 'Profile', href: '/profile', icon: UserIcon, code: '06', short: 'Profile' }
 ]
 
 /** Inisial huruf pertama nama, dipakai saat user tidak punya foto. */
@@ -286,7 +290,7 @@ const Layout = ({ user, setUser, children }) => {
                 }`}
               >
                 <Icon className="h-5 w-5" />
-                <span className="truncate">{item.name.split(' ')[0]}</span>
+                <span className="truncate">{item.short || item.name.split(' ')[0]}</span>
                 <span
                   className={`h-0.5 w-6 rounded-full bg-gradient-to-r from-aurora-cyan to-aurora-violet transition-opacity ${
                     active ? 'opacity-100' : 'opacity-0'

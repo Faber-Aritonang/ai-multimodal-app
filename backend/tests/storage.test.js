@@ -357,6 +357,49 @@ describe('mode Cloudinary', () => {
     expect(saved.reference).toBe('cloudinary://media_1');
   });
 
+  test('audio diunggah sebagai resource type video, dan referensinya menyebut jenisnya', async () => {
+    setCloudinaryEnv();
+
+    const saved = await storage.putObject({
+      key: 'media_suara.mp3',
+      buffer: Buffer.from('audio-uji'),
+      contentType: 'audio/mpeg',
+      resourceType: 'video'
+    });
+
+    // Cloudinary tidak punya kategori "audio": berkas suara masuk ke `video`.
+    // Mengirim `image` membuat unggahan gagal, dan kalau hanya penghapusannya
+    // yang salah, berkasnya tertinggal di CDN selamanya.
+    expect(mockUploadStream.mock.calls[0][0]).toMatchObject({
+      public_id: 'media_suara',
+      resource_type: 'video',
+      format: 'mp3'
+    });
+    expect(saved.reference).toBe('cloudinary://video/media_suara');
+  });
+
+  test('penghapusan audio memakai resource type video', async () => {
+    setCloudinaryEnv();
+
+    expect(await storage.removeByReference('cloudinary://video/media_suara')).toBe(true);
+    expect(mockDestroy).toHaveBeenCalledWith(
+      'media_suara',
+      expect.objectContaining({ resource_type: 'video' })
+    );
+  });
+
+  test('referensi gambar tanpa jenis tetap dihapus sebagai gambar', async () => {
+    // Bentuk lama `cloudinary://<public_id>` sudah tersimpan di database, jadi
+    // tetap harus dibaca sebagai gambar.
+    setCloudinaryEnv();
+
+    expect(await storage.removeByReference('cloudinary://media_9')).toBe(true);
+    expect(mockDestroy).toHaveBeenCalledWith(
+      'media_9',
+      expect.objectContaining({ resource_type: 'image' })
+    );
+  });
+
   test('gambar tidak pernah ditulis ke disk saat Cloudinary aktif', async () => {
     setCloudinaryEnv();
 

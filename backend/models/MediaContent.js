@@ -58,6 +58,12 @@ const mediaContentSchema = new mongoose.Schema({
     // field metadata baru harus didaftarkan di sini.
     inputResolution: String,
     format: String,
+    // Khusus audio (text-to-sound): format MIME berkasnya, panjang audionya
+    // dalam detik (hanya terbaca dari header WAV), serta voice bawaan atau
+    // deskripsi gaya suara yang dipakai.
+    mimeType: String,
+    voice: String,
+    style: String,
     // Provider & model yang dipakai saat generate (mis. cloudflare / flux-1-schnell)
     provider: String,
     model: String

@@ -118,6 +118,12 @@ describe('GET /health', () => {
       'IMAGE_EDIT_PROVIDER',
       'IMAGE_EDIT_FALLBACK_PROVIDER',
       'PUBLIC_BASE_URL',
+      'SOUND_PROVIDER',
+      'MIMO_API_KEY',
+      'MIMO_BASE_URL',
+      'MIMO_TTS_MODEL',
+      'MIMO_TTS_VOICEDESIGN_MODEL',
+      'MIMO_TTS_OPTIMIZE_TEXT',
       'STORAGE_PROVIDER',
       'S3_ENDPOINT',
       'S3_BUCKET',
@@ -154,7 +160,15 @@ describe('GET /health', () => {
         'S3_PUBLIC_BASE_URL',
         'IMAGE_EDIT_PROVIDER',
         'IMAGE_EDIT_FALLBACK_PROVIDER',
-        'PUBLIC_BASE_URL'
+        'PUBLIC_BASE_URL',
+        // Kredensial suara juga dibersihkan: nilainya ikut menentukan isi blok
+        // `services`, dan mesin pengembang bisa saja sudah mengisi MIMO_API_KEY.
+        'SOUND_PROVIDER',
+        'MIMO_API_KEY',
+        'MIMO_BASE_URL',
+        'MIMO_TTS_MODEL',
+        'MIMO_TTS_VOICEDESIGN_MODEL',
+        'MIMO_TTS_OPTIMIZE_TEXT'
       ].forEach((key) => delete process.env[key]);
     };
 
@@ -211,6 +225,12 @@ describe('GET /health', () => {
           pollinations: false,
           openai: false
         },
+        // Text-to-sound hanya punya satu provider (MiMo TTS), dan tanpa
+        // MIMO_API_KEY halaman /tools/text-to-sound harus melaporkan belum siap
+        // alih-alih menawarkan tombol yang pasti gagal.
+        soundProvider: 'mimo',
+        soundProviders: { mimo: 'missing' },
+        soundReady: false,
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
@@ -227,6 +247,16 @@ describe('GET /health', () => {
         },
         devLogin: 'enabled'
       });
+    });
+
+    test('MIMO_API_KEY membuat text-to-sound siap dipakai', async () => {
+      process.env.MIMO_API_KEY = 'mimo-kunci-uji';
+
+      const status = await services();
+
+      expect(status.soundProvider).toBe('mimo');
+      expect(status.soundProviders.mimo).toBe('configured');
+      expect(status.soundReady).toBe(true);
     });
 
     test('kredensial Cloudflare mengaktifkan image-to-image lewat FLUX.2 [klein]', async () => {
@@ -347,7 +377,14 @@ describe('GET /api/v1/media/status', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.availableEndpoints).toEqual(
-      expect.arrayContaining(['POST /api/v1/media/text-to-image'])
+      expect.arrayContaining([
+        'POST /api/v1/media/text-to-image',
+        'POST /api/v1/media/text-to-sound'
+      ])
+    );
+    // Endpoint yang sudah ada tidak boleh ikut terdaftar sebagai "coming soon".
+    expect(response.body.comingSoonEndpoints).not.toEqual(
+      expect.arrayContaining(['POST /api/v1/media/text-to-sound'])
     );
     expect(response.body.comingSoonEndpoints).toEqual(
       expect.arrayContaining(['POST /api/v1/media/text-to-video'])
@@ -362,6 +399,7 @@ describe('route yang dilindungi auth', () => {
     ['get', '/api/v1/member/referral-stats'],
     ['get', '/api/v1/admin/pending-members'],
     ['post', '/api/v1/media/text-to-image'],
+    ['post', '/api/v1/media/text-to-sound'],
     ['get', '/api/v1/media/history'],
     ['delete', '/api/v1/media/media_abc']
   ])('%s %s tanpa token ditolak 401', async (method, url) => {

@@ -396,6 +396,17 @@ const getPublicUrl = (key) => {
 };
 
 /**
+ * Jenis sumber daya Cloudinary untuk sebuah berkas.
+ *
+ * Cloudinary tidak punya resource type "audio": berkas suara masuk ke kategori
+ * `video`. Karena itu permintaan unggah DAN penghapusan untuk audio harus
+ * menyebut `video`; menyebut `image` membuat unggahan gagal (dan, kalau hanya
+ * penghapusannya yang salah, berkasnya tertinggal selamanya).
+ */
+const cloudinaryResourceType = (resourceType) =>
+  String(resourceType || 'image') === 'video' ? 'video' : 'image';
+
+/**
  * Hapus satu aset Cloudinary dari public_id-nya.
  *
  * Perilaku `not found` sengaja dianggap berhasil: itulah tujuan akhirnya, dan
@@ -404,10 +415,10 @@ const getPublicUrl = (key) => {
  * penolakan sungguhan (mis. limit) dilempar supaya tidak diam-diam dianggap
  * berhasil.
  */
-const destroyCloudinaryAsset = async (publicId) => {
+const destroyCloudinaryAsset = async (publicId, resourceType = 'image') => {
   try {
     const result = await getCloudinary().uploader.destroy(publicId, {
-      resource_type: 'image',
+      resource_type: cloudinaryResourceType(resourceType),
       // Buang juga salinan di CDN, supaya gambar yang dihapus user tidak tetap
       // tampil dari cache tepi Cloudinary. (Propagasi purge-nya perlu waktu.)
       invalidate: true
@@ -478,7 +489,7 @@ const publicIdFromCloudinaryUrl = (url) => {
  * `public_id` diambil dari nama berkas tanpa ekstensi, sedangkan formatnya
  * dikirim terpisah — persis seperti yang diharapkan Cloudinary.
  */
-const uploadToCloudinary = async ({ key, buffer }) => {
+const uploadToCloudinary = async ({ key, buffer, resourceType }) => {
   const fileName = path.basename(key);
   const dot = fileName.lastIndexOf('.');
   const publicId = dot > 0 ? fileName.slice(0, dot) : fileName;
@@ -488,7 +499,7 @@ const uploadToCloudinary = async ({ key, buffer }) => {
 
   const options = {
     public_id: publicId,
-    resource_type: 'image',
+    resource_type: cloudinaryResourceType(resourceType),
     overwrite: true,
     invalidate: true,
     ...(format ? { format } : {})
@@ -515,14 +526,17 @@ const uploadToCloudinary = async ({ key, buffer }) => {
 /**
  * Simpan satu berkas.
  *
- * @param {{key: string, buffer: Buffer, contentType: string}} params
+ * @param {{key: string, buffer: Buffer, contentType: string, resourceType?: 'image'|'video'}} params
+ *   `resourceType` menentukan kategori di Cloudinary (`video` untuk audio);
+ *   mode lokal dan S3 tidak membutuhkannya.
  * @returns {Promise<{key: string, url: string, reference: string}>}
  *   `reference` disimpan di database: `s3://<bucket>/<key>` atau path lokal absolut,
  *   supaya penghapusan nanti tidak perlu menebak berkasnya di mana.
  */
-const putObject = async ({ key, buffer, contentType }) => {
+const putObject = async ({ key, buffer, contentType, resourceType }) => {
   if (getStorageMode() === 'cloudinary') {
-    const uploaded = await uploadToCloudinary({ key, buffer });
+    const uploaded = await uploadToCloudinary({ key, buffer, resourceType });
+    const jenis = cloudinaryResourceType(resourceType);
 
     if (!uploaded || !uploaded.secure_url) {
       const error = new Error(
@@ -537,7 +551,13 @@ const putObject = async ({ key, buffer, contentType }) => {
       url: uploaded.secure_url,
       // public_id dari Cloudinary dipakai untuk menghapus berkas nanti; tidak
       // perlu menebak dari URL (yang bisa berisi transformasi/versi).
-      reference: `cloudinary://${uploaded.public_id}`
+      //
+      // Jenis sumber dayanya ikut disimpan HANYA bila bukan `image`, supaya
+      // penghapusan audio memakai kategori yang benar tanpa mengubah bentuk
+      // referensi gambar yang sudah tersimpan di database (`cloudinary://<id>`).
+      reference: jenis === 'image'
+        ? `cloudinary://${uploaded.public_id}`
+        : `cloudinary://${jenis}/${uploaded.public_id}`
     };
   }
 
@@ -590,9 +610,12 @@ const removeLocalFile = async (filePath) => {
 const removeByReference = async (reference) => {
   if (!reference) return false;
 
-  const cloudinaryMatch = String(reference).match(/^cloudinary:\/\/(.+)$/);
+  // Bentuk referensi Cloudinary: `cloudinary://<public_id>` (gambar, bentuk
+  // lama) atau `cloudinary://video/<public_id>` (audio — Cloudinary tidak punya
+  // kategori "audio").
+  const cloudinaryMatch = String(reference).match(/^cloudinary:\/\/(?:(image|video|raw)\/)?(.+)$/);
   if (cloudinaryMatch) {
-    return destroyCloudinaryAsset(cloudinaryMatch[1]);
+    return destroyCloudinaryAsset(cloudinaryMatch[2], cloudinaryMatch[1] || 'image');
   }
 
   const s3Match = String(reference).match(/^s3:\/\/([^/]+)\/(.+)$/);

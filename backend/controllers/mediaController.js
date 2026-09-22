@@ -18,6 +18,15 @@
  *
  * Provider gambar bisa ditukar lewat env IMAGE_PROVIDER / IMAGE_FALLBACK_PROVIDER,
  * jadi controller ini tidak bergantung pada satu vendor saja.
+ *
+ * text-to-sound:
+ *   1. validasi teks yang diucapkan + suara/gaya + format keluaran
+ *   2. minta audio dari provider TTS (MiMo, lihat config/soundProviders.js)
+ *   3. simpan berkasnya ke penyimpanan media, lalu kurangi quota user
+ *
+ * Kuota: audio memakai `videoGeneration` yang sudah ada, bukan field baru. Fitur
+ * suara masih satu keluarga dengan video (keduanya media non-gambar) dan jatah
+ * video di akun ini belum pernah terpakai.
  */
 
 const MediaContent = require('../models/MediaContent');
@@ -36,6 +45,15 @@ const {
   looksLikeImage,
   MAX_EDIT_INPUT_EDGE
 } = require('../config/imageProviders');
+const {
+  generateSpeech,
+  BUILT_IN_VOICES,
+  ALLOWED_FORMATS: ALLOWED_SOUND_FORMATS,
+  DEFAULT_FORMAT: DEFAULT_SOUND_FORMAT,
+  DEFAULT_VOICE,
+  MAX_TEXT_LENGTH,
+  MAX_STYLE_LENGTH
+} = require('../config/soundProviders');
 
 // Ukuran yang didukung frontend. Provider yang tidak sanggup memenuhi ukuran
 // tertentu akan dilewati otomatis (lihat supportedSizes di imageProviders.js).
@@ -435,6 +453,145 @@ exports.imageToImage = async (req, res) => {
     const { status, body } = buildFailureResponse(error, {
       configCodes: EDIT_CONFIG_ERROR_CODES,
       defaultMessage: 'Image transformation failed. Please try again.'
+    });
+
+    return res.status(status).json(body);
+  }
+};
+
+/**
+ * Validasi body request text-to-sound.
+ *
+ * @returns {{error: string}|{text: string, voice: string, style: string, format: string}}
+ */
+const parseSoundRequest = (body = {}) => {
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+
+  if (!text) {
+    return { error: 'Text is required' };
+  }
+
+  if (text.length > MAX_TEXT_LENGTH) {
+    return { error: `Text is too long (max ${MAX_TEXT_LENGTH} characters)` };
+  }
+
+  // Deskripsi gaya suara opsional: kalau diisi, provider memakai model voice
+  // design yang membuat suara baru dari deskripsi itu.
+  const style = typeof body.style === 'string' ? body.style.trim() : '';
+
+  if (style.length > MAX_STYLE_LENGTH) {
+    return { error: `Voice style is too long (max ${MAX_STYLE_LENGTH} characters)` };
+  }
+
+  // Voice bawaan hanya berlaku tanpa deskripsi gaya (model voicedesign menolak
+  // field `voice`). Divalidasi di sini supaya salah tulis dijawab 400 dengan
+  // daftar yang benar, bukan diteruskan ke provider lalu gagal di sana.
+  let voice = DEFAULT_VOICE;
+  if (body.voice !== undefined && body.voice !== null && body.voice !== '') {
+    if (typeof body.voice !== 'string' || !BUILT_IN_VOICES.includes(body.voice)) {
+      return { error: `Invalid voice. Allowed values: ${BUILT_IN_VOICES.join(', ')}` };
+    }
+    voice = body.voice;
+  }
+
+  const format = body.format || DEFAULT_SOUND_FORMAT;
+  if (!ALLOWED_SOUND_FORMATS.includes(format)) {
+    return { error: `Invalid format. Allowed values: ${ALLOWED_SOUND_FORMATS.join(', ')}` };
+  }
+
+  return { text, voice, style, format };
+};
+
+/**
+ * @POST /api/v1/media/text-to-sound
+ * Ubah teks menjadi audio.
+ */
+exports.textToSound = async (req, res) => {
+  const parsed = parseSoundRequest(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ success: false, message: parsed.error });
+  }
+
+  let media = null;
+
+  try {
+    // Sama seperti fitur gambar: permintaan dicatat lebih dulu supaya riwayat &
+    // analytics tetap lengkap walau prosesnya gagal.
+    media = await MediaContent.create({
+      userId: req.member.uid,
+      type: 'text-to-sound',
+      prompt: parsed.text,
+      status: 'processing'
+    });
+
+    const result = await generateSpeech({
+      text: parsed.text,
+      voice: parsed.voice,
+      style: parsed.style,
+      format: parsed.format
+    });
+
+    if (result.attempts && result.attempts.length) {
+      console.warn(
+        `Text-to-sound dilayani ${result.provider} (provider sebelumnya gagal): ` +
+          result.attempts.map((item) => `${item.provider}: ${item.reason}`).join('; ')
+      );
+    }
+
+    const format = result.format || DEFAULT_SOUND_FORMAT;
+    const fileName = `${media.contentId}.${format}`;
+    const saved = await putObject({
+      key: fileName,
+      buffer: result.buffer,
+      contentType: result.mimeType,
+      // Cloudinary menaruh berkas suara di kategori `video` (tidak ada kategori
+      // "audio"); mode S3/lokal mengabaikan nilai ini.
+      resourceType: 'video'
+    });
+
+    media.outputFile = saved.reference;
+    media.outputUrl = saved.url;
+    media.status = 'completed';
+    media.completedAt = new Date();
+    media.metadata = {
+      format,
+      mimeType: result.mimeType,
+      // Durasi hanya bisa dibaca dari header WAV; null untuk MP3.
+      duration: result.duration || null,
+      // Kosong saat voice design dipakai, karena suaranya dibuat dari deskripsi.
+      voice: parsed.style ? null : parsed.voice,
+      style: parsed.style || null,
+      provider: result.provider,
+      model: result.model
+    };
+    await media.save();
+
+    req.member.quota.videoGeneration -= 1;
+    await req.member.save();
+
+    return res.status(201).json({
+      success: true,
+      media,
+      quota: req.member.quota,
+      provider: result.provider,
+      duration: result.duration || null
+    });
+  } catch (error) {
+    console.error('Text-to-sound error:', error.message);
+
+    if (media) {
+      media.status = 'failed';
+      media.error = { message: error.message };
+      try {
+        await media.save();
+      } catch (saveError) {
+        console.error('Failed to update media status:', saveError.message);
+      }
+    }
+
+    const { status, body } = buildFailureResponse(error, {
+      configCodes: CONFIG_ERROR_CODES,
+      defaultMessage: 'Speech generation failed. Please try again.'
     });
 
     return res.status(status).json(body);

@@ -128,7 +128,7 @@ export const memberAPI = {
   getReferralStats: () => api.get('/member/referral-stats'),
 };
 
-// Media API (AI multimodal berbasis gambar)
+// Media API (AI multimodal berbasis gambar & audio)
 export const mediaAPI = {
   // Info endpoint yang tersedia + yang belum diimplementasi
   getStatus: () => api.get('/media/status'),
@@ -140,6 +140,12 @@ export const mediaAPI = {
   // Image to image (gambar dikirim sebagai data URL, sudah diperkecil di browser)
   imageToImage: ({ prompt, image, size }) =>
     api.post('/media/image-to-image', { prompt, image, size }, { timeout: 180000 }),
+
+  // Text to sound (TTS). `style` opsional: bila diisi, provider membuat suara
+  // baru dari deskripsi itu alih-alih memakai voice bawaan. Timeout lebih
+  // panjang dari default karena sintesis suara bisa memakan puluhan detik.
+  textToSound: ({ text, voice, style, format }) =>
+    api.post('/media/text-to-sound', { text, voice, style, format }, { timeout: 180000 }),
 
   // Riwayat media milik user
   getHistory: (params = {}) => api.get('/media/history', { params }),

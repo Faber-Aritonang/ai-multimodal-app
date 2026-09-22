@@ -60,12 +60,12 @@ const FEATURES = [
   {
     id: 'text-to-sound',
     title: 'Text to Sound',
-    description: 'Ubah teks menjadi suara.',
+    description: 'Ubah teks menjadi suara, dengan pilihan voice atau voice design.',
     icon: '🔊',
     path: '/tools/text-to-sound',
-    available: false,
-    accent: 'from-emerald-400/20 to-emerald-500/5',
-    ring: ''
+    available: true,
+    accent: 'from-emerald-400/30 to-teal-500/10',
+    ring: 'group-hover:border-emerald-300/40'
   },
   {
     id: 'sound-to-text',
@@ -86,7 +86,9 @@ const RISE_STEPS = ['rise-1', 'rise-2', 'rise-3', 'rise-4', 'rise-5', 'rise-6']
 const QUOTA_TILES = [
   { key: 'chat', label: 'chat', accent: 'cyan' },
   { key: 'imageGeneration', label: 'gambar', accent: 'violet' },
-  { key: 'videoGeneration', label: 'video', accent: 'teal' },
+  // Fitur suara (text-to-sound) memakai jatah ini — satu kuota untuk media
+  // non-gambar, supaya akun yang sudah ada tidak perlu field kuota baru.
+  { key: 'videoGeneration', label: 'video & audio', accent: 'teal' },
   { key: 'total', label: 'total', accent: 'fuchsia' }
 ]
 

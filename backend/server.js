@@ -36,6 +36,7 @@ const {
   cloudinaryCredentialSource
 } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
+const { getSpeechProviderStatus } = require('./config/soundProviders');
 const { preferEnvFile } = require('./config/envFile');
 
 // Di development, kredensial AI diambil dari .env walau variabel shell berisi
@@ -239,7 +240,7 @@ app.get('/health', (req, res) => {
     // Provider gambar & chat yang aktif, supaya error fitur AI bisa langsung
     // dicocokkan dengan konfigurasi yang sebenarnya.
     const image = getProviderStatus();
-    const chat = getChatProviderStatus();
+    const chat = getChatProviderStatus();    const speech = getSpeechProviderStatus();
 
     payload.services = {
       firebase: isFirebaseConfigured() ? 'configured' : 'missing',
@@ -255,6 +256,13 @@ app.get('/health', (req, res) => {
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
       imageEditCapabilities: image.editCapabilities,
+      // Provider text-to-sound (MiMo TTS). `soundReady` menentukan apakah halaman
+      // /tools/text-to-sound bisa benar-benar menghasilkan audio, dan spec browser
+      // memakainya untuk memilih antara menguji alur lengkap atau menguji pesan
+      // kegagalan yang jelas — sama seperti imageEditReady.
+      soundProvider: speech.chain[0] || 'none',
+      soundProviders: speech.status,
+      soundReady: speech.ready,
       // Di produksi nilainya harus `cloudinary` atau `s3`; kalau `local`, gambar
       // akan hilang pada setiap deploy (filesystem container sementara).
       storage: describeStorage(),
@@ -338,6 +346,15 @@ const startServer = async () => {
     // tempat melihatnya di production.
     console.log(
       `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`
+    );
+    // Text-to-sound: tanpa baris ini, "audio gagal" tidak bisa dibedakan antara
+    // MIMO_API_KEY yang belum sampai ke container dan provider yang bermasalah.
+    const speech = getSpeechProviderStatus();
+    const speechStatus = Object.entries(speech.status)
+      .map(([name, state]) => `${name}=${state}`)
+      .join(' ');
+    console.log(
+      `Provider suara: ${speech.chain.join(' > ') || 'none'} (${speechStatus})`
     );
   });
 };

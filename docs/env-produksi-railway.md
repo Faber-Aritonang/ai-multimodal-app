@@ -40,6 +40,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Chat — cadangan OpenRouter | `OPENROUTER_API_KEY` | badge `via openrouter` muncul saat Groq/Gemini kehabisan kuota. Tanpa key ini provider hanya dilewati, bukan error. |
 | Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
+| Text-to-Sound | `MIMO_API_KEY` (kunci platform MiMo) | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: mimo (mimo=configured)`. Tanpa key, halaman menjawab 503 dengan pesan yang menyebut `MIMO_API_KEY`. |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
@@ -71,6 +72,10 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `BYNARA_API_KEY` | — | kunci NaraRouter (`sk-nry-`); cukup satu variabel untuk generate + unduh hasil |
 | `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
 | `IMAGE_EDIT_PROVIDER` / `IMAGE_EDIT_FALLBACK_PROVIDER` | `bynara` lalu `cloudflare` | urutan provider image-to-image; `pollinations` tidak tersedia di sini |
+| `SOUND_PROVIDER` | `mimo` | provider text-to-sound; `none` mematikan fiturnya |
+| `SOUND_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu request sintesis suara |
+| `MIMO_TTS_MODEL` / `MIMO_TTS_VOICEDESIGN_MODEL` | `mimo-v2.5-tts` / `mimo-v2.5-tts-voicedesign` | model TTS untuk voice bawaan dan untuk voice design |
+| `MIMO_TTS_OPTIMIZE_TEXT` | `false` | `true` meminta provider memoles teks sebelum diucapkan (audio jadi tidak persis sama dengan teks yang diketik) |
 | `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |

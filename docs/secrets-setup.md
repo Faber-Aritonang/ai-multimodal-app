@@ -137,8 +137,11 @@ Minimum supaya aplikasi hidup (bukan sekadar build hijau):
 | `FIREBASE_SERVICE_ACCOUNT` | JSON dalam satu baris, atau path | login Google |
 
 Untuk fitur AI, tambahkan minimal satu provider chat (`GROQ_API_KEY`,
-`GEMINI_API_KEY`, atau `OPENROUTER_API_KEY`) dan kredensial Cloudflare
-(`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`) untuk text-to-image.
+`GEMINI_API_KEY`, atau `OPENROUTER_API_KEY`), kredensial Cloudflare
+(`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`) untuk text-to-image, dan
+`MIMO_API_KEY` (platform MiMo) untuk text-to-sound. Fitur yang key-nya belum
+ada tetap tampil di UI tetapi menjawab dengan pesan yang menyebut variabel mana
+yang harus diisi.
 
 ### Mengisi variabel lewat CLI
 

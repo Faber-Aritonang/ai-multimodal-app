@@ -4,9 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Full-stack web application with AI-powered multimodal features: **chat**,
-**text-to-image**, dan **image-to-image**. Fitur video & audio masih berstatus
-feature flag ([lihat daftarnya](#feature-flags-pending-admin-approval)). Dibangun
-di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
+**text-to-image**, **image-to-image**, dan **text-to-sound**. Fitur video &
+sound-to-text masih berstatus feature flag
+([lihat daftarnya](#feature-flags-pending-admin-approval)). Dibangun di atas
+layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 
 | | |
 |---|---|
@@ -44,6 +45,7 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI/OpenRouter sebagai fallback)
 - **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
+- **Text-to-Sound**: Ubah teks menjadi suara (MiMo-V2.5-TTS dari Xiaomi, lewat endpoint kompatibel OpenAI). Bisa memakai voice bawaan (Mia, Chloe, Milo, Dean, …) atau membuat suara baru dari deskripsi gaya, format WAV/MP3, lengkap dengan riwayat & hapus
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -51,7 +53,6 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 ### Feature Flags (Pending Admin Approval)
 - **Text-to-Video**: Generate videos from text descriptions
 - **Image-to-Video**: Create videos from images
-- **Text-to-Sound**: Convert text to audio
 - **Sound-to-Text**: Transcribe audio to text
 
 ## Tech Stack
@@ -66,6 +67,7 @@ di atas layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
 | **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
+| **Text-to-Sound** | Xiaomi MiMo — MiMo-V2.5-TTS (endpoint OpenAI-compatible) | ⚠️ butuh `MIMO_API_KEY` | akun MiMo berbayar |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -155,6 +157,19 @@ CHAT_FALLBACK_PROVIDER=gemini,openrouter
 # yang sama tidak dibayar berulang kali; set 0 untuk selalu mencoba semuanya.
 # OPENROUTER_FAILURE_COOLDOWN_MS=60000
 # Lihat docs/setup-kredensial.md bagian 3c untuk hasil pembandingannya.
+
+# Text-to-Sound (TTS) — Xiaomi MiMo, seri MiMo-V2.5-TTS (lihat
+# docs/setup-kredensial.md bagian 3e). Endpointnya kompatibel OpenAI, tetapi
+# BUKAN /v1/audio/speech: teks yang diucapkan dikirim sebagai pesan `assistant`
+# ke /v1/chat/completions dan audionya kembali sebagai base64.
+# Kunci dari https://mimo.mi.com — tanpa ini halaman /tools/text-to-sound
+# menjawab 503 dengan pesan yang menyebut variabel ini.
+MIMO_API_KEY=mimo-your-key-here
+# Model dipilih otomatis: voice bawaan -> MIMO_TTS_MODEL, deskripsi gaya suara
+# -> MIMO_TTS_VOICEDESIGN_MODEL.
+# MIMO_TTS_MODEL=mimo-v2.5-tts
+# MIMO_TTS_VOICEDESIGN_MODEL=mimo-v2.5-tts-voicedesign
+# SOUND_PROVIDER=mimo
 
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
@@ -285,6 +300,7 @@ Yang diuji:
 | `chat.spec.cjs` | buat sesi, badge kuota, kirim pesan, balasan AI, label provider, markdown dirender, kuota berkurang, bersihkan sesi |
 | `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), berkas di object storage memakai URL absolut, berkas yang hilang dijelaskan ke user, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
+| `text-to-sound.spec.cjs` | daftar voice terisi, audio hasil benar-benar termuat di browser (`readyState`), metadata format+provider, kuota, riwayat, dan — kalau `MIMO_API_KEY` belum ada — pastikan gagal dengan pesan yang menyebut cara mengaktifkannya tanpa memakai kuota |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
 | `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
 
@@ -309,8 +325,9 @@ yang dipush, memeriksa tautan langsung `/`, `/login`, `/tools/text-to-image`, da
 memeriksa CORS dari origin produksi).
 
 Catatan: spec memakai akun dev member, jadi setiap eksekusi memakai
-**1 kuota chat** dan **1 kuota gambar**. Data yang dibuat (sesi chat, media)
-dihapus kembali oleh spec, tapi kuotanya tidak bisa dikembalikan dari sini.
+**1 kuota chat**, **1 kuota gambar**, dan — bila `MIMO_API_KEY` sudah diisi —
+**1 kuota video/audio**. Data yang dibuat (sesi chat, media) dihapus kembali oleh
+spec, tapi kuotanya tidak bisa dikembalikan dari sini.
 
 ## API Documentation
 
@@ -339,6 +356,8 @@ dihapus kembali oleh spec, tapi kuotanya tidak bisa dikembalikan dari sini.
 | GET | `/api/v1/member/members/:referralCode` | Profil pemilik kode referral | ✅ Member |
 | GET | `/api/v1/member/referral-stats` | Statistik referral (jumlah yang diundang) | ✅ Member |
 | POST | `/api/v1/media/text-to-image` | Generate gambar dari prompt | ✅ Member |
+| POST | `/api/v1/media/image-to-image` | Transformasi gambar sesuai prompt | ✅ Member |
+| POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (MiMo TTS) | ✅ Member |
 | GET | `/api/v1/media/history` | Riwayat media user | ✅ Member |
 | DELETE | `/api/v1/media/:contentId` | Hapus media (record + file) | ✅ Member |
 | GET | `/api/v1/media/status` | Daftar endpoint media | ❌ No |
@@ -403,6 +422,30 @@ Provider text-to-image bisa diganti lewat `IMAGE_PROVIDER` /
 [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3b untuk penyiapan
 provider gratis (Cloudflare Workers AI: ±65 gambar 1024x1024 per hari).
 
+### Generate Sound (Text to Sound)
+```bash
+curl -X POST http://localhost:3000/api/v1/media/text-to-sound \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Selamat pagi, ini contoh suara.",
+    "voice": "Mia",
+    "format": "wav"
+  }'
+```
+
+Isi `style` (mis. `"suara pria muda yang hangat"`) sebagai ganti `voice` untuk
+membuat suara baru dari deskripsi — backend otomatis berpindah ke model voice
+design. Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>`
+di `/tools/text-to-sound`. Kuota yang berkurang adalah `videoGeneration` (satu
+jatah untuk media non-gambar), dan berkurang hanya bila audionya benar-benar
+berhasil dibuat.
+
+> MiMo memakai endpoint **chat completion**, bukan `/v1/audio/speech`: teks yang
+diucapkan dikirim sebagai pesan `assistant` dan audionya kembali sebagai base64.
+> Rincian penyiapannya ada di
+> [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3e.
+
 ## Deployment
 
 Deploy produksi berjalan **otomatis dari CI**: satu push ke `main` menjalankan
@@ -459,6 +502,7 @@ CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 IMAGE_PROVIDER=cloudflare
 IMAGE_FALLBACK_PROVIDER=pollinations
+MIMO_API_KEY=mimo-your-key-here
 
 # WAJIB di produksi — tanpa ini gambar hilang setiap deploy (lihat bagian
 # "Penyimpanan media" di bawah). Diperiksa lewat GET /health → services.storage.
@@ -733,9 +777,9 @@ ai-multimodal-app/
 ### Phase 2: Media Features
 - [x] Text-to-Image — provider bisa ditukar (Cloudflare Workers AI gratis / Pollinations tanpa API key / DALL·E 3), plus riwayat & hapus
 - [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
+- [x] Text-to-Sound — seri MiMo-V2.5-TTS (Xiaomi) lewat endpoint kompatibel OpenAI; voice bawaan atau voice design dari deskripsi, format WAV/MP3, riwayat & hapus
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
-- [ ] Text-to-Sound (ElevenLabs)
 - [ ] Sound-to-Text (Whisper)
 
 ### Phase 3: Enhancements
@@ -814,4 +858,6 @@ Dirilis di bawah [MIT License](LICENSE) — Copyright (c) 2026 Jimmy Faber.
 
 ---
 
-**Note**: Proyek ini masih dikembangkan. Fitur inti (chat, text-to-image, image-to-image) sudah berjalan di demo; fitur video & audio masih berstatus feature flag dan baru aktif setelah disetujui admin.
+**Note**: Proyek ini masih dikembangkan. Fitur inti (chat, text-to-image,
+image-to-image, text-to-sound) sudah berjalan di demo; fitur video & sound-to-text
+masih berstatus feature flag dan baru aktif setelah disetujui admin.
