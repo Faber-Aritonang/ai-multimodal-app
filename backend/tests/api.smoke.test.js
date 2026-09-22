@@ -106,6 +106,9 @@ describe('GET /health', () => {
       'IMAGE_FALLBACK_PROVIDER',
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_API_TOKEN',
+      'BYNARA_API_KEY',
+      'BYNARA_BASE_URL',
+      'BYNARA_IMAGE_MODEL',
       'CHAT_PROVIDER',
       'CHAT_FALLBACK_PROVIDER',
       'GROQ_API_KEY',
@@ -132,6 +135,9 @@ describe('GET /health', () => {
         'IMAGE_FALLBACK_PROVIDER',
         'CLOUDFLARE_ACCOUNT_ID',
         'CLOUDFLARE_API_TOKEN',
+        'BYNARA_API_KEY',
+        'BYNARA_BASE_URL',
+        'BYNARA_IMAGE_MODEL',
         'CHAT_PROVIDER',
         'CHAT_FALLBACK_PROVIDER',
         'GROQ_API_KEY',
@@ -188,6 +194,7 @@ describe('GET /health', () => {
         imageProvider: 'pollinations',
         imageFallback: 'none',
         imageProviders: {
+          bynara: 'missing',
           cloudflare: 'missing',
           pollinations: 'configured',
           openai: 'missing'
@@ -199,7 +206,12 @@ describe('GET /health', () => {
         imageEditProvider: 'cloudflare',
         imageEditFallback: 'none',
         imageEditReady: false,
-        imageEditCapabilities: { cloudflare: true, pollinations: true, openai: false },
+        imageEditCapabilities: {
+          bynara: false,
+          cloudflare: true,
+          pollinations: true,
+          openai: false
+        },
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
@@ -249,6 +261,9 @@ describe('GET /health', () => {
       process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
       delete process.env.IMAGE_PROVIDER;
       delete process.env.IMAGE_FALLBACK_PROVIDER;
+      // Kunci bynara milik mesin pengembang (dari .env) tidak boleh membuat test
+      // ini gagal — bynara memang didahulukan saat kuncinya ada.
+      delete process.env.BYNARA_API_KEY;
 
       const status = await services();
 

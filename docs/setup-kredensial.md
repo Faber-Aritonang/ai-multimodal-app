@@ -125,11 +125,14 @@ OPENAI_API_KEY=sk-...
 # OPENAI_CHAT_MODEL=gpt-3.5-turbo
 # OPENAI_IMAGE_MODEL=dall-e-3
 
-# Provider text-to-image (GRATIS, lihat langkah 3b)
+# Provider text-to-image (lihat langkah 3b)
 # CLOUDFLARE_ACCOUNT_ID=...
 # CLOUDFLARE_API_TOKEN=...
 # IMAGE_PROVIDER=cloudflare
 # IMAGE_FALLBACK_PROVIDER=pollinations
+
+# Alternatif: Bynara / NaraRouter (Agnes Image 2.0 Flash)
+# BYNARA_API_KEY=sk-nry-...
 
 # Provider chat (GRATIS, lihat langkah 3c)
 # GROQ_API_KEY=gsk_...
@@ -185,20 +188,45 @@ VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef
 
 ## 3b. Text-to-Image gratis (Cloudflare + Pollinations)
 
-Fitur text-to-image **tidak memerlukan OpenAI**. Ada tiga provider yang bisa
+Fitur text-to-image **tidak memerlukan OpenAI**. Ada empat provider yang bisa
 dipilih lewat `IMAGE_PROVIDER`, dan satu fallback otomatis:
 
 | Provider | Kredensial | Gratis? | Keterangan |
 |---|---|---|---|
+| `bynara` | `BYNARA_API_KEY` | Tergantung paket NaraRouter | Agnes Image 2.0 Flash. Satu kunci untuk generate + unduh hasil |
 | `cloudflare` | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | **Ya** — 10.000 Neurons/hari, tanpa kartu kredit | FLUX.1 [schnell]. ±154 neurons per gambar 1024x1024 ≈ **±65 gambar/hari** |
 | `pollinations` | tidak ada | **Ya** | FLUX publik. Dipakai sebagai fallback default, jadi fitur ini selalu hidup walau belum ada kredensial |
 | `openai` | `OPENAI_API_KEY` | Tidak | DALL·E 3, butuh billing aktif |
 
-**Urutan default tanpa mengisi apa pun:** kalau kredensial Cloudflare ada →
-`cloudflare` lalu `pollinations`; kalau hanya ada `OPENAI_API_KEY` → `openai`;
-kalau keduanya kosong → `pollinations`. Fallback dipakai ketika kredensial
-provider utama belum diisi, ukuran yang diminta tidak didukung, atau provider
-utama sedang gagal/kuotanya habis.
+**Urutan default tanpa mengisi apa pun:** kalau `BYNARA_API_KEY` ada → `bynara`
+lalu `pollinations`; kalau hanya kredensial Cloudflare yang ada → `cloudflare`
+lalu `pollinations`; kalau hanya `OPENAI_API_KEY` → `openai`; kalau semuanya
+kosong → `pollinations`. Fallback dipakai ketika kredensial provider utama belum
+diisi, ukuran yang diminta tidak didukung, atau provider utama sedang
+gagal/kuotanya habis.
+
+### Mengaktifkan Bynara (NaraRouter)
+
+Cukup satu variabel — host generate dan host unduhan hasil sudah punya nilai
+bawaan yang benar:
+
+```env
+BYNARA_API_KEY=sk-nry-...
+```
+
+Yang dilakukan kode saat kunci ini ada:
+
+1. **Generate** ke `https://api-images.bynara.id/v1/images/generations` dengan
+   body `{model, prompt, size}` dan header `Authorization: Bearer <kunci>`.
+2. **Unduh hasil** ke Buffer server. Gateway membalas path relatif
+   (`/v1/images/<id>/download`) yang **tidak** dilayani host generate, melainkan
+   `https://router.bynara.id` — dan unduhan itu juga butuh header
+   `Authorization` yang sama. Nilai bawaan `BYNARA_DOWNLOAD_BASE_URL` sudah
+   menunjuk ke sana; host generate dipakai sebagai cadangan bila host unduhan
+   tidak menjawab.
+
+Hasil dari Bynara berupa PNG dan diunggah ke penyimpanan remote seperti provider
+lain, jadi URL gambar sementara milik gateway tidak ikut tersimpan.
 
 ### Langkah mengaktifkan Cloudflare Workers AI (disarankan)
 

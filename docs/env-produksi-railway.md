@@ -67,13 +67,14 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `OPENROUTER_FAILURE_COOLDOWN_MS` | `60000` | jeda sebelum model yang baru gagal dicoba lagi (`0` = selalu coba) |
 | `CHAT_MAX_TOKENS` | `2000` | batas token keluaran per balasan |
 | `CHAT_REQUEST_TIMEOUT_MS` | `90000` | batas waktu satu request ke provider chat |
-| `IMAGE_PROVIDER` / `IMAGE_FALLBACK_PROVIDER` | `cloudflare` bila kredensialnya ada, lalu `pollinations` | urutan provider gambar |
+| `IMAGE_PROVIDER` / `IMAGE_FALLBACK_PROVIDER` | `bynara` bila `BYNARA_API_KEY` ada, lalu `cloudflare`, lalu `pollinations` | urutan provider gambar |
+| `BYNARA_API_KEY` | — | kunci NaraRouter (`sk-nry-`); cukup satu variabel untuk generate + unduh hasil |
 | `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
 | `PUBLIC_BASE_URL` | — | hanya perlu untuk image-to-image lewat Pollinations (butuh URL input publik) |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |
 | `PORT` | diisi Railway | jangan diubah manual |
-| Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `POLLINATIONS_MODEL`, `OPENAI_*` |
+| Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `POLLINATIONS_MODEL`, `BYNARA_IMAGE_MODEL`, `OPENAI_*` |
 
 ---
 

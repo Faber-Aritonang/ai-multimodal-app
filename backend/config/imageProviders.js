@@ -36,6 +36,19 @@ const DEFAULT_CLOUDFLARE_EDIT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 // Frontend sudah memperkecil gambar di browser sebelum dikirim; nilai ini
 // dipakai sebagai validasi lapis kedua di server.
 const MAX_EDIT_INPUT_EDGE = 512;
+// Bynara (NaraRouter) menaruh endpoint gambar di host terpisah dari gateway
+// chat-nya: dokumentasi menyebut https://api-images.bynara.id/v1/images/generations,
+// sedangkan router.bynara.id melayani chat/embeddings/rerank. Kunci yang sama
+// (berawalan `sk-nry-`) dipakai untuk keduanya.
+const DEFAULT_BYNARA_BASE_URL = 'https://api-images.bynara.id/v1';
+const DEFAULT_BYNARA_MODEL = 'agnes-image-2.0-flash';
+
+// Host unduhan berbeda lagi dari host generate. Yang benar-benar terlihat di
+// produksi (22 Sep 2026): generate membalas `{"url":"/v1/images/<id>/download"}`
+// — path relatif tanpa host — dan path itu hanya dilayani router.bynara.id,
+// bukan api-images.bynara.id (di sana 404). Unduhannya juga butuh header
+// Authorization yang sama; tanpa itu gateway membalas 401.
+const DEFAULT_BYNARA_DOWNLOAD_BASE_URL = 'https://router.bynara.id';
 const DEFAULT_POLLINATIONS_BASE_URL = 'https://image.pollinations.ai';
 const DEFAULT_POLLINATIONS_MODEL = 'flux';
 const DEFAULT_FALLBACK_PROVIDER = 'pollinations';
@@ -447,6 +460,174 @@ const cloudflare = {
 };
 
 /**
+ * Kumpulkan kandidat gambar dari balasan gateway.
+ *
+ * Bentuk balasan gateway tidak dijamin satu rupa: dokumentasi Agnes menunjukkan
+ * `data[0].url` / `data[0].b64_json`, tapi gateway di depannya bisa membungkusnya
+ * sebagai `images[0].url` atau sebagai bagian multimodal di `choices[].message`.
+ * Menerima semuanya lebih murah daripada menebak satu bentuk lalu gagal tanpa
+ * penjelasan saat provider mengganti bungkusnya.
+ *
+ * @returns {{urls: string[], base64: string[]}}
+ */
+const readGatewayImages = (data) => {
+  const items = [];
+
+  for (const key of ['data', 'images', 'output']) {
+    if (Array.isArray(data?.[key])) items.push(...data[key]);
+  }
+
+  if (Array.isArray(data?.choices)) {
+    for (const pilihan of data.choices) {
+      const isi = pilihan?.message?.images ?? pilihan?.message?.content;
+      if (Array.isArray(isi)) items.push(...isi);
+    }
+  }
+
+  const urls = [];
+  const base64 = [];
+
+  for (const item of items) {
+    if (typeof item === 'string') {
+      // Data URI base64 ikut masuk ke sini, jadi dipisahkan dari URL biasa.
+      if (item.startsWith('data:')) base64.push(item.slice(item.indexOf(',') + 1));
+      // Gateway bisa membalas path relatif (".../download" tanpa host), jadi
+      // string yang diawali "/" ikut dianggap URL dan dipecah hostnya nanti.
+      else if (/^https?:\/\//i.test(item) || item.startsWith('/')) urls.push(item);
+      continue;
+    }
+
+    if (typeof item?.b64_json === 'string') base64.push(item.b64_json);
+    if (typeof item?.url === 'string') urls.push(item.url);
+    if (typeof item?.image_url?.url === 'string') urls.push(item.image_url.url);
+    if (typeof item?.image?.url === 'string') urls.push(item.image.url);
+  }
+
+  return { urls, base64 };
+};
+
+/**
+ * Bynara Images (Agnes) — gambar dari prompt lewat gateway OpenAI-compatible.
+ *
+ * Balasannya bisa berupa URL atau base64; kalau URL, berkasnya diunduh di sini
+ * supaya controller tetap menerima Buffer seperti provider lain (dan supaya URL
+ * sementara milik gateway tidak ikut tersimpan sebagai hasil akhir).
+ */
+/**
+ * URL gambar dari Bynara sering datang sebagai path relatif, dan host yang
+ * melayaninya berbeda dari host generate. Fungsi ini mengubahnya menjadi daftar
+ * URL absolut untuk dicoba berurutan: host unduhan lebih dulu, lalu host
+ * generate sebagai cadangan.
+ *
+ * @param {string} raw nilai `url` dari balasan gateway
+ * @returns {string[]} minimal satu URL absolut
+ */
+const bynaraDownloadCandidates = (raw) => {
+  if (/^https?:\/\//i.test(raw)) return [raw];
+
+  const path = raw.startsWith('/') ? raw : `/${raw}`;
+  const hosts = [
+    process.env.BYNARA_DOWNLOAD_BASE_URL || DEFAULT_BYNARA_DOWNLOAD_BASE_URL,
+    process.env.BYNARA_BASE_URL || DEFAULT_BYNARA_BASE_URL
+  ].map((host) => String(host).replace(/\/+$/, '').replace(/\/v1$/, ''));
+
+  const kandidat = [];
+
+  for (const host of hosts) {
+    const url = `${host}${path}`;
+    if (!kandidat.includes(url)) kandidat.push(url);
+  }
+
+  return kandidat;
+};
+
+const bynara = {
+  name: 'bynara',
+  label: 'Bynara Images (Agnes)',
+  envVars: ['BYNARA_API_KEY'],
+  supportedSizes: null,
+
+  isConfigured: () => isSet(process.env.BYNARA_API_KEY),
+
+  async generate({ prompt, size }) {
+    const baseUrl = (process.env.BYNARA_BASE_URL || DEFAULT_BYNARA_BASE_URL).replace(/\/+$/, '');
+    const model = process.env.BYNARA_IMAGE_MODEL || DEFAULT_BYNARA_MODEL;
+
+    const response = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ model, prompt, size })
+    });
+
+    const data = await readJson(response);
+
+    if (!response.ok) {
+      throw createError(
+        `Bynara error (HTTP ${response.status}): ${describeProviderError(data, response)}`,
+        'PROVIDER_ERROR'
+      );
+    }
+
+    const { urls, base64 } = readGatewayImages(data);
+
+    if (!urls.length && !base64.length) {
+      throw createError(
+        `Bynara tidak mengembalikan gambar (kunci balasan: ${Object.keys(data).join(', ') || 'kosong'})`,
+        'PROVIDER_ERROR'
+      );
+    }
+
+    // Base64 dipakai lebih dulu: tidak perlu permintaan kedua, dan hasilnya tidak
+    // bergantung pada masa berlaku URL milik gateway.
+    let buffer;
+
+    if (base64.length) {
+      buffer = Buffer.from(base64[0], 'base64');
+    } else {
+      const kegagalan = [];
+
+      for (const url of bynaraDownloadCandidates(urls[0])) {
+        const unduhan = await fetchWithTimeout(url, {
+          headers: { Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}` }
+        });
+
+        if (unduhan.ok) {
+          buffer = Buffer.from(await unduhan.arrayBuffer());
+          break;
+        }
+
+        kegagalan.push(`${new URL(url).host} HTTP ${unduhan.status}`);
+      }
+
+      if (!buffer) {
+        throw createError(
+          `Bynara mengirim URL gambar yang tidak bisa diunduh (${kegagalan.join(', ')})`,
+          'PROVIDER_ERROR'
+        );
+      }
+    }
+
+    if (!looksLikeImage(buffer)) {
+      throw createError(
+        'Bynara mengembalikan data yang bukan gambar yang valid',
+        'PROVIDER_ERROR'
+      );
+    }
+
+    return {
+      buffer,
+      ...detectFormat(buffer),
+      provider: 'bynara',
+      model,
+      revisedPrompt: data?.data?.[0]?.revised_prompt || null
+    };
+  }
+};
+
+/**
  * Daftar model yang dicoba berurutan untuk satu permintaan Pollinations.
  *
  * Model pertama dari `POLLINATIONS_MODEL` (bawaan `flux`), lalu cadangannya.
@@ -651,7 +832,7 @@ const openai = {
   }
 };
 
-const PROVIDERS = { cloudflare, pollinations, openai };
+const PROVIDERS = { bynara, cloudflare, pollinations, openai };
 const PROVIDER_NAMES = Object.keys(PROVIDERS);
 // Provider yang bisa dipakai untuk image-to-image.
 const EDIT_PROVIDER_NAMES = PROVIDER_NAMES.filter((name) => typeof PROVIDERS[name].edit === 'function');
@@ -705,6 +886,9 @@ const normalizeName = (value) => String(value || '').trim().toLowerCase();
  * mana pun yang kredensialnya sudah tersedia, terakhir Pollinations.
  */
 const resolveDefaultPrimary = () => {
+  // Bynara didahulukan karena hanya dipasang sengaja lewat BYNARA_API_KEY;
+  // provider lain punya kredensial yang bisa tertinggal dari percobaan lama.
+  if (bynara.isConfigured()) return 'bynara';
   if (cloudflare.isConfigured()) return 'cloudflare';
   if (openai.isConfigured()) return 'openai';
   return 'pollinations';
@@ -789,8 +973,9 @@ const generateImage = async ({ prompt, size, quality }) => {
     chain.length > 0 && chain.every((name) => !PROVIDERS[name].isConfigured());
 
   throw createError(
-    `All image providers failed (${summary}). Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (free) ` +
-      'or IMAGE_PROVIDER=pollinations (no key required) in backend/.env.',
+    `All image providers failed (${summary}). Set BYNARA_API_KEY (Agnes) or ` +
+      'CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (free), or IMAGE_PROVIDER=pollinations ' +
+      '(no key required) in backend/.env.',
     nothingConfigured ? 'MISSING_CREDENTIALS' : 'PROVIDER_UNAVAILABLE'
   );
 };

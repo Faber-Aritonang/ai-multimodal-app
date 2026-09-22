@@ -11,6 +11,7 @@ const {
   getProviderChain,
   getEditProviderChain,
   getProviderStatus,
+  resolveDefaultPrimary,
   parseSize,
   detectFormat,
   measureImage,
@@ -22,6 +23,10 @@ const PROVIDER_ENV_VARS = [
   'IMAGE_FALLBACK_PROVIDER',
   'CLOUDFLARE_ACCOUNT_ID',
   'CLOUDFLARE_API_TOKEN',
+  'BYNARA_API_KEY',
+  'BYNARA_BASE_URL',
+  'BYNARA_DOWNLOAD_BASE_URL',
+  'BYNARA_IMAGE_MODEL',
   'CLOUDFLARE_IMAGE_MODEL',
   'CLOUDFLARE_IMAGE_STEPS',
   'POLLINATIONS_TOKEN',
@@ -124,6 +129,10 @@ afterEach(() => {
 const configureCloudflare = () => {
   process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
   process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+};
+
+const configureBynara = () => {
+  process.env.BYNARA_API_KEY = 'sk-nry-uji';
 };
 
 describe('parseSize', () => {
@@ -333,6 +342,139 @@ describe('cloudflare', () => {
     await expect(
       PROVIDERS.cloudflare.generate({ prompt: 'a cat', size: '1024x1024' })
     ).rejects.toMatchObject({ code: 'PROVIDER_NETWORK' });
+  });
+});
+
+describe('bynara (endpoint gambar terpisah dari gateway chat)', () => {
+  test('mengirim prompt ke api-images.bynara.id dengan Bearer key', async () => {
+    configureBynara();
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: [{ url: 'https://img.example.com/out.png' }] }))
+      .mockResolvedValueOnce(binaryResponse(pngBytes(1024, 1024)));
+
+    const result = await generateImage({ prompt: 'a blue cat', size: '1024x1024' });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(String(url)).toBe('https://api-images.bynara.id/v1/images/generations');
+    expect(options.method).toBe('POST');
+    expect(options.headers.Authorization).toBe('Bearer sk-nry-uji');
+    expect(JSON.parse(options.body)).toEqual({
+      model: 'agnes-image-2.0-flash',
+      prompt: 'a blue cat',
+      size: '1024x1024'
+    });
+
+    // Gambar diambil dari URL yang dikirim gateway, jadi hasilnya Buffer seperti provider lain.
+    expect(String(mockFetch.mock.calls[1][0])).toBe('https://img.example.com/out.png');
+    expect(result.provider).toBe('bynara');
+    expect(result.model).toBe('agnes-image-2.0-flash');
+    expect(result.width).toBe(1024);
+  });
+
+  test('memakai base64 tanpa permintaan kedua', async () => {
+    configureBynara();
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ data: [{ b64_json: pngBytes(768, 768).toString('base64') }] })
+    );
+
+    const result = await generateImage({ prompt: 'a cat', size: '1024x1024' });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.provider).toBe('bynara');
+    expect({ width: result.width, height: result.height }).toEqual({ width: 768, height: 768 });
+  });
+
+  test('menerima bungkusan images[].url dan URL relatif dari gateway', async () => {
+    configureBynara();
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ images: [{ url: 'https://img.example.com/b.png' }] }))
+      .mockResolvedValueOnce(binaryResponse(JPEG_BYTES));
+
+    const result = await generateImage({ prompt: 'a cat', size: '1024x1024' });
+
+    expect(result.provider).toBe('bynara');
+    expect(result.format).toBe('jpeg');
+  });
+
+  test('HTTP error dan balasan tanpa gambar menjadi pesan yang bisa ditindaklanjuti', async () => {
+    configureBynara();
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(
+        { error: { type: 'validation_error', message: 'model not found' } },
+        { ok: false, status: 400 }
+      )
+    );
+
+    await expect(generateImage({ prompt: 'a cat', size: '1024x1024' })).rejects.toThrow(
+      /Bynara error \(HTTP 400\): model not found/
+    );
+
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce(jsonResponse({ created: 1, data: [] }));
+
+    await expect(generateImage({ prompt: 'a cat', size: '1024x1024' })).rejects.toThrow(
+      /tidak mengembalikan gambar \(kunci balasan: created, data\)/
+    );
+  });
+
+  test('URL gambar yang tidak bisa diunduh tidak dianggap berhasil', async () => {
+    configureBynara();
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: [{ url: 'https://img.example.com/hilang.png' }] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'gone' }, { ok: false, status: 404 }));
+
+    await expect(generateImage({ prompt: 'a cat', size: '1024x1024' })).rejects.toThrow(
+      /URL gambar yang tidak bisa diunduh \(img\.example\.com HTTP 404\)/
+    );
+  });
+
+  test('URL relatif dari gateway diunduh dari router.bynara.id dengan Authorization', async () => {
+    configureBynara();
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ created: 1, data: [{ url: '/v1/images/abc/download' }] }))
+      .mockResolvedValueOnce(binaryResponse(pngBytes(1024, 1024)));
+
+    const result = await generateImage({ prompt: 'a cat', size: '1024x1024' });
+
+    const [url, options] = mockFetch.mock.calls[1];
+    expect(String(url)).toBe('https://router.bynara.id/v1/images/abc/download');
+    expect(options.headers.Authorization).toBe('Bearer sk-nry-uji');
+    expect(result.provider).toBe('bynara');
+    expect(result.width).toBe(1024);
+  });
+
+  test('host unduhan bisa diganti dan host generate dipakai sebagai cadangan', async () => {
+    configureBynara();
+    process.env.IMAGE_FALLBACK_PROVIDER = 'none';
+    process.env.BYNARA_DOWNLOAD_BASE_URL = 'https://unduh.example.com';
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: [{ url: '/v1/images/abc/download' }] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'not found' }, { ok: false, status: 404 }))
+      .mockResolvedValueOnce(binaryResponse(pngBytes(768, 768)));
+
+    const result = await generateImage({ prompt: 'a cat', size: '1024x1024' });
+
+    expect(String(mockFetch.mock.calls[1][0])).toBe('https://unduh.example.com/v1/images/abc/download');
+    expect(String(mockFetch.mock.calls[2][0])).toBe('https://api-images.bynara.id/v1/images/abc/download');
+    expect(result.width).toBe(768);
+  });
+
+  test('jadi provider utama begitu kuncinya diisi', () => {
+    configureBynara();
+
+    expect(resolveDefaultPrimary()).toBe('bynara');
+    expect(getProviderChain()).toEqual(['bynara', 'pollinations']);
+  });
+
+  test('bukan default utama bila kuncinya belum diisi', () => {
+    configureCloudflare();
+
+    expect(resolveDefaultPrimary()).toBe('cloudflare');
+    expect(getProviderStatus().status.bynara).toBe('missing');
   });
 });
 
@@ -716,12 +858,17 @@ describe('getProviderStatus', () => {
 
     expect(getProviderStatus()).toEqual({
       chain: ['cloudflare', 'pollinations'],
-      status: { cloudflare: 'configured', pollinations: 'configured', openai: 'missing' },
+      status: {
+        bynara: 'missing',
+        cloudflare: 'configured',
+        pollinations: 'configured',
+        openai: 'missing'
+      },
       defaultPrimary: 'cloudflare',
       // Rantai untuk image-to-image terpisah, karena tidak semua provider bisa
-      // mengedit gambar (OpenAI Images di sini belum dipakai untuk edit).
+      // mengedit gambar (OpenAI Images dan Bynara di sini belum dipakai untuk edit).
       editChain: ['cloudflare', 'pollinations'],
-      editCapabilities: { cloudflare: true, pollinations: true, openai: false },
+      editCapabilities: { bynara: false, cloudflare: true, pollinations: true, openai: false },
       editReady: true
     });
   });
