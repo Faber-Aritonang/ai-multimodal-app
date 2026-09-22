@@ -101,6 +101,7 @@ const ImageToImagePage = ({ user, setUser }) => {
   const [historyLoading, setHistoryLoading] = useState(true)
   const [quota, setQuota] = useState(null)
   const [dragging, setDragging] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const fileInputRef = useRef(null)
 
   const remainingImages = quota?.imageGeneration ?? null
@@ -136,6 +137,59 @@ const ImageToImagePage = ({ user, setUser }) => {
       setHistoryLoading(false)
     }
   }
+
+  // Riwayat diambil ulang berkala selama masih ada proses berjalan.
+  //
+  // Alasannya sama dengan halaman Text to Image: respons edit bisa tidak sampai
+  // ke browser (koneksi putus, atau halaman dimuat ulang di tengah proses 20-60
+  // detik) padahal server menyimpan hasilnya. Tanpa polling ini user melihat
+  // tidak ada apa-apa sampai dia memuat ulang halaman — dan itu yang dilaporkan
+  // sebagai "harus refresh dulu baru gambarnya muncul". Item berstatus
+  // `processing` di riwayat juga jadi pemicu, supaya halaman yang baru dimuat
+  // ulang tetap menyusul hasilnya sendiri.
+  const adaProses = generating || history.some((item) => item.status === 'processing')
+
+  useEffect(() => {
+    if (!adaProses) return undefined
+
+    // Batas aman: kalau ada record yang tertinggal dalam status `processing`
+    // (mis. proses server mati), polling berhenti sendiri setelah ±5 menit.
+    let sisa = 60
+    const timer = setInterval(async () => {
+      if (sisa-- <= 0) {
+        clearInterval(timer)
+        return
+      }
+
+      const items = await fetchHistory()
+      const terbaru = items?.find((item) => item.outputUrl)
+
+      if (terbaru) {
+        setResult((sebelumnya) => (sebelumnya?.contentId === terbaru.contentId ? sebelumnya : terbaru))
+      }
+
+      // Kuota dikurangi server setelah hasilnya tersimpan, jadi angkanya baru
+      // benar kalau ikut diambil ulang.
+      fetchQuota()
+    }, 5000)
+
+    return () => clearInterval(timer)
+  }, [adaProses])
+
+  // Provider bisa butuh 20-60 detik per gambar. Tanpa penanda waktu, tombol yang
+  // diam terlihat seperti macet dan user memuat ulang halaman di tengah proses —
+  // permintaan ikut batal, padahal server tetap menuntaskannya.
+  useEffect(() => {
+    if (!generating) {
+      setElapsed(0)
+      return undefined
+    }
+
+    const mulai = Date.now()
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - mulai) / 1000)), 1000)
+
+    return () => clearInterval(timer)
+  }, [generating])
 
   const handleFile = async (file) => {
     if (!file) return
@@ -373,12 +427,20 @@ const ImageToImagePage = ({ user, setUser }) => {
             {generating ? (
               <>
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
-                Transforming...
+                Transforming... {elapsed}s
               </>
             ) : (
               'Transform image'
             )}
           </button>
+
+          {generating && (
+            <p data-testid="generate-progress" className="mt-3 text-xs text-slate-500">
+              Provider bisa butuh 20-60 detik per gambar. Biarkan halaman ini terbuka —
+              hasilnya tersimpan di server dan akan muncul sendiri di sini, jadi tidak perlu
+              memuat ulang.
+            </p>
+          )}
         </GlassPanel>
 
         {/* ------------------------------ Hasil terbaru ---------------------------- */}
