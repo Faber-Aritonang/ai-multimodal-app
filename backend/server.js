@@ -329,6 +329,15 @@ const startServer = async () => {
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
     console.log(`Provider chat: ${chat.chain.join(' > ') || 'none'} (${chatStatus})`);
+
+    // Hal yang sama untuk provider gambar: tanpa baris ini, "text-to-image
+    // gagal" tidak bisa dibedakan antara kredensial yang belum sampai ke
+    // container dan provider yang memang sedang bermasalah.
+    const image = getProviderStatus({ remoteStorage: isRemoteStorage() });
+    const imageStatus = Object.entries(image.status)
+      .map(([name, state]) => `${name}=${state}`)
+      .join(' ');
+    console.log(`Provider gambar: ${image.chain.join(' > ') || 'none'} (${imageStatus})`);
   });
 };
 
