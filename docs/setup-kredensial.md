@@ -566,21 +566,44 @@ sudah terpakai. Berkas yang sudah hilang tidak bisa dipulihkan.
 1. Daftar di [cloudinary.com](https://cloudinary.com/users/register_free) —
    plan **Free** tidak meminta kartu kredit (25 credit/bulan; 1 credit ≈ 1 GB
    penyimpanan atau 1 GB bandwidth).
-2. Buka **Dashboard → Product Environment Credentials**. Salin tiga nilai:
-   **Cloud name**, **API Key**, **API Secret** (klik ikon mata untuk membuka).
-   Salin lewat ikon 📋 — huruf dan angka di layar itu mudah tertukar
-   (mis. `l`/`1`, `t`/`1`, `i`/`j`) dan cloud name yang salah menghasilkan
-   `401 Invalid cloud_name`.
-3. Isi di `backend/.env` (lokal, opsional) **dan** di dashboard Railway →
-   service backend → *Variables* (wajib):
+2. Buka **Dashboard → Product Environment Credentials**, lalu salin **satu baris**
+   *API Environment variable* — bukan tiga nilai terpisah. Salin lewat ikon 📋:
+   huruf dan angka di layar itu mudah tertukar (mis. `l`/`1`, `t`/`1`, `i`/`j`),
+   dan nama cloud yang salah menghasilkan `401 Invalid cloud_name`.
 
 ```
-CLOUDINARY_CLOUD_NAME=nama-cloud
-CLOUDINARY_API_KEY=123456789012345
-CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
 ```
 
-Begitu ketiganya lengkap, mode `cloudinary` dipakai otomatis —
+3. Isi nilai itu di `backend/.env` (lokal, opsional) **dan** di dashboard
+   Railway → service backend → *Variables* (wajib):
+
+```
+CLOUDINARY_URL=cloudinary://123456789012345:xxxxxxxxxxxxxxxxxxxxxxxxxxx@nama-cloud
+```
+
+**Kenapa satu baris, bukan tiga variabel.** Ketiga bagiannya harus berasal dari
+Product Environment yang **sama**, dan mengambil API key + secret dari satu
+environment sementara nama cloud dari environment lain adalah kesalahan yang
+paling mudah terjadi — gejalanya pun menyesatkan: semua pemeriksaan "sudah diisi
+atau belum" tetap lulus, `/health` tetap melaporkan `cloudinary`, dan yang gagal
+hanya unggahan pertama user dengan `401 Invalid cloud_name`. Satu nilai tidak bisa
+tidak cocok dengan dirinya sendiri.
+
+Tiga variabel terpisah (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
+`CLOUDINARY_API_SECRET`) **tetap didukung** dan dipakai kalau `CLOUDINARY_URL`
+tidak ada atau bentuknya tidak terbaca. Bila keduanya diisi, **`CLOUDINARY_URL`
+yang menang**; yang mana yang sedang dipakai selalu bisa dilihat dari
+`storageCredentialSource` di `/health` dan dari baris `Penyimpanan media:` di log
+startup.
+
+> **Salin nilai dari ikon 📋, jangan ketik ulang.** Dua kekeliruan yang benar-benar
+> terjadi: nama cloud kurang satu huruf di ujung, dan satu titik dua berlebih
+> tepat setelah skema (`cloudinary://:…`). Yang terakhir masih terbaca — bagian
+> kosong diabaikan — tetapi nilai yang diketik ulang adalah sumber kegagalan yang
+> berulang, dan gejalanya selalu sama: `401` yang membingungkan.
+
+Begitu kredensialnya lengkap, mode `cloudinary` dipakai otomatis —
 `STORAGE_PROVIDER` **tidak perlu** diisi. Kalau ingin memaksa memakai folder
 lokal di mesin dev (mis. agar kuota Cloudinary tidak terpakai saat menguji),
 set `STORAGE_PROVIDER=local`.
@@ -589,12 +612,12 @@ set `STORAGE_PROVIDER=local`.
 
 ```bash
 curl -s https://<domain-backend>/health \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['storageMode'], d['storageCheck'])"
-# cloudinary ok
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['storageMode'], d['storageCheck'], d.get('storageCredentialSource'))"
+# cloudinary ok url
 ```
 
-Kedua medan itu **selalu** dikirim, termasuk di production (blok `services` yang
-berisi detail infrastruktur tetap hanya muncul di luar production), dan keduanya
+Ketiga medan itu **selalu** dikirim, termasuk di production (blok `services` yang
+berisi detail infrastruktur tetap hanya muncul di luar production), dan ketiganya
 perlu dilihat karena artinya berbeda:
 
 - **`storageMode`** — mode yang dipakai. Kalau nilainya `local` di produksi,
@@ -606,6 +629,18 @@ untuk Cloudinary, `HeadBucket` untuk S3): `pending` (belum selesai), `ok`,
 **terisi** dari kredensial yang **berlaku** — nilai yang salah salin tetap
 membuat `storageMode` terbaca `cloudinary`, dan tanpa kolom ini kegagalannya baru
 terlihat saat user pertama kali men-generate gambar.
+- **`storageCredentialSource`** — dari mana kredensial Cloudinary dibaca: `url`
+(`CLOUDINARY_URL`), `vars` (tiga variabel terpisah), `url-invalid` (variabelnya
+ada tetapi bentuknya tidak terbaca), atau `none`. Isinya **nama** variabel, bukan
+nilainya, dan itu satu-satunya cara membedakan konfigurasi yang berperilaku sama
+saat benar tetapi berbeda saat salah — persis kasus yang dulu hanya bisa
+ditelusuri dari dalam dashboard.
+
+  Nilai `url-invalid` sengaja **tidak** jatuh ke penyimpanan lokal: kalau begitu,
+gambar user ditulis ke filesystem container dan hilang pada deploy berikutnya
+tanpa satu pun error. Yang terjadi justru sebaliknya — mode tetap dilaporkan
+`cloudinary`, dan setiap unggahan gagal dengan pesan yang menyebut variabelnya
+beserta bentuk yang benar.
 
 Kalau `storageCheck` bernilai `failed`, **sebabnya ikut dikirim** sebagai
 `storageCheckReason`:
@@ -626,8 +661,15 @@ Sebelum kolom ini ada, satu-satunya cara mengetahui sebabnya adalah membaca bari
 
 ### Kalau Cloudinary menjawab `HTTP 401`: mana dari ketiga nilai yang salah?
 
-`HTTP 401` saja tidak memisahkan "kunci salah" dari "nama cloud salah", dan
-keduanya perlu diperiksa di tempat berbeda. Cara memisahkannya: jalankan
+Cara tercepat menghilangkan seluruh kelas kegagalan ini: ganti ketiga variabel
+dengan **satu** `CLOUDINARY_URL` (lihat langkah 2 di atas). Nilainya disalin utuh
+dari satu baris dashboard, sehingga key, secret, dan nama cloud tidak mungkin
+lagi berasal dari Product Environment yang berbeda. Setelah itu `/health` harus
+melaporkan `storageCredentialSource: "url"`.
+
+Kalau tetap memakai tiga variabel terpisah, `HTTP 401` saja tidak memisahkan
+"kunci salah" dari "nama cloud salah", dan keduanya perlu diperiksa di tempat
+berbeda. Cara memisahkannya: jalankan
 `api.ping()` dengan pasangan key+secret yang ada, lalu ganti **nama cloud**-nya
 dengan nama yang jelas tidak ada, dan bandingkan pesan galatnya.
 

@@ -83,6 +83,9 @@ describe('preferEnvFile', () => {
         'CLOUDFLARE_ACCOUNT_ID',
         'CLOUDFLARE_API_TOKEN',
         'POLLINATIONS_TOKEN',
+        // Sumber tunggal kredensial Cloudinary; ikut didaftarkan supaya nilai
+        // dari .env tetap menang atas nilai shell yang rusak.
+        'CLOUDINARY_URL',
         'CLOUDINARY_CLOUD_NAME',
         'CLOUDINARY_API_KEY',
         'CLOUDINARY_API_SECRET'

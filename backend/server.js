@@ -31,7 +31,8 @@ const {
   describeStorage,
   getStorageMode,
   getStorageCheck,
-  startStorageCheck
+  startStorageCheck,
+  cloudinaryCredentialSource
 } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { preferEnvFile } = require('./config/envFile');
@@ -199,6 +200,16 @@ app.get('/health', (req, res) => {
     // hanya untuk non-production (isinya detail infrastruktur), sedangkan satu
     // kata ini tidak membocorkan apa pun.
     storageMode: getStorageMode(),
+    // Dari mana kredensial Cloudinary dibaca: 'url' (CLOUDINARY_URL) atau 'vars'
+    // (tiga variabel CLOUDINARY_*). Isinya NAMA variabel, bukan nilainya — dan
+    // kedua nama itu sudah tercantum di dokumentasi publik
+    // (docs/setup-kredensial.md bagian 3d) — tetapi inilah yang membedakan dua
+    // konfigurasi yang berperilaku sama saat benar dan berbeda saat salah. Tanpa
+    // kolom ini, kegagalan yang penyebabnya "nilainya dibaca dari tempat yang
+    // berbeda" hanya bisa ditelusuri dari dalam dashboard.
+    ...(getStorageMode() === 'cloudinary'
+      ? { storageCredentialSource: cloudinaryCredentialSource() }
+      : {}),
     // Hasil verifikasi kredensial penyimpanan: 'pending' | 'ok' | 'failed' |
     // 'skipped'. Alasan dilaporkannya sama dengan `storageMode`, tetapi untuk
     // masalah yang berbeda: `storageMode` menjawab "mode apa yang dipakai",
@@ -283,8 +294,21 @@ const startServer = async () => {
     app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
-    // platform (Railway), bukan harus ditebak dari perilaku aplikasi.
-    console.log(`Penyimpanan media: mode=${getStorageMode()}`);
+    // platform (Railway), bukan harus ditebak dari perilaku aplikasi. Sumber
+    // kredensialnya ikut dicatat karena "dibaca dari CLOUDINARY_URL" dan
+    // "dibaca dari tiga variabel terpisah" adalah dua konfigurasi berbeda yang
+    // berperilaku identik saat sudah benar — jadi hanya saat salah baris inilah
+    // yang membedakannya.
+    const modePenyimpanan = getStorageMode();
+    const sumberKredensial =
+      modePenyimpanan === 'cloudinary'
+        ? `, kredensial dari ${
+            cloudinaryCredentialSource() === 'url'
+              ? 'CLOUDINARY_URL'
+              : 'tiga variabel CLOUDINARY_*'
+          }`
+        : '';
+    console.log(`Penyimpanan media: mode=${modePenyimpanan}${sumberKredensial}`);
     // Dijalankan tanpa di-await: hasilnya menyusul di /health dan di log
     // ("Verifikasi penyimpanan: ..."). Server tidak boleh tertahan atau gagal
     // naik hanya karena penyimpanan sedang tidak bisa dihubungi.

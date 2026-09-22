@@ -21,7 +21,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `MONGODB_URI` | `mongodb+srv://…` | `server.js` memanggil `process.exit(1)` saat connect gagal → tidak ada satu pun endpoint yang naik | `/health` → `"database":"connected"` |
 | `JWT_SECRET` | `openssl rand -base64 32` | verifikasi token gagal; endpoint auth menjawab `JWT_SECRET is not set. Isi backend/.env terlebih dahulu.` | login dari UI berhasil, `/health` → `"status":"OK"` |
 | `FRONTEND_URL` | `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id,https://www.maubuatapa.my.id` (beberapa domain dipisah koma) | browser memblokir **setiap** panggilan API sebagai CORS error, padahal backend menjawab 200 | header `access-control-allow-origin` memuat domain yang sedang dibuka |
-| `CLOUDINARY_CLOUD_NAME`<br>`CLOUDINARY_API_KEY`<br>`CLOUDINARY_API_SECRET` | dari dashboard Cloudinary | **Kalau kosong:** mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. **Kalau terisi tapi salah:** mode terbaca `cloudinary` sementara **setiap upload ditolak provider** — job deploy juga sengaja gagal. | `/health` → `"storageMode":"cloudinary"` **dan** `"storageCheck":"ok"` (lihat catatan di bawah) |
+| `CLOUDINARY_URL`<br>*(atau ketiga variabel `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_API_KEY` + `CLOUDINARY_API_SECRET`)* | satu baris *API Environment variable* dari dashboard Cloudinary: `cloudinary://<api_key>:<api_secret>@<cloud_name>` | **Kalau kosong:** mode penyimpanan jatuh ke `local`: container diganti tiap deploy → **gambar user hilang tanpa satu pun error**, record tetap ada dan tampil sebagai gambar rusak. **Kalau terisi tapi salah:** mode terbaca `cloudinary` sementara **setiap upload ditolak provider** — job deploy juga sengaja gagal. **Kenapa satu nilai:** dengan tiga variabel terpisah, key+secret dari satu Product Environment bisa dipasangkan dengan cloud name dari environment lain, dan hasilnya `401 Invalid cloud_name` yang sulit dilacak. | `/health` → `"storageMode":"cloudinary"` **dan** `"storageCheck":"ok"` (lihat catatan di bawah) |
 | `FIREBASE_SERVICE_ACCOUNT` | isi JSON service account dalam satu baris, atau path berkas | login Google tidak bisa dipakai (`auth/…` gagal) | login Google dari frontend produksi |
 
 > Alternatif Cloudinary: `STORAGE_PROVIDER=s3` + `S3_ENDPOINT`, `S3_BUCKET`,
@@ -153,10 +153,12 @@ ulang selesai baru jalankan verifikasi ini.
 | Gejala di produksi | Penyebab yang paling sering |
 |---|---|
 | Browser: `blocked by CORS policy` | `FRONTEND_URL` tidak memuat hostname yang sedang dibuka; setelah deploy kode terbaru, tiga domain aplikasi di-whitelist bawaan, tetapi tetap isi `FRONTEND_URL` agar konfigurasi eksplisit |
-| Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_*` (atau `S3_*`) belum lengkap |
-| Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Sebabnya dibaca dari `storageCheckReason` di `/health`: `HTTP 401`/`403` = nilainya salah, `timeout` = provider tidak menjawab. **Kalau 401-nya dari Cloudinary:** `api_key` dan `api_secret` biasanya sudah benar — yang salah `CLOUDINARY_CLOUD_NAME`. Caranya memastikan ada di `docs/setup-kredensial.md`. |
+| Gambar hasil generate hilang tiap deploy | penyimpanan `local` → `CLOUDINARY_URL`/`CLOUDINARY_*` (atau `S3_*`) belum lengkap |
+| `storageMode` jatuh ke `local` padahal `CLOUDINARY_URL` sudah diisi | `storageCredentialSource` bernilai `url-invalid`: variabelnya ada tetapi bentuknya tidak terbaca (mis. titik dua berlebih setelah skema, atau bagian nama cloud kosong). Bentuk yang benar: `cloudinary://<api_key>:<api_secret>@<cloud_name>`. |
+| Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Sebabnya dibaca dari `storageCheckReason` di `/health`: `HTTP 401`/`403` = nilainya salah, `timeout` = provider tidak menjawab. **Kalau 401-nya dari Cloudinary:** `api_key` dan `api_secret` biasanya sudah benar — yang salah `CLOUDINARY_CLOUD_NAME`. Cara tercepat menghilangkan seluruh kelas kesalahan ini: pakai satu nilai `CLOUDINARY_URL`, lalu pastikan `storageCredentialSource` di `/health` bernilai `url`. Langkahnya ada di `docs/setup-kredensial.md`. |
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
+| User melaporkan `Image generation failed. Please try again.` padahal tidak ada gambar yang tersimpan | sejak pemeriksaan penyimpanan ditambahkan, **kegagalan konfigurasi penyimpanan tidak lagi memakai pesan itu**: user menerima `503` berisi `Media storage is not configured correctly on the server … Retrying will not help`. Kalau pesan "coba lagi" masih muncul, penyebabnya bukan konfigurasi penyimpanan — cek record berstatus `failed` di koleksi media dan baris `Text-to-image error:` di log Railway. |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
 | Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway (`openrouter=missing` berarti variabelnya belum sampai ke service) |
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
@@ -165,10 +167,14 @@ ulang selesai baru jalankan verifikasi ini.
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
 
-`/health` sengaja **hanya** melaporkan `status`, `database`, dan `storageMode`
+`/health` sengaja **hanya** melaporkan `status`, `database`, `storageMode`,
+`storageCheck` (+ `storageCheckReason` saat gagal), dan `storageCredentialSource`
 saat `NODE_ENV=production`; objek `services` (daftar provider gambar & chat)
 hanya muncul di development/test supaya info infrastruktur tidak dibocorkan ke
-repo publik. Karena itu verifikasi provider chat di produksi dilakukan lewat:
+repo publik. Kolom penyimpanan tetap dilaporkan karena mode `local` dan
+kredensial yang ditolak keduanya **merusak data user secara diam-diam**, dan
+`storageCredentialSource` hanya berisi nama variabel — bukan nilainya. Karena itu
+verifikasi provider chat di produksi dilakukan lewat:
 
 1. **badge provider di UI chat** — setiap balasan menyimpan dan menampilkan
    provider yang benar-benar menjawab (`via groq`, `via openrouter`, …); atau
@@ -176,9 +182,13 @@ repo publik. Karena itu verifikasi provider chat di produksi dilakukan lewat:
    dan status tiap key tepat di bawah baris mode penyimpanan:
 
    ```
-   Penyimpanan media: mode=cloudinary
+   Penyimpanan media: mode=cloudinary, kredensial dari CLOUDINARY_URL
    Provider chat: groq > gemini > openrouter (groq=configured gemini=configured openai=missing openrouter=configured)
    ```
+
+   Bagian `kredensial dari …` menjawab "konfigurasi ini dibaca dari
+   `CLOUDINARY_URL` atau dari tiga variabel `CLOUDINARY_*`?" — dua konfigurasi
+   yang berperilaku sama saat benar dan berbeda saat salah.
 
    Baris kedua itu menjawab langsung "apakah key OpenRouter sudah terbaca
    proses?": kalau tertulis `openrouter=missing` maka variabelnya belum sampai

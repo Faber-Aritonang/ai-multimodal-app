@@ -29,6 +29,11 @@ const AI_CREDENTIAL_KEYS = [
   // Kredensial Cloudinary termasuk di sini karena nilainya juga rahasia dan
   // salah isi hanya menghasilkan `401 Invalid cloud_name` / `Invalid
   // credentials` dari Cloudinary — gejala yang sama membingungkannya.
+  //
+  // `CLOUDINARY_URL` ikut didaftarkan karena ia sumber tunggal yang diutamakan
+  // `config/storage.js`: tanpa baris ini, nilainya dari `.env` tidak akan
+  // menimpa nilai shell yang rusak — persis masalah yang helper ini selesaikan.
+  'CLOUDINARY_URL',
   'CLOUDINARY_CLOUD_NAME',
   'CLOUDINARY_API_KEY',
   'CLOUDINARY_API_SECRET'

@@ -44,6 +44,62 @@ const cloudinary = require('cloudinary').v2;
 
 const trimmed = (value) => String(value || '').trim();
 
+/**
+ * Status HTTP dari galat SDK apa pun.
+ *
+ * Setiap SDK menyimpan statusnya di tempat yang berbeda, dan ini sempat salah
+ * diasumsikan: SDK Cloudinary menolak dengan objek BERSARANG
+ * (`error.error.http_code`), SDK AWS memakai `$metadata.httpStatusCode`, dan
+ * galat biasa memakai `http_code` datar.
+ */
+const httpStatusFromError = (error) =>
+  error?.http_code ||
+  error?.status ||
+  error?.error?.http_code ||
+  error?.error?.status ||
+  error?.$metadata?.httpStatusCode ||
+  null;
+
+/**
+ * Kode galat penyimpanan yang berarti SALAH KONFIGURASI, bukan gangguan sesaat.
+ *
+ * Pembedaan ini penting untuk pengguna, bukan sekadar kerapian: kredensial yang
+ * ditolak provider sebelumnya dilaporkan sebagai 502 "coba lagi", padahal
+ * menekan ulang tidak akan pernah berhasil dan yang dibutuhkan adalah admin.
+ */
+const STORAGE_CONFIG_ERROR_CODES = [
+  'STORAGE_NOT_CONFIGURED', // variabelnya belum diisi sama sekali
+  'STORAGE_CREDENTIALS_REJECTED', // provider menolak kredensialnya (401/403)
+  'STORAGE_BUCKET_NOT_FOUND' // bucket/nama cloud tidak ada untuk kredensial ini
+];
+
+/** True bila galat penyimpanan berasal dari konfigurasi server, bukan gangguan sesaat. */
+const isStorageConfigError = (error) => STORAGE_CONFIG_ERROR_CODES.includes(error?.code);
+
+/**
+ * Tandai galat SDK penyimpanan dengan kode yang bisa dibedakan pemanggil.
+ * Galat yang sudah dikodei modul ini (`STORAGE_*`) dibiarkan apa adanya.
+ */
+const markStorageError = (error, provider) => {
+  if (error && typeof error === 'object') {
+    const sudahDikodei = typeof error.code === 'string' && error.code.startsWith('STORAGE_');
+
+    if (!sudahDikodei) {
+      const status = httpStatusFromError(error);
+
+      if (status === 401 || status === 403) error.code = 'STORAGE_CREDENTIALS_REJECTED';
+      else if (status === 404) error.code = 'STORAGE_BUCKET_NOT_FOUND';
+      else error.code = 'STORAGE_UPLOAD_FAILED';
+
+      // Disimpan di properti terpisah, bukan di `code`, agar kode status HTTP
+      // yang sudah dibaca pemeriksa kesehatan tidak ikut berubah.
+      error.storageProvider = provider;
+    }
+  }
+
+  return error;
+};
+
 /** Folder penyimpanan lokal — sama dengan yang dilayani `/uploads` di server.js. */
 const getUploadDir = () => path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
@@ -56,9 +112,133 @@ const isS3Configured = () => missingS3Vars().length === 0;
 
 const REQUIRED_CLOUDINARY_VARS = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
 
-/** Variabel Cloudinary yang belum diisi. */
-const missingCloudinaryVars = () =>
-  REQUIRED_CLOUDINARY_VARS.filter((name) => trimmed(process.env[name]) === '');
+/**
+ * Kredensial Cloudinary dari satu nilai `CLOUDINARY_URL`.
+ *
+ * Bentuknya persis seperti baris "API Environment variable" di dashboard
+ * Cloudinary:
+ *
+ *   CLOUDINARY_URL=cloudinary://<API_KEY>:<API_SECRET>@<CLOUD_NAME>
+ *
+ * Latar belakangnya konkret: dengan tiga variabel terpisah, mengambil API key
+ * dan secret dari satu Product Environment sementara nama cloud dari
+ * environment lain adalah kesalahan yang mudah terjadi — dan gejalanya
+ * menyesatkan, karena seluruh pemeriksaan "sudah diisi atau belum" tetap lulus,
+ * `/health` tetap melaporkan `cloudinary`, dan yang gagal hanya unggahan pertama
+ * user. Satu nilai tidak bisa tidak cocok dengan dirinya sendiri.
+ *
+ * Nilai sengaja TIDAK di-URL-decode: baris di dashboard adalah teks biasa,
+ * sedangkan satu `%` liar pada secret akan merusak nilai yang sebenarnya benar.
+ *
+ * @returns {{cloud_name: string, api_key: string, api_secret: string}|null}
+ */
+const parseCloudinaryUrl = (value) => {
+  const raw = trimmed(value);
+  if (!raw) return null;
+
+  // Dashboard menampilkan dengan skema; salinan manual sering tanpa skema.
+  const tanpaSkema = raw.replace(/^cloudinary:\/\//i, '');
+  const at = tanpaSkema.lastIndexOf('@');
+  if (at === -1) return null;
+
+  const kredensial = tanpaSkema.slice(0, at);
+  // Bagian KOSONG dibuang, dan ini bukan kelonggaran tanpa alasan: nilai seperti
+  // `cloudinary://:key:secret@cloud` (titik dua berlebih tepat setelah skema)
+  // adalah artefak salin-tempel yang benar-benar terjadi — nilai yang dipasang
+  // di produksi pernah berbentuk begitu, dan karena parser menolaknya, mode
+  // penyimpanan diam-diam jatuh ke `local`. Bagian kosong tidak pernah muncul di
+  // URL Cloudinary yang sah, jadi aturan ini tidak bisa salah membaca nilai yang
+  // benar.
+  const bagian = kredensial.split(':').filter((item) => trimmed(item) !== '');
+  if (bagian.length < 2) return null;
+
+  const cloudName = trimmed(tanpaSkema.slice(at + 1).replace(/\/+$/, ''));
+  const apiKey = trimmed(bagian[0]);
+  // Sisanya digabung kembali supaya secret yang memuat ':' tidak terpotong.
+  const apiSecret = bagian.slice(1).join(':').trim();
+
+  if (!cloudName || !apiKey || !apiSecret) return null;
+
+  return { cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret };
+};
+
+/**
+ * Masalah bentuk `CLOUDINARY_URL`, bila ada.
+ *
+ * Bedanya penting untuk keselamatan data: "variabelnya tidak diisi" dan "diisi
+ * tetapi bentuknya tidak terbaca" pernah diperlakukan sama — keduanya jatuh ke
+ * penyimpanan lokal. Untuk mode lokal di produksi itu berbahaya: filesystem
+ * container diganti tiap deploy, sehingga gambar user hilang tanpa satu pun
+ * error. Lebih baik unggahannya gagal dengan pesan yang menyebut variabelnya.
+ *
+ * @returns {string|null} pesan masalah, atau null bila tidak ada masalah
+ */
+const cloudinaryUrlProblem = () => {
+  const raw = trimmed(process.env.CLOUDINARY_URL);
+  if (!raw || parseCloudinaryUrl(raw)) return null;
+
+  return (
+    `CLOUDINARY_URL tidak terbaca (${raw.length} karakter). Bentuk yang benar: ` +
+    'cloudinary://<api_key>:<api_secret>@<cloud_name> — salin utuh dari baris ' +
+    '"API environment variable" di dashboard Cloudinary.'
+  );
+};
+
+/**
+ * Kredensial Cloudinary yang benar-benar dipakai.
+ *
+ * `CLOUDINARY_URL` menang bila ada dan terbaca, karena nilai tunggal itu memang
+ * dimaksudkan sebagai sumbernya. Bila bentuknya tidak terbaca, tiga variabel
+ * terpisah tetap dipakai supaya konfigurasi lama tidak ikut mati hanya karena
+ * ada satu variabel tambahan yang salah tulis.
+ */
+const cloudinaryCredentials = () => {
+  const dariUrl = parseCloudinaryUrl(process.env.CLOUDINARY_URL);
+  if (dariUrl) return dariUrl;
+
+  return {
+    cloud_name: trimmed(process.env.CLOUDINARY_CLOUD_NAME),
+    api_key: trimmed(process.env.CLOUDINARY_API_KEY),
+    api_secret: trimmed(process.env.CLOUDINARY_API_SECRET)
+  };
+};
+
+/**
+ * Dari mana kredensial dibaca. Dilaporkan di log startup supaya tidak perlu
+ * ditebak lagi apakah deployment memakai CLOUDINARY_URL atau tiga variabel.
+ *
+ * @returns {'url'|'vars'|'none'}
+ */
+const cloudinaryCredentialSource = () => {
+  const rawUrl = trimmed(process.env.CLOUDINARY_URL);
+  if (rawUrl && parseCloudinaryUrl(rawUrl)) return 'url';
+
+  const variabelLengkap = REQUIRED_CLOUDINARY_VARS.every(
+    (name) => trimmed(process.env[name]) !== ''
+  );
+  if (variabelLengkap) return 'vars';
+
+  // 'url-invalid' dibedakan dari 'none': yang satu variabelnya salah bentuk,
+  // yang satu memang tidak diisi — dan keduanya butuh tindakan berbeda. Tanpa
+  // nilai ini, `/health` hanya melaporkan `local` dan penyebabnya tidak terlihat
+  // dari luar sama sekali.
+  return rawUrl ? 'url-invalid' : 'none';
+};
+
+/**
+ * Variabel Cloudinary yang belum diisi.
+ * Nama dikembalikan dalam bentuk variabel lingkungan supaya pesan galatnya tetap
+ * menunjuk ke sesuatu yang bisa dicari di dashboard Railway.
+ */
+const missingCloudinaryVars = () => {
+  const kredensial = cloudinaryCredentials();
+
+  return REQUIRED_CLOUDINARY_VARS.filter((name) => {
+    // CLOUDINARY_CLOUD_NAME -> cloud_name
+    const kunci = name.replace('CLOUDINARY_', '').toLowerCase();
+    return trimmed(kredensial[kunci]) === '';
+  });
+};
 
 const isCloudinaryConfigured = () => missingCloudinaryVars().length === 0;
 
@@ -76,6 +256,13 @@ const getStorageMode = () => {
 
   if (isCloudinaryConfigured()) return 'cloudinary';
 
+  // `CLOUDINARY_URL` yang terpasang tetapi tidak terbaca tetap dianggap sebagai
+  // niat memakai Cloudinary. Jatuh ke `local` akan menulis gambar user ke
+  // filesystem container yang hilang pada deploy berikutnya — kegagalan senyap
+  // yang justru ingin dicegah. S3 yang lengkap tetap menang, supaya konfigurasi
+  // S3 yang sudah jalan tidak ikut mati karena satu variabel sisa yang rusak.
+  if (cloudinaryUrlProblem() && !isS3Configured()) return 'cloudinary';
+
   return isS3Configured() ? 's3' : 'local';
 };
 
@@ -87,6 +274,15 @@ const getStorageMode = () => {
 const isRemoteStorage = () => getStorageMode() !== 'local';
 
 const assertCloudinaryConfig = () => {
+  // "Belum diisi" dan "diisi tetapi salah bentuk" butuh pesan yang berbeda,
+  // karena tindakan perbaikannya juga berbeda.
+  const masalahUrl = cloudinaryUrlProblem();
+  if (masalahUrl && !isCloudinaryConfigured()) {
+    const error = new Error(masalahUrl);
+    error.code = 'STORAGE_NOT_CONFIGURED';
+    throw error;
+  }
+
   const missing = missingCloudinaryVars();
   if (missing.length) {
     const error = new Error(
@@ -122,10 +318,12 @@ const getCloudinary = () => {
   assertCloudinaryConfig();
 
   if (!cloudinaryConfigured) {
+    const kredensial = cloudinaryCredentials();
+
     cloudinary.config({
-      cloud_name: trimmed(process.env.CLOUDINARY_CLOUD_NAME),
-      api_key: trimmed(process.env.CLOUDINARY_API_KEY),
-      api_secret: trimmed(process.env.CLOUDINARY_API_SECRET),
+      cloud_name: trimmed(kredensial.cloud_name),
+      api_key: trimmed(kredensial.api_key),
+      api_secret: trimmed(kredensial.api_secret),
       // Selalu https: URL yang disimpan dipakai langsung oleh <img> di browser.
       secure: true
     });
@@ -253,7 +451,7 @@ const publicIdFromCloudinaryUrl = (url) => {
   if (parsed.hostname !== 'res.cloudinary.com') return null;
 
   const segments = parsed.pathname.split('/').filter(Boolean);
-  const configuredCloud = trimmed(process.env.CLOUDINARY_CLOUD_NAME);
+  const configuredCloud = trimmed(cloudinaryCredentials().cloud_name);
 
   if (configuredCloud && segments[0] !== configuredCloud) return null;
 
@@ -280,7 +478,7 @@ const publicIdFromCloudinaryUrl = (url) => {
  * `public_id` diambil dari nama berkas tanpa ekstensi, sedangkan formatnya
  * dikirim terpisah — persis seperti yang diharapkan Cloudinary.
  */
-const uploadToCloudinary = ({ key, buffer }) => {
+const uploadToCloudinary = async ({ key, buffer }) => {
   const fileName = path.basename(key);
   const dot = fileName.lastIndexOf('.');
   const publicId = dot > 0 ? fileName.slice(0, dot) : fileName;
@@ -296,14 +494,22 @@ const uploadToCloudinary = ({ key, buffer }) => {
     ...(format ? { format } : {})
   };
 
-  return new Promise((resolve, reject) => {
-    const stream = getCloudinary().uploader.upload_stream(options, (error, result) =>
-      error ? reject(error) : resolve(result)
-    );
+  try {
+    return await new Promise((resolve, reject) => {
+      const stream = getCloudinary().uploader.upload_stream(options, (error, result) =>
+        error ? reject(error) : resolve(result)
+      );
 
-    stream.on('error', reject);
-    stream.end(buffer);
-  });
+      stream.on('error', reject);
+      stream.end(buffer);
+    });
+  } catch (error) {
+    // Kredensial yang ditolak Cloudinary harus bisa dibedakan dari gangguan
+    // sesaat, supaya pemanggil tidak menyuruh user "coba lagi" untuk kegagalan
+    // yang hanya bisa diperbaiki admin. Galat konfigurasi dari modul ini
+    // (STORAGE_NOT_CONFIGURED) dibiarkan apa adanya.
+    throw markStorageError(error, 'cloudinary');
+  }
 };
 
 /**
@@ -338,14 +544,18 @@ const putObject = async ({ key, buffer, contentType }) => {
   if (getStorageMode() === 's3') {
     assertS3Config();
 
-    await getClient().send(
-      new PutObjectCommand({
-        Bucket: trimmed(process.env.S3_BUCKET),
-        Key: key,
-        Body: buffer,
-        ContentType: contentType || 'application/octet-stream'
-      })
-    );
+    try {
+      await getClient().send(
+        new PutObjectCommand({
+          Bucket: trimmed(process.env.S3_BUCKET),
+          Key: key,
+          Body: buffer,
+          ContentType: contentType || 'application/octet-stream'
+        })
+      );
+    } catch (error) {
+      throw markStorageError(error, 's3');
+    }
 
     return {
       key,
@@ -446,7 +656,10 @@ const describeStorage = () => {
     bucket: mode === 's3' ? trimmed(process.env.S3_BUCKET) : null,
     // Nama cloud bukan rahasia: ia muncul di setiap URL publik gambar. Berguna
     // untuk memastikan deployment menunjuk ke akun Cloudinary yang benar.
-    cloudName: mode === 'cloudinary' ? trimmed(process.env.CLOUDINARY_CLOUD_NAME) : null,
+    cloudName: mode === 'cloudinary' ? trimmed(cloudinaryCredentials().cloud_name) : null,
+    // Hanya nama variabelnya, bukan nilainya — cukup untuk menjawab "konfigurasi
+    // ini dibaca dari CLOUDINARY_URL atau dari tiga variabel terpisah?".
+    credentialSource: mode === 'cloudinary' ? cloudinaryCredentialSource() : null,
     publicBaseUrl: mode === 's3' ? getPublicBaseUrl() || null : null
   };
 };
@@ -518,13 +731,7 @@ const denganBatasWaktu = (janji, ms, label) =>
  * `$metadata.httpStatusCode`, sedangkan galat biasa memakai `http_code` datar.
  */
 const kodeGalat = (error) => {
-  const status =
-    error?.http_code ||
-    error?.status ||
-    error?.error?.http_code ||
-    error?.error?.status ||
-    error?.$metadata?.httpStatusCode ||
-    null;
+  const status = httpStatusFromError(error);
 
   if (status) return `HTTP ${status}`;
   if (error?.code && /^[A-Za-z0-9_]+$/.test(String(error.code))) return String(error.code);
@@ -596,6 +803,11 @@ module.exports = {
   isRemoteStorage,
   isS3Configured,
   isCloudinaryConfigured,
+  cloudinaryCredentials,
+  cloudinaryCredentialSource,
+  cloudinaryUrlProblem,
+  parseCloudinaryUrl,
+  isStorageConfigError,
   getPublicUrl,
   putObject,
   removeByReference,

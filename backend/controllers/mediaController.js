@@ -25,7 +25,8 @@ const {
   putObject,
   removeByReference,
   removeByUrl,
-  isRemoteStorage
+  isRemoteStorage,
+  isStorageConfigError
 } = require('../config/storage');
 const {
   generateImage,
@@ -42,6 +43,60 @@ const ALLOWED_SIZES = ['1024x1024', '1792x1024', '1024x1792'];
 const DEFAULT_SIZE = '1024x1024';
 const ALLOWED_QUALITIES = ['standard', 'hd'];
 const MAX_PROMPT_LENGTH = 1000;
+
+// Kode galat provider gambar yang berarti masalah konfigurasi server, bukan
+// masalah sesaat. Kegagalan penyimpanan ditambahkan terpisah lewat
+// isStorageConfigError(), karena kredensial penyimpanan yang ditolak juga tidak
+// akan membaik dengan mengulang permintaan.
+const CONFIG_ERROR_CODES = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'];
+const EDIT_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
+
+/**
+ * Pesan untuk kegagalan yang berasal dari konfigurasi penyimpanan server.
+ *
+ * Sengaja TIDAK memakai pesan mentah providernya: pesan Cloudinary menyebut
+ * nama cloud, dan bagi user itu tidak bisa ditindaklanjuti. Rinciannya tetap
+ * masuk ke log server, sedangkan user diberi tahu dengan jujur bahwa mencoba
+ * lagi tidak akan menolong — supaya tidak menekan tombol yang sama berulang kali.
+ */
+const storageConfigMessage = (error) => {
+  const sebab =
+    {
+      STORAGE_NOT_CONFIGURED: 'kredensialnya belum diisi',
+      STORAGE_CREDENTIALS_REJECTED: 'kredensial server ditolak oleh penyimpanan',
+      STORAGE_BUCKET_NOT_FOUND: 'bucket atau nama cloud-nya tidak ditemukan'
+    }[error.code] || 'konfigurasinya tidak valid';
+
+  return (
+    `Media storage is not configured correctly on the server (${sebab}). ` +
+    'Retrying will not help — please contact the administrator.'
+  );
+};
+
+/**
+ * Susun status HTTP + body untuk satu kegagalan.
+ *
+ * Bedanya penting: masalah konfigurasi server dijawab 503 dan diveritahukan apa
+ * adanya, sedangkan kegagalan provider yang bersifat sementara tetap 502 dengan
+ * ajakan mencoba lagi.
+ */
+const buildFailureResponse = (error, { configCodes, defaultMessage }) => {
+  const penyimpanan = isStorageConfigError(error);
+  const isConfigError = penyimpanan || configCodes.includes(error.code);
+
+  return {
+    status: isConfigError ? 503 : 502,
+    body: {
+      success: false,
+      message: penyimpanan
+        ? storageConfigMessage(error)
+        : isConfigError
+          ? error.message
+          : defaultMessage,
+      error: error.message
+    }
+  };
+};
 
 const parseSize = (size) => {
   const [width, height] = String(size).split('x').map(Number);
@@ -169,17 +224,12 @@ exports.textToImage = async (req, res) => {
     }
 
     // Bedakan masalah konfigurasi server (503) dengan kegagalan dari provider (502)
-    const isConfigError = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'].includes(
-      error.code
-    );
-
-    return res.status(isConfigError ? 503 : 502).json({
-      success: false,
-      message: isConfigError
-        ? error.message
-        : 'Image generation failed. Please try again.',
-      error: error.message
+    const { status, body } = buildFailureResponse(error, {
+      configCodes: CONFIG_ERROR_CODES,
+      defaultMessage: 'Image generation failed. Please try again.'
     });
+
+    return res.status(status).json(body);
   }
 };
 
@@ -402,19 +452,12 @@ exports.imageToImage = async (req, res) => {
       }
     }
 
-    const isConfigError = [
-      'MISSING_CREDENTIALS',
-      'INVALID_PROVIDER_CONFIG',
-      'PROVIDER_UNSUPPORTED'
-    ].includes(error.code);
-
-    return res.status(isConfigError ? 503 : 502).json({
-      success: false,
-      message: isConfigError
-        ? error.message
-        : 'Image transformation failed. Please try again.',
-      error: error.message
+    const { status, body } = buildFailureResponse(error, {
+      configCodes: EDIT_CONFIG_ERROR_CODES,
+      defaultMessage: 'Image transformation failed. Please try again.'
     });
+
+    return res.status(status).json(body);
   }
 };
 

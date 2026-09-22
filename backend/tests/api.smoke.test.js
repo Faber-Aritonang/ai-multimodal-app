@@ -60,10 +60,41 @@ describe('GET /health', () => {
     const response = await request(app).get('/health');
 
     expect(response.body.storageMode).toBe('cloudinary');
+    // Tiga variabel terpisah dilaporkan sebagai sumbernya, supaya kegagalan yang
+    // penyebabnya "nilainya dibaca dari tempat yang berbeda" bisa dibedakan dari
+    // luar tanpa membuka dashboard.
+    expect(response.body.storageCredentialSource).toBe('vars');
 
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
     delete process.env.CLOUDINARY_API_SECRET;
+  });
+
+  test('CLOUDINARY_URL saja dilaporkan sebagai sumber kredensialnya', async () => {
+    process.env.CLOUDINARY_URL = 'cloudinary://kunci-uji:rahasia-uji@uji-cloud';
+
+    const response = await request(app).get('/health');
+
+    expect(response.body.storageMode).toBe('cloudinary');
+    expect(response.body.storageCredentialSource).toBe('url');
+    // Nilainya sendiri tidak pernah ikut dilaporkan.
+    expect(JSON.stringify(response.body)).not.toContain('rahasia-uji');
+
+    delete process.env.CLOUDINARY_URL;
+  });
+
+  test('CLOUDINARY_URL yang salah bentuk terlihat sebagai url-invalid, bukan local', async () => {
+    // Tanpa pembedaan ini, satu titik dua berlebih di nilai variabel membuat
+    // produksi menulis gambar ke filesystem container — dan `/health` cuma
+    // melaporkan `local` tanpa cara mengetahui sebabnya dari luar.
+    process.env.CLOUDINARY_URL = 'cloudinary://kunci-uji:rahasia-uji@';
+
+    const response = await request(app).get('/health');
+
+    expect(response.body.storageMode).toBe('cloudinary');
+    expect(response.body.storageCredentialSource).toBe('url-invalid');
+
+    delete process.env.CLOUDINARY_URL;
   });
 
   describe('status konfigurasi layanan', () => {
@@ -172,7 +203,17 @@ describe('GET /health', () => {
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
-        storage: { mode: 'local', bucket: null, cloudName: null, publicBaseUrl: null },
+        storage: {
+          mode: 'local',
+          bucket: null,
+          cloudName: null,
+          publicBaseUrl: null,
+          // Dari mana kredensial Cloudinary dibaca. `null` di mode lokal karena
+          // tidak ada kredensial yang dibaca. Nilainya adalah NAMA variabel
+          // ('url' | 'vars'), bukan nilainya — dan itulah yang membedakan dua
+          // konfigurasi yang berperilaku sama saat benar tetapi berbeda saat salah.
+          credentialSource: null
+        },
         devLogin: 'enabled'
       });
     });
