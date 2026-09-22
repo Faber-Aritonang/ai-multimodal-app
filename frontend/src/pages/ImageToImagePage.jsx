@@ -121,12 +121,17 @@ const ImageToImagePage = ({ user, setUser }) => {
     }
   }
 
+  // Hasil terbaru dikembalikan ke pemanggil supaya kegagalan jaringan di tengah
+  // proses masih bisa memunculkan gambar yang sudah tersimpan di server.
   const fetchHistory = async () => {
     try {
       const response = await mediaAPI.getHistory({ type: 'image-to-image', limit: 12 })
-      setHistory(response.data.media || [])
+      const items = response.data.media || []
+      setHistory(items)
+      return items
     } catch (err) {
       console.error('Failed to fetch media history:', err)
+      return null
     } finally {
       setHistoryLoading(false)
     }
@@ -171,6 +176,14 @@ const ImageToImagePage = ({ user, setUser }) => {
       setHistory((items) => [response.data.media, ...items.filter((item) => item.contentId !== response.data.media.contentId)])
     } catch (err) {
       console.error('Image transformation failed:', err)
+
+      // Respons yang gagal sampai ke browser tidak berarti server ikut gagal:
+      // hasilnya sudah disimpan lebih dulu, dan permintaan bisa putus sesudahnya.
+      // Riwayat diambil ulang agar gambar yang benar-benar ada tetap terlihat.
+      const items = await fetchHistory()
+      const tersimpan = items?.find((item) => item.outputUrl)
+
+      if (tersimpan) setResult(tersimpan)
 
       const detail = err.response?.data?.message
       const reason = err.response?.data?.error

@@ -22,6 +22,7 @@ const TextToImagePage = ({ user, setUser }) => {
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [quota, setQuota] = useState(null)
+  const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
     fetchHistory()
@@ -37,16 +38,37 @@ const TextToImagePage = ({ user, setUser }) => {
     }
   }
 
+  // Dijalankan juga setiap kali generate selesai atau gagal, karena server bisa
+  // sudah menyimpan gambarnya walaupun responsnya tidak pernah sampai ke
+  // browser. Hasil terbaru dikembalikan supaya pemanggilnya bisa memakainya.
   const fetchHistory = async () => {
     try {
       const response = await mediaAPI.getHistory({ type: 'text-to-image', limit: 12 })
-      setHistory(response.data.media || [])
+      const items = response.data.media || []
+      setHistory(items)
+      return items
     } catch (err) {
       console.error('Failed to fetch media history:', err)
+      return null
     } finally {
       setHistoryLoading(false)
     }
   }
+
+  // Provider gratis bisa butuh 40+ detik per gambar. Tanpa penanda waktu, tombol
+  // yang diam terlihat seperti macet dan user memuat ulang halaman di tengah
+  // proses — permintaan ikut batal, padahal server tetap menuntaskannya.
+  useEffect(() => {
+    if (!generating) {
+      setElapsed(0)
+      return undefined
+    }
+
+    const mulai = Date.now()
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - mulai) / 1000)), 1000)
+
+    return () => clearInterval(timer)
+  }, [generating])
 
   const handleGenerate = async () => {
     if (!prompt.trim() || generating) return
@@ -59,9 +81,20 @@ const TextToImagePage = ({ user, setUser }) => {
 
       setResult(response.data.media)
       setQuota(response.data.quota)
-      setHistory((items) => [response.data.media, ...items])
+      setHistory((items) => [response.data.media, ...items.filter((item) => item.contentId !== response.data.media.contentId)])
     } catch (err) {
       console.error('Generate failed:', err)
+
+      // Respons yang gagal sampai ke browser TIDAK berarti gambarnya gagal:
+      // server menyimpan hasilnya lebih dulu, dan permintaan bisa putus setelah
+      // itu (koneksi tidak stabil atau tab dimuat ulang di tengah proses).
+      // Riwayat diambil ulang supaya gambar yang benar-benar tersimpan tetap
+      // muncul, bukan hanya kotak error yang menyuruh menekan tombol lagi.
+      const items = await fetchHistory()
+      const tersimpan = items?.find((item) => item.outputUrl)
+
+      if (tersimpan) setResult(tersimpan)
+
       setError(
         err.response?.data?.message ||
           err.message ||
@@ -198,12 +231,20 @@ const TextToImagePage = ({ user, setUser }) => {
               {generating ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-950/30 border-t-ink-950" />
-                  Generating...
+                  Generating... {elapsed}s
                 </>
               ) : (
                 'Generate image'
               )}
             </button>
+
+            {generating && (
+              <p data-testid="generate-progress" className="mt-3 text-xs text-slate-500">
+                Provider gratis bisa butuh 20-60 detik per gambar. Biarkan halaman ini
+                terbuka — hasilnya tersimpan di server dan akan muncul di riwayat walau
+                Anda memuat ulang.
+              </p>
+            )}
           </GlassPanel>
 
           <div className="space-y-5">
