@@ -255,27 +255,35 @@ curl -s http://localhost:4000/health | node -e 'let d="";process.stdin.on("data"
 #   devLogin: 'enabled' }
 ```
 
-### Image-to-Image (FLUX.2 [klein])
+### Image-to-Image
 
-Fitur image-to-image memakai **kredensial Cloudflare yang sama** seperti di atas.
+Ada dua provider, keduanya bekerja dari **bytes gambar** yang dikirim frontend
+(bukan dari URL), jadi tidak ada perbedaan perilaku antara penyimpanan lokal dan
+remote.
 
-| Item | Nilai |
-|---|---|
-| Model | `@cf/black-forest-labs/flux-2-klein-4b` (bisa diganti lewat `CLOUDFLARE_EDIT_MODEL`) |
-| Kuota gratis | 10.000 neurons/hari · ±110 neurons per gambar 1024x1024 ≈ **±90 gambar/hari** |
-| Batas gambar input | **< 512x512** — frontend memperkecilnya otomatis lewat canvas sebelum dikirim |
-| Format request | wajib `multipart/form-data` (ditangani aplikasi) |
-| Provider cadangan | `pollinations`, tapi hanya dipakai kalau `PUBLIC_BASE_URL` diisi (lihat di bawah) |
+| Provider | Kredensial | Model | Catatan |
+|---|---|---|---|
+| `bynara` **(utama)** | `BYNARA_API_KEY` | `agnes-image-2.0-flash` (bisa diganti lewat `BYNARA_IMAGE_MODEL`) | Satu kunci untuk generate + edit |
+| `cloudflare` | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | `@cf/black-forest-labs/flux-2-klein-4b` (bisa diganti lewat `CLOUDFLARE_EDIT_MODEL`) | Kuota gratis 10.000 neurons/hari · ±110 neurons per gambar 1024x1024 ≈ **±90 gambar/hari** |
+
+Catatan per provider:
+
+- **Bynara** memakai `https://api-images.bynara.id/v1/images/edits` dan **hanya
+  menerima `multipart/form-data`** dengan `image` sebagai berkas. JSON dengan
+  `image` berisi data URL dibalas
+  `400 {"type":"bad_request","message":"Invalid image edit request."}`.
+- **Cloudflare FLUX.2 [klein]** juga multipart, dan hanya menerima gambar input
+  **< 512x512** — frontend memperkecilnya otomatis lewat canvas sebelum dikirim.
 
 > ⚠️ Model lama `@cf/runwayml/stable-diffusion-v1-5-img2img` **sudah tidak ada** di
 > katalog Workers AI (halaman dokumentasinya 404 dan namanya tidak ada di tabel
 > harga). Jangan diarahkan ke model itu.
 
-Setelah kredensial diisi, `/health` melaporkan:
+Dengan `BYNARA_API_KEY` terisi, `/health` melaporkan:
 
 ```json
-"imageEditProvider": "cloudflare",
-"imageEditFallback": "none",
+"imageEditProvider": "bynara",
+"imageEditFallback": "cloudflare",
 "imageEditReady": true
 ```
 
@@ -304,7 +312,7 @@ Kalau koneksi ke provider gagal di level jaringan, pesannya menyebut sebabnya
 (mis. `cloudflare: fetch failed (UND_ERR_SOCKET · other side closed)`), bukan
 sekadar `fetch failed` — supaya bisa dibedakan dari kredensial yang salah.
 
-#### Jalur tanpa API key (Pollinations) — baca sebelum memakainya
+#### Kenapa Pollinations tidak dipakai untuk image-to-image
 
 Pollinations bisa mengedit gambar lewat parameter `image=`, tapi ia **mengambil
 gambar input dari URL**, bukan dari bytes yang kita kirim. Dua konsekuensi yang
@@ -314,16 +322,12 @@ sudah diuji langsung:
 2. Kalau URL-nya tidak terjangkau, Pollinations tetap membalas **HTTP 200** dan
    membuat gambar **hanya dari prompt** — input diabaikan tanpa error apa pun.
 
-Karena itu jalur ini hanya diaktifkan bila `PUBLIC_BASE_URL` diisi **dan** tidak
-menunjuk ke alamat privat (localhost / 192.168.x / 10.x / 172.16-31.x):
-
-```env
-PUBLIC_BASE_URL=https://aplikasi-anda.example.com
-```
-
-Tanpa itu, aplikasi menolak dengan pesan yang jelas (`Provider pollinations tidak
-dipakai karena butuh PUBLIC_BASE_URL...`) daripada mengirimkan "hasil edit" yang
-sebenarnya bukan hasil edit.
+Selain itu, hasil editnya sering hanya berupa gambar baru dari prompt sehingga
+terlihat mirip tetapi tidak mengikuti gambar input. Karena itu Pollinations
+**dihapus dari daftar provider edit**: `IMAGE_EDIT_PROVIDER=pollinations` ditolak
+sebagai nama yang tidak dikenal, dan `PUBLIC_BASE_URL` tidak lagi memengaruhinya.
+Bynara dan Cloudflare sudah bekerja dari bytes gambar, jadi hasil editnya tidak
+bergantung pada URL apa pun.
 
 ### Catatan penting
 

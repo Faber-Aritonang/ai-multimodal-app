@@ -70,11 +70,12 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `IMAGE_PROVIDER` / `IMAGE_FALLBACK_PROVIDER` | `bynara` bila `BYNARA_API_KEY` ada, lalu `cloudflare`, lalu `pollinations` | urutan provider gambar |
 | `BYNARA_API_KEY` | — | kunci NaraRouter (`sk-nry-`); cukup satu variabel untuk generate + unduh hasil |
 | `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
-| `PUBLIC_BASE_URL` | — | hanya perlu untuk image-to-image lewat Pollinations (butuh URL input publik) |
+| `IMAGE_EDIT_PROVIDER` / `IMAGE_EDIT_FALLBACK_PROVIDER` | `bynara` lalu `cloudflare` | urutan provider image-to-image; `pollinations` tidak tersedia di sini |
+| `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |
 | `PORT` | diisi Railway | jangan diubah manual |
-| Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `POLLINATIONS_MODEL`, `BYNARA_IMAGE_MODEL`, `OPENAI_*` |
+| Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `CLOUDFLARE_EDIT_MODEL`, `POLLINATIONS_MODEL`, `BYNARA_IMAGE_MODEL`, `OPENAI_*` |
 
 ---
 

@@ -118,23 +118,24 @@ JWT_SECRET=your-super-secret-key-here
 FIREBASE_SERVICE_ACCOUNT=./config/firebase-service-account.json
 
 # AI APIs — semua fitur AI punya jalur gratis, OPENAI_API_KEY tidak wajib lagi.
-# (Chat: Groq/Gemini/OpenRouter gratis · Text-to-Image: Pollinations tanpa key ·
-#  Image-to-Image: Cloudflare atau PUBLIC_BASE_URL publik)
+# (Chat: Groq/Gemini/OpenRouter gratis · Text-to-Image: Bynara, Cloudflare, atau
+#  Pollinations tanpa key · Image-to-Image: Bynara atau Cloudflare)
 # OPENAI_API_KEY=sk-your-key   # opsional, hanya untuk provider berbayar
 
-# Text-to-image gratis (lihat docs/setup-kredensial.md bagian 3b)
-# Kalau dua nilai Cloudflare di bawah diisi, Cloudflare otomatis jadi provider
-# utama; kalau dikosongkan, fitur tetap jalan lewat Pollinations (tanpa API key).
+# Text-to-image (lihat docs/setup-kredensial.md bagian 3b).
+# Urutan otomatisnya: BYNARA_API_KEY kalau ada, lalu Cloudflare, terakhir
+# Pollinations (tanpa API key) — jadi fitur ini selalu punya jalur.
+BYNARA_API_KEY=sk-nry-your-key
 CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
-IMAGE_PROVIDER=cloudflare
+IMAGE_PROVIDER=bynara
 IMAGE_FALLBACK_PROVIDER=pollinations
 
-# Image-to-image (kredensial Cloudflare di atas dipakai ulang oleh FLUX.2 [klein])
-# Gambar input wajib < 512x512; frontend memperkecilnya otomatis.
-# IMAGE_EDIT_PROVIDER=cloudflare
-# IMAGE_EDIT_FALLBACK_PROVIDER=pollinations
-# PUBLIC_BASE_URL=https://aplikasi-anda.example.com   # untuk jalur tanpa API key
+# Image-to-image — provider yang menerima bytes gambar, bukan URL.
+# Pollinations sengaja tidak tersedia di sini (lihat docs/setup-kredensial.md).
+# IMAGE_EDIT_PROVIDER=bynara
+# IMAGE_EDIT_FALLBACK_PROVIDER=cloudflare
+# PUBLIC_BASE_URL=https://aplikasi-anda.example.com   # hanya untuk penyimpanan lokal
 
 # Chat gratis (lihat docs/setup-kredensial.md bagian 3c)
 GROQ_API_KEY=gsk_your-groq-key

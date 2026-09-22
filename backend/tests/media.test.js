@@ -422,11 +422,7 @@ describe('imageToImage', () => {
       imageBuffer: expect.any(Buffer),
       mimeType: 'image/png',
       size: '1024x1024',
-      guidance: null,
-      // Tanpa PUBLIC_BASE_URL, URL publik sengaja TIDAK diberikan: host request
-      // (localhost) tidak bisa diambil provider, dan Pollinations akan tetap
-      // membalas 200 dengan gambar dari prompt saja — hasil edit palsu.
-      inputPublicUrl: null
+      guidance: null
     });
 
     expect(req.member.quota.imageGeneration).toBe(2);
@@ -437,16 +433,16 @@ describe('imageToImage', () => {
     );
   });
 
-  test('PUBLIC_BASE_URL dipakai untuk provider yang mengambil gambar lewat URL', async () => {
+  test('PUBLIC_BASE_URL tidak lagi ikut dikirim ke provider edit', async () => {
+    // Semua provider edit menerima bytes gambar hasil unggahan frontend, jadi
+    // tidak ada lagi yang perlu mengambil gambar input lewat URL.
     process.env.PUBLIC_BASE_URL = 'https://aplikasi.example.com/';
     mockCreatedEdit('media_i2i_public');
 
     await imageToImage(createEditRequest(validBody), createRes());
 
     expect(mockEditImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        inputPublicUrl: 'https://aplikasi.example.com/uploads/media_i2i_public_input.png'
-      })
+      expect.not.objectContaining({ inputPublicUrl: expect.anything() })
     );
   });
 
@@ -493,9 +489,7 @@ describe('imageToImage', () => {
   test('provider tanpa kemampuan edit -> 503, bukan 502', async () => {
     mockCreatedEdit('media_i2i_unsupported');
 
-    const error = new Error(
-      'Pollinations butuh URL gambar input yang bisa diakses publik. Set PUBLIC_BASE_URL.'
-    );
+    const error = new Error('Provider ini tidak bisa mengedit gambar.');
     error.code = 'PROVIDER_UNSUPPORTED';
     mockEditImage.mockRejectedValue(error);
 
@@ -504,7 +498,7 @@ describe('imageToImage', () => {
 
     expect(res.status).toHaveBeenCalledWith(503);
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('PUBLIC_BASE_URL') })
+      expect.objectContaining({ message: expect.stringContaining('tidak bisa mengedit') })
     );
   });
 });

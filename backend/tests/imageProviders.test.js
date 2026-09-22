@@ -718,72 +718,89 @@ describe('editImage (image-to-image)', () => {
     ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
   });
 
-  test('jatuh ke Pollinations saat Cloudflare gagal (gambar input dari URL publik)', async () => {
-    configureCloudflare();
-    // Provider URL-based hanya masuk rantai kalau alamat publiknya dinyatakan
-    // lewat PUBLIC_BASE_URL.
-    process.env.PUBLIC_BASE_URL = 'https://app.example.com';
+  test('bynara mengirim multipart ke endpoint edit dan mengunduh hasilnya dengan Authorization', async () => {
+    configureBynara();
+    process.env.IMAGE_EDIT_FALLBACK_PROVIDER = 'none';
     mockFetch
-      .mockResolvedValueOnce(jsonResponse({ success: false, errors: [{ message: 'busy' }] }))
+      .mockResolvedValueOnce(jsonResponse({ created: 1, data: [{ url: '/v1/images/abc/download' }] }))
       .mockResolvedValueOnce(binaryResponse(pngBytes(512, 512)));
 
     const result = await editImage({
-      prompt: 'make it blue',
+      prompt: 'make it a watercolor painting',
       imageBuffer: INPUT,
       mimeType: 'image/jpeg',
-      size: '1024x1024',
-      inputPublicUrl: 'https://app.example.com/uploads/media_1_input.jpg'
+      size: '1024x1024'
     });
 
-    expect(result.provider).toBe('pollinations');
-    expect(result.attempts).toEqual([{ provider: 'cloudflare', reason: expect.stringContaining('busy') }]);
+    const [url, options] = mockFetch.mock.calls[0];
 
-    const pollinationsUrl = String(mockFetch.mock.calls[1][0]);
-    expect(pollinationsUrl).toContain('image=https%3A%2F%2Fapp.example.com%2Fuploads%2Fmedia_1_input.jpg');
+    expect(String(url)).toBe('https://api-images.bynara.id/v1/images/edits');
+    expect(options.method).toBe('POST');
+    expect(options.headers.Authorization).toBe('Bearer sk-nry-uji');
+    // Endpoint edit hanya menerima multipart — JSON dengan data URL dibalas
+    // 400 "Invalid image edit request".
+    expect(options.body).toBeInstanceOf(FormData);
+    expect(options.body.get('model')).toBe('agnes-image-2.0-flash');
+    expect(options.body.get('prompt')).toBe('make it a watercolor painting');
+    expect(options.body.get('size')).toBe('1024x1024');
+    expect(options.body.get('image')).toBeInstanceOf(Blob);
+
+    // Hasilnya URL relatif milik gateway, jadi diunduh dari host unduhan dan
+    // tetap membawa kuncinya.
+    expect(String(mockFetch.mock.calls[1][0])).toBe(
+      'https://router.bynara.id/v1/images/abc/download'
+    );
+    expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe('Bearer sk-nry-uji');
+
+    expect(result.provider).toBe('bynara');
+    expect({ width: result.width, height: result.height }).toEqual({ width: 512, height: 512 });
   });
 
-  test('gambar input di penyimpanan remote sudah publik tanpa PUBLIC_BASE_URL', async () => {
-    // Kondisi produksi setelah penyimpanan pindah ke Cloudinary: URL inputnya
-    // absolut dan bisa diambil siapa pun, jadi Pollinations layak dipakai walau
-    // PUBLIC_BASE_URL tidak diisi. Sebelum ini rantai edit kosong dan
-    // image-to-image selalu gagal dengan "no provider available".
-    mockFetch.mockResolvedValueOnce(binaryResponse(pngBytes(768, 768)));
+  test('jatuh ke Cloudflare saat Bynara gagal', async () => {
+    configureBynara();
+    configureCloudflare();
+    mockFetch
+      .mockResolvedValueOnce(
+        jsonResponse({ error: { message: 'model overloaded' } }, { ok: false, status: 503 })
+      )
+      .mockResolvedValueOnce(cloudflareOk(pngBytes(512, 512)));
 
-    const inputUrl =
-      'https://res.cloudinary.com/contoh-cloud/image/upload/v1790055783/media_1_input.jpg';
     const result = await editImage({
       prompt: 'make it blue',
       imageBuffer: INPUT,
       mimeType: 'image/jpeg',
-      size: '1024x1024',
-      inputPublicUrl: inputUrl
+      size: '1024x1024'
     });
 
-    expect(result.provider).toBe('pollinations');
-    expect(String(mockFetch.mock.calls[0][0])).toContain(`image=${encodeURIComponent(inputUrl)}`);
+    expect(result.provider).toBe('cloudflare');
+    expect(result.attempts).toEqual([
+      { provider: 'bynara', reason: expect.stringContaining('model overloaded') }
+    ]);
   });
 
-  test('URL input privat tetap tidak membuka provider berbasis URL', async () => {
-    mockFetch.mockResolvedValue(binaryResponse(pngBytes(512, 512)));
+  test('Pollinations tidak pernah dicoba untuk image-to-image', async () => {
+    // Hasil edit Pollinations sering hanya gambar baru dari prompt, dan saat URL
+    // input tidak terjangkau ia tetap membalas 200 seolah berhasil. Karena itu
+    // jalur itu dihapus, termasuk saat PUBLIC_BASE_URL diisi.
+    configureCloudflare();
+    process.env.PUBLIC_BASE_URL = 'https://app.example.com';
+    process.env.IMAGE_EDIT_FALLBACK_PROVIDER = 'none';
+    mockFetch.mockResolvedValueOnce(cloudflareOk(pngBytes(512, 512)));
 
-    // localhost/alamat privat ditolak: provider hanya akan mengabaikannya dan
-    // mengembalikan gambar dari prompt saja, yang bukan hasil edit.
-    await expect(
-      editImage({
-        prompt: 'x',
-        imageBuffer: INPUT,
-        mimeType: 'image/jpeg',
-        size: '512x512',
-        inputPublicUrl: 'http://localhost:4000/uploads/media_1_input.jpg'
-      })
-    ).rejects.toMatchObject({ code: 'MISSING_CREDENTIALS' });
+    const result = await editImage({
+      prompt: 'make it blue',
+      imageBuffer: INPUT,
+      mimeType: 'image/jpeg',
+      size: '1024x1024'
+    });
 
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(result.provider).toBe('cloudflare');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   test('tanpa provider edit yang layak: gagal jelas, tanpa menembak provider', async () => {
-    // Tanpa kredensial Cloudflare dan tanpa PUBLIC_BASE_URL, tidak ada provider
-    // yang bisa dipakai — dan itu harus terlihat sebagai error, bukan gambar hasil
+    // Tanpa kredensial Bynara maupun Cloudflare tidak ada provider yang bisa
+    // dipakai — dan itu harus terlihat sebagai error, bukan gambar hasil
     // generate-ulang yang dikira hasil edit.
     mockFetch.mockResolvedValue(binaryResponse(pngBytes(512, 512)));
 
@@ -793,55 +810,39 @@ describe('editImage (image-to-image)', () => {
 
     await expect(
       editImage({ prompt: 'x', imageBuffer: INPUT, mimeType: 'image/jpeg', size: '512x512' })
-    ).rejects.toThrow(/CLOUDFLARE_ACCOUNT_ID/);
+    ).rejects.toThrow(/BYNARA_API_KEY/);
 
-    // Provider berbasis URL dijelaskan kenapa tidak dipakai.
-    await expect(
-      editImage({ prompt: 'x', imageBuffer: INPUT, mimeType: 'image/jpeg', size: '512x512' })
-    ).rejects.toThrow(/PUBLIC_BASE_URL/);
-
-    // Tidak boleh ada request yang menembak provider dengan input yang tidak bisa diambil.
+    // Tidak boleh ada request yang menembak provider tanpa kredensial.
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
 describe('getEditProviderChain', () => {
-  test('default mengikuti provider text-to-image yang tersedia', () => {
+  test('Bynara didahulukan, lalu Cloudflare, saat kuncinya tersedia', () => {
+    configureBynara();
     configureCloudflare();
-    process.env.PUBLIC_BASE_URL = 'https://app.example.com';
 
-    expect(getEditProviderChain()).toEqual(['cloudflare', 'pollinations']);
+    expect(getEditProviderChain()).toEqual(['bynara', 'cloudflare']);
   });
 
-  test('tanpa PUBLIC_BASE_URL, provider berbasis URL tidak masuk rantai', () => {
-    // Inilah kasus yang dulu menghasilkan "hasil edit" palsu: Pollinations tetap
-    // membalas 200 saat URL input tidak terjangkau. Sekarang ia tidak dicoba sama
-    // sekali, dan yang tersisa hanya provider yang menerima bytes gambar.
-    expect(getEditProviderChain()).toEqual(['cloudflare']);
+  test('tanpa kredensial apa pun, rantainya hanya provider yang menerima bytes gambar', () => {
+    // Pollinations sudah tidak ada di sini: ia bekerja lewat URL, dan saat URL
+    // input tidak terjangkau ia tetap membalas 200 dengan gambar dari prompt.
+    expect(getEditProviderChain()).toEqual(['bynara', 'cloudflare']);
   });
 
-  test('PUBLIC_BASE_URL publik mengaktifkan jalur Pollinations tanpa kredensial', () => {
+  test('PUBLIC_BASE_URL tidak lagi membuka jalur Pollinations', () => {
     process.env.PUBLIC_BASE_URL = 'https://aplikasi-anda.example.com/';
 
-    expect(getEditProviderChain()).toEqual(['pollinations']);
-  });
-
-  test('PUBLIC_BASE_URL yang menunjuk localhost/alamat privat tidak dianggap publik', () => {
-    process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
-    process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
-    process.env.PUBLIC_BASE_URL = 'http://localhost:4000';
-
-    expect(getEditProviderChain()).toEqual(['cloudflare']);
-
-    process.env.PUBLIC_BASE_URL = 'http://192.168.1.20:4000';
-    expect(getEditProviderChain()).toEqual(['cloudflare']);
+    expect(getEditProviderChain()).toEqual(['bynara', 'cloudflare']);
   });
 
   test('IMAGE_EDIT_FALLBACK_PROVIDER=none menyisakan satu provider', () => {
+    configureBynara();
     configureCloudflare();
     process.env.IMAGE_EDIT_FALLBACK_PROVIDER = 'none';
 
-    expect(getEditProviderChain()).toEqual(['cloudflare']);
+    expect(getEditProviderChain()).toEqual(['bynara']);
   });
 
   test('provider yang tidak bisa mengedit gambar ditolak dengan jelas', () => {
@@ -849,12 +850,17 @@ describe('getEditProviderChain', () => {
 
     expect(() => getEditProviderChain()).toThrow(/Unknown IMAGE_EDIT_PROVIDER "openai"/);
   });
+
+  test('Pollinations ditolak sebagai provider edit', () => {
+    process.env.IMAGE_EDIT_PROVIDER = 'pollinations';
+
+    expect(() => getEditProviderChain()).toThrow(/Unknown IMAGE_EDIT_PROVIDER "pollinations"/);
+  });
 });
 
 describe('getProviderStatus', () => {
   test('melaporkan chain & ketersediaan tiap provider', () => {
     configureCloudflare();
-    process.env.PUBLIC_BASE_URL = 'https://app.example.com';
 
     expect(getProviderStatus()).toEqual({
       chain: ['cloudflare', 'pollinations'],
@@ -865,10 +871,11 @@ describe('getProviderStatus', () => {
         openai: 'missing'
       },
       defaultPrimary: 'cloudflare',
-      // Rantai untuk image-to-image terpisah, karena tidak semua provider bisa
-      // mengedit gambar (OpenAI Images dan Bynara di sini belum dipakai untuk edit).
-      editChain: ['cloudflare', 'pollinations'],
-      editCapabilities: { bynara: false, cloudflare: true, pollinations: true, openai: false },
+      // Rantai image-to-image terpisah: hanya provider yang menerima bytes
+      // gambar (Bynara dan Cloudflare). Pollinations tidak bisa mengedit, dan
+      // Cloudflare menjadi utama karena hanya kredensialnya yang tersedia.
+      editChain: ['cloudflare'],
+      editCapabilities: { bynara: true, cloudflare: true, pollinations: false, openai: false },
       editReady: true
     });
   });
@@ -876,7 +883,7 @@ describe('getProviderStatus', () => {
   test('tanpa kredensial, image-to-image dilaporkan belum siap', () => {
     const status = getProviderStatus();
 
-    expect(status.editChain).toEqual(['cloudflare']);
+    expect(status.editChain).toEqual(['bynara', 'cloudflare']);
     expect(status.editReady).toBe(false);
   });
 });

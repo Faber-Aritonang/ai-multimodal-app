@@ -5,13 +5,16 @@
  *   generate({ prompt, size, quality }) -> { buffer, format, mimeType, provider, model }
  *
  * Provider dipilih lewat env:
- *   IMAGE_PROVIDER           = cloudflare | pollinations | openai
- *   IMAGE_FALLBACK_PROVIDER  = cloudflare | pollinations | openai | none
+ *   IMAGE_PROVIDER           = bynara | cloudflare | pollinations | openai
+ *   IMAGE_FALLBACK_PROVIDER  = bynara | cloudflare | pollinations | openai | none
  *
- * Default: Cloudflare Workers AI (free tier) kalau kredensialnya ada, lalu
- * otomatis jatuh ke Pollinations (tanpa API key sama sekali). Fallback dipakai
- * ketika kredensial provider utama belum diisi, ukuran yang diminta tidak
- * didukung, atau provider utama sedang gagal/kuotanya habis.
+ * Default: Bynara (Agnes) kalau kuncinya ada, lalu Cloudflare Workers AI (free
+ * tier) kalau kredensialnya ada, terakhir Pollinations (tanpa API key sama
+ * sekali). Fallback dipakai ketika kredensial provider utama belum diisi, ukuran
+ * yang diminta tidak didukung, atau provider utama sedang gagal/kuotanya habis.
+ *
+ * Image-to-image punya rantai sendiri dan TIDAK memakai Pollinations; lihat
+ * getEditProviderChain().
  *
  * Semua provider mengembalikan Buffer, sehingga controller tidak perlu tahu
  * asal gambarnya. Tidak ada dependency baru: memakai fetch bawaan Node 18+.
@@ -541,6 +544,74 @@ const bynaraDownloadCandidates = (raw) => {
   return kandidat;
 };
 
+const bynaraAuthHeader = () => ({
+  Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}`
+});
+
+const bynaraBaseUrl = () =>
+  (process.env.BYNARA_BASE_URL || DEFAULT_BYNARA_BASE_URL).replace(/\/+$/, '');
+
+const bynaraModel = () => process.env.BYNARA_IMAGE_MODEL || DEFAULT_BYNARA_MODEL;
+
+/**
+ * Balasan gateway — generate maupun edit — berbentuk sama: `data[]` yang setiap
+ * itemnya memuat `url` atau `b64_json`. Fungsi ini mengubahnya menjadi Buffer
+ * supaya controller menerima bentuk yang sama seperti provider lain.
+ */
+const readBynaraImage = async (data, model) => {
+  const { urls, base64 } = readGatewayImages(data);
+
+  if (!urls.length && !base64.length) {
+    throw createError(
+      `Bynara tidak mengembalikan gambar (kunci balasan: ${Object.keys(data).join(', ') || 'kosong'})`,
+      'PROVIDER_ERROR'
+    );
+  }
+
+  // Base64 dipakai lebih dulu: tidak perlu permintaan kedua, dan hasilnya tidak
+  // bergantung pada masa berlaku URL milik gateway.
+  let buffer;
+
+  if (base64.length) {
+    buffer = Buffer.from(base64[0], 'base64');
+  } else {
+    const kegagalan = [];
+
+    for (const url of bynaraDownloadCandidates(urls[0])) {
+      const unduhan = await fetchWithTimeout(url, { headers: bynaraAuthHeader() });
+
+      if (unduhan.ok) {
+        buffer = Buffer.from(await unduhan.arrayBuffer());
+        break;
+      }
+
+      kegagalan.push(`${new URL(url).host} HTTP ${unduhan.status}`);
+    }
+
+    if (!buffer) {
+      throw createError(
+        `Bynara mengirim URL gambar yang tidak bisa diunduh (${kegagalan.join(', ')})`,
+        'PROVIDER_ERROR'
+      );
+    }
+  }
+
+  if (!looksLikeImage(buffer)) {
+    throw createError(
+      'Bynara mengembalikan data yang bukan gambar yang valid',
+      'PROVIDER_ERROR'
+    );
+  }
+
+  return {
+    buffer,
+    ...detectFormat(buffer),
+    provider: 'bynara',
+    model,
+    revisedPrompt: data?.data?.[0]?.revised_prompt || null
+  };
+};
+
 const bynara = {
   name: 'bynara',
   label: 'Bynara Images (Agnes)',
@@ -550,16 +621,55 @@ const bynara = {
   isConfigured: () => isSet(process.env.BYNARA_API_KEY),
 
   async generate({ prompt, size }) {
-    const baseUrl = (process.env.BYNARA_BASE_URL || DEFAULT_BYNARA_BASE_URL).replace(/\/+$/, '');
-    const model = process.env.BYNARA_IMAGE_MODEL || DEFAULT_BYNARA_MODEL;
+    const model = bynaraModel();
 
-    const response = await fetchWithTimeout(`${baseUrl}/images/generations`, {
+    const response = await fetchWithTimeout(`${bynaraBaseUrl()}/images/generations`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { ...bynaraAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, prompt, size })
+    });
+
+    const data = await readJson(response);
+
+    if (!response.ok) {
+      throw createError(
+        `Bynara error (HTTP ${response.status}): ${describeProviderError(data, response)}`,
+        'PROVIDER_ERROR'
+      )
+    }
+
+    return readBynaraImage(data, model);
+  },
+
+  /**
+   * Image-to-image memakai endpoint edit gateway yang sama-sama OpenAI-compatible.
+   *
+   * Bedanya: endpoint ini hanya menerima **multipart**, bukan JSON. Percobaan
+   * dengan JSON — baik `image` berisi data URL maupun `image_b64` — dibalas
+   * `400 {"type":"bad_request","message":"Invalid image edit request."}`,
+   * sedangkan multipart dengan `image` sebagai berkas dilayani normal. Jadi
+   * pengiriman berkasnya jangan diubah ke JSON.
+   */
+  async edit({ prompt, imageBuffer, mimeType, size }) {
+    const model = bynaraModel();
+    const tipe = mimeType || 'image/png';
+    const form = new FormData();
+
+    form.append('model', model);
+    form.append('prompt', prompt);
+    form.append('size', size);
+    form.append(
+      'image',
+      new Blob([imageBuffer], { type: tipe }),
+      `input.${String(tipe).split('/')[1] || 'png'}`
+    );
+
+    const response = await fetchWithTimeout(`${bynaraBaseUrl()}/images/edits`, {
+      method: 'POST',
+      // Content-Type sengaja tidak diisi: fetch menambahkan boundary multipart
+      // sendiri, dan nilai manual justru merusak berkas yang dikirim.
+      headers: bynaraAuthHeader(),
+      body: form
     });
 
     const data = await readJson(response);
@@ -571,59 +681,7 @@ const bynara = {
       );
     }
 
-    const { urls, base64 } = readGatewayImages(data);
-
-    if (!urls.length && !base64.length) {
-      throw createError(
-        `Bynara tidak mengembalikan gambar (kunci balasan: ${Object.keys(data).join(', ') || 'kosong'})`,
-        'PROVIDER_ERROR'
-      );
-    }
-
-    // Base64 dipakai lebih dulu: tidak perlu permintaan kedua, dan hasilnya tidak
-    // bergantung pada masa berlaku URL milik gateway.
-    let buffer;
-
-    if (base64.length) {
-      buffer = Buffer.from(base64[0], 'base64');
-    } else {
-      const kegagalan = [];
-
-      for (const url of bynaraDownloadCandidates(urls[0])) {
-        const unduhan = await fetchWithTimeout(url, {
-          headers: { Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}` }
-        });
-
-        if (unduhan.ok) {
-          buffer = Buffer.from(await unduhan.arrayBuffer());
-          break;
-        }
-
-        kegagalan.push(`${new URL(url).host} HTTP ${unduhan.status}`);
-      }
-
-      if (!buffer) {
-        throw createError(
-          `Bynara mengirim URL gambar yang tidak bisa diunduh (${kegagalan.join(', ')})`,
-          'PROVIDER_ERROR'
-        );
-      }
-    }
-
-    if (!looksLikeImage(buffer)) {
-      throw createError(
-        'Bynara mengembalikan data yang bukan gambar yang valid',
-        'PROVIDER_ERROR'
-      );
-    }
-
-    return {
-      buffer,
-      ...detectFormat(buffer),
-      provider: 'bynara',
-      model,
-      revisedPrompt: data?.data?.[0]?.revised_prompt || null
-    };
+    return readBynaraImage(data, model);
   }
 };
 
@@ -731,62 +789,6 @@ const pollinations = {
     );
   },
 
-  /**
-   * Image-to-image tanpa API key — tapi hanya bisa dipakai kalau gambar
-   * inputnya punya URL yang dapat diakses publik.
-   *
-   * Konteks penting: kalau URL tidak terjangkau, Pollinations TETAP membalas
-   * HTTP 200 dan menghasilkan gambar dari prompt saja (input diabaikan
-   * diam-diam). Jadi jalur ini sengaja hanya diaktifkan saat operator menentukan
-   * PUBLIC_BASE_URL secara eksplisit — supaya user tidak pernah menerima
-   * "hasil edit" yang sebenarnya bukan hasil edit.
-   */
-  async edit({ prompt, size, inputPublicUrl }) {
-    if (!isSet(inputPublicUrl)) {
-      throw createError(
-        'Pollinations butuh URL gambar input yang bisa diakses publik. Set PUBLIC_BASE_URL ' +
-          '(mis. https://aplikasi-anda.example.com) agar uploads/ bisa diambil provider.',
-        'PROVIDER_UNSUPPORTED'
-      );
-    }
-
-    const baseUrl = (process.env.POLLINATIONS_BASE_URL || DEFAULT_POLLINATIONS_BASE_URL)
-      .replace(/\/+$/, '');
-    const model = process.env.POLLINATIONS_EDIT_MODEL || DEFAULT_POLLINATIONS_MODEL;
-    const { width, height } = parseSize(size);
-
-    const url = new URL(`${baseUrl}/prompt/${encodeURIComponent(prompt)}`);
-    url.searchParams.set('image', inputPublicUrl);
-    url.searchParams.set('width', String(width));
-    url.searchParams.set('height', String(height));
-    url.searchParams.set('model', model);
-    url.searchParams.set('nologo', 'true');
-    url.searchParams.set('seed', String(randomSeed()));
-
-    if (isSet(process.env.POLLINATIONS_TOKEN)) {
-      url.searchParams.set('token', sanitizeSecret(process.env.POLLINATIONS_TOKEN));
-    }
-
-    const response = await fetchWithTimeout(url);
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw createError(
-        `Pollinations error (HTTP ${response.status}): ${
-          detail.slice(0, 200) || response.statusText
-        }`,
-        'PROVIDER_ERROR'
-      );
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    if (!looksLikeImage(buffer)) {
-      throw createError('Pollinations returned data that is not a valid image', 'PROVIDER_ERROR');
-    }
-
-    return { buffer, ...detectFormat(buffer), provider: 'pollinations', model };
-  }
 };
 
 /**
@@ -835,49 +837,15 @@ const openai = {
 const PROVIDERS = { bynara, cloudflare, pollinations, openai };
 const PROVIDER_NAMES = Object.keys(PROVIDERS);
 // Provider yang bisa dipakai untuk image-to-image.
+//
+// Pollinations sengaja TIDAK ada di sini. Ia memang bisa menerima `image=` di
+// URL-nya, tapi hasilnya sering hanya gambar baru dari prompt (mirip, bukan
+// hasil edit yang mengikuti gambar input), dan kalau URL inputnya tidak
+// terjangkau ia tetap membalas HTTP 200 seolah berhasil. Dua provider di bawah
+// bekerja dari bytes gambar yang diunggah user, jadi hasilnya benar-benar
+// bersandar pada gambar input.
 const EDIT_PROVIDER_NAMES = PROVIDER_NAMES.filter((name) => typeof PROVIDERS[name].edit === 'function');
-const DEFAULT_EDIT_FALLBACK_PROVIDER = 'pollinations';
-
-/**
- * Provider edit yang bekerja dengan cara mengambil sendiri gambar input dari URL.
- *
- * Bahaya khusus Pollinations: kalau URL-nya tidak terjangkau, ia TETAP membalas
- * HTTP 200 dan menghasilkan gambar HANYA dari prompt (input diabaikan tanpa error).
- * Artinya user bisa menerima "hasil edit" yang sebenarnya bukan hasil edit.
- *
- * Karena itu provider jenis ini hanya dipakai kalau operator menyatakan alamat
- * publiknya lewat PUBLIC_BASE_URL — dan alamat itu harus benar-benar publik,
- * bukan localhost/alamat privat.
- */
-const URL_BASED_EDIT_PROVIDERS = new Set(['pollinations']);
-
-const PRIVATE_HOST_PATTERNS = [
-  /^localhost$/i,
-  /^127\./,
-  /^0\.0\.0\.0$/,
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2[0-9]|3[01])\./,
-  /\.local$/i
-];
-
-/**
- * Apakah PUBLIC_BASE_URL menunjuk ke alamat yang bisa diambil provider?
- * @returns {boolean}
- */
-const isPubliclyReachableUrl = (value) => {
-  if (!isSet(value)) return false;
-
-  try {
-    const url = new URL(String(value).trim());
-
-    if (!/^https?:$/.test(url.protocol)) return false;
-
-    return !PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(url.hostname));
-  } catch {
-    return false;
-  }
-};
+const DEFAULT_EDIT_FALLBACK_PROVIDER = 'cloudflare';
 
 const normalizeName = (value) => String(value || '').trim().toLowerCase();
 
@@ -983,33 +951,13 @@ const generateImage = async ({ prompt, size, quality }) => {
 /**
  * Urutan provider untuk image-to-image (image edit).
  * Dipisah dari text-to-image karena kredensial & modelnya berbeda.
+ *
+ * Provider edit dipilih dari yang bisa bekerja tanpa mengambil gambar input
+ * dari internet (semuanya menerima bytes hasil unggahan frontend), jadi rantai
+ * ini tidak bergantung pada penyimpanan remote atau PUBLIC_BASE_URL.
  */
-/**
- * Boleh dipakai untuk image-to-image?
- *
- * Provider berbasis URL hanya layak kalau gambar inputnya benar-benar bisa
- * diambil dari internet. Ada dua sumber yang sah, dan keduanya harus diakui:
- *
- *   - `inputPublicUrl` milik permintaan ini. Penyimpanan remote
- *     (Cloudinary/S3) mengembalikan URL absolut, jadi alamatnya sudah publik —
- *     tidak perlu PUBLIC_BASE_URL lagi. Sebelum ini diakui, image-to-image di
- *     produksi selalu berakhir "tidak ada provider" walaupun berkas inputnya
- *     ada di Cloudinary dan bisa dibuka siapa pun.
- *   - `PUBLIC_BASE_URL`, untuk penyimpanan lokal yang berkasnya diambil dari
- *     `/uploads/` aplikasi.
- *
- * `remoteStorage` dipakai laporan status (/health) yang tidak punya konteks
- * permintaan: kalau penyimpanannya remote, URL publiknya selalu tersedia.
- */
-const canUseProviderForEdit = (name, { inputPublicUrl = null, remoteStorage = false } = {}) =>
-  !URL_BASED_EDIT_PROVIDERS.has(name) ||
-  isPubliclyReachableUrl(inputPublicUrl) ||
-  remoteStorage ||
-  isPubliclyReachableUrl(process.env.PUBLIC_BASE_URL);
-
-const getEditProviderChain = (opsi = {}) => {
+const getEditProviderChain = () => {
   const requested = normalizeName(process.env.IMAGE_EDIT_PROVIDER);
-  const available = EDIT_PROVIDER_NAMES.filter((name) => canUseProviderForEdit(name, opsi));
 
   if (requested && !EDIT_PROVIDER_NAMES.includes(requested)) {
     throw createError(
@@ -1018,18 +966,12 @@ const getEditProviderChain = (opsi = {}) => {
     );
   }
 
-  if (requested && !canUseProviderForEdit(requested, opsi)) {
-    throw createError(
-      `IMAGE_EDIT_PROVIDER "${requested}" mengambil gambar input lewat URL, jadi butuh ` +
-        'alamat yang bisa diakses publik: penyimpanan remote (Cloudinary/S3) atau ' +
-        'PUBLIC_BASE_URL. Set salah satunya, atau pakai provider yang menerima bytes ' +
-        'gambar (cloudflare).',
-      'MISSING_CREDENTIALS'
-    );
-  }
-
+  // Bynara didahulukan lewat `resolveDefaultPrimary()` saat kuncinya ada; kalau
+  // tidak, provider edit pertama yang tersedia (cloudflare) yang dipakai.
   const preferred = requested || resolveDefaultPrimary();
-  const primary = available.includes(preferred) ? preferred : available[0] || null;
+  const primary = EDIT_PROVIDER_NAMES.includes(preferred)
+    ? preferred
+    : EDIT_PROVIDER_NAMES[0] || null;
   const chain = primary ? [primary] : [];
 
   const fallbackRaw =
@@ -1047,7 +989,7 @@ const getEditProviderChain = (opsi = {}) => {
     );
   }
 
-  if (canUseProviderForEdit(fallbackRaw, opsi) && !chain.includes(fallbackRaw)) {
+  if (!chain.includes(fallbackRaw)) {
     chain.push(fallbackRaw);
   }
 
@@ -1058,32 +1000,20 @@ const getEditProviderChain = (opsi = {}) => {
  * Edit gambar (image-to-image) memakai provider pertama yang tersedia dan berhasil.
  *
  * @param {{prompt: string, imageBuffer: Buffer, mimeType: string, size: string,
- *          guidance?: number, inputPublicUrl?: string|null}} params
+ *          guidance?: number}} params
  * @returns {Promise<{buffer: Buffer, format: string, mimeType: string, provider: string, model: string, attempts: Array}>}
  */
-const editImage = async ({
-  prompt,
-  imageBuffer,
-  mimeType,
-  size,
-  guidance,
-  inputPublicUrl = null
-}) => {
-  // Rantai dipilih dari URL input yang benar-benar dipakai permintaan ini, bukan
-  // dari dugaan lewat env: berkas di Cloudinary/S3 sudah publik, sedangkan mode
-  // lokal baru publik kalau PUBLIC_BASE_URL menyebut alamatnya.
-  const opsiEdit = { inputPublicUrl };
-  const chain = getEditProviderChain(opsiEdit);
+const editImage = async ({ prompt, imageBuffer, mimeType, size, guidance }) => {
+  const chain = getEditProviderChain();
   const attempts = [];
 
   // Tidak ada provider edit yang bisa dipakai: jelaskan sebabnya, jangan
-  // mencoba apa pun (ini mencegah "hasil edit" palsu dari provider URL-based).
+  // mencoba apa pun.
   if (!chain.length) {
     throw createError(
-      'No image edit provider is available. Set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN ' +
-        '(free, dipakai FLUX.2 [klein]), atau simpan berkas di penyimpanan remote ' +
-        '(Cloudinary/S3) / set PUBLIC_BASE_URL ke alamat publik agar Pollinations bisa ' +
-        'mengambil gambar input.',
+      'No image edit provider is available. Set BYNARA_API_KEY (Agnes) atau ' +
+        'CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (free, dipakai FLUX.2 [klein]) ' +
+        'di backend/.env.',
       'MISSING_CREDENTIALS'
     );
   }
@@ -1097,14 +1027,7 @@ const editImage = async ({
     }
 
     try {
-      const result = await provider.edit({
-        prompt,
-        imageBuffer,
-        mimeType,
-        size,
-        guidance,
-        inputPublicUrl
-      });
+      const result = await provider.edit({ prompt, imageBuffer, mimeType, size, guidance });
       const dimensions = measureImage(result.buffer) || {};
 
       return { ...result, ...dimensions, attempts };
@@ -1120,21 +1043,10 @@ const editImage = async ({
   const nothingConfigured =
     chain.length > 0 && chain.every((name) => !PROVIDERS[name].isConfigured());
 
-  // Sebutkan provider yang sengaja tidak dipakai, supaya operator tahu kenapa
-  // jalur tanpa API key tidak muncul di daftar percobaan.
-  const excluded = EDIT_PROVIDER_NAMES.filter(
-    (name) => URL_BASED_EDIT_PROVIDERS.has(name) && !canUseProviderForEdit(name, opsiEdit)
-  );
-  const hint = excluded.length
-    ? ` Provider ${excluded.join(', ')} tidak dipakai karena gambar inputnya tidak punya ` +
-      'alamat publik (penyimpanan remote atau PUBLIC_BASE_URL). Kalau URL input tidak ' +
-      'terjangkau, provider itu tetap membalas 200 dengan gambar dari prompt saja, jadi ' +
-      'hasilnya bukan hasil edit.'
-    : '';
-
   throw createError(
-    `All image edit providers failed (${summary}). Set CLOUDFLARE_ACCOUNT_ID + ` +
-      `CLOUDFLARE_API_TOKEN (free, dipakai oleh FLUX.2 [klein]) di backend/.env.${hint}`,
+    `All image edit providers failed (${summary}). Set BYNARA_API_KEY (Agnes) atau ` +
+      'CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (free, dipakai FLUX.2 [klein]) ' +
+      'di backend/.env.',
     nothingConfigured ? 'MISSING_CREDENTIALS' : 'PROVIDER_UNAVAILABLE'
   );
 };
@@ -1142,7 +1054,7 @@ const editImage = async ({
 /**
  * Ringkasan konfigurasi provider, dipakai oleh endpoint /health.
  */
-const getProviderStatus = (opsi = {}) => {
+const getProviderStatus = () => {
   const status = {};
   for (const [name, provider] of Object.entries(PROVIDERS)) {
     status[name] = provider.isConfigured() ? 'configured' : 'missing';
@@ -1157,7 +1069,7 @@ const getProviderStatus = (opsi = {}) => {
 
   let editChain = [];
   try {
-    editChain = getEditProviderChain(opsi);
+    editChain = getEditProviderChain();
   } catch {
     editChain = [];
   }

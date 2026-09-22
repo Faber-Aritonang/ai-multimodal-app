@@ -238,11 +238,7 @@ app.get('/health', (req, res) => {
   if (process.env.NODE_ENV !== 'production') {
     // Provider gambar & chat yang aktif, supaya error fitur AI bisa langsung
     // dicocokkan dengan konfigurasi yang sebenarnya.
-    // `remoteStorage` ikut dikirim: berkas di Cloudinary/S3 selalu punya URL
-    // absolut, jadi provider edit berbasis URL (Pollinations) layak dipakai tanpa
-    // PUBLIC_BASE_URL. Tanpa info ini /health melaporkan imageEditReady=false
-    // padahal fiturnya bisa jalan.
-    const image = getProviderStatus({ remoteStorage: isRemoteStorage() });
+    const image = getProviderStatus();
     const chat = getChatProviderStatus();
 
     payload.services = {
@@ -254,7 +250,7 @@ app.get('/health', (req, res) => {
       imageFallback: image.chain[1] || 'none',
       imageProviders: image.status,
       // image-to-image bisa memakai provider berbeda dari text-to-image
-      // (mis. Cloudflare FLUX.2 [klein] untuk edit, Pollinations untuk generate).
+      // (mis. Bynara/Agnes untuk generate, Cloudflare FLUX.2 [klein] untuk edit).
       imageEditProvider: image.editChain[0] || 'none',
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
@@ -333,11 +329,16 @@ const startServer = async () => {
     // Hal yang sama untuk provider gambar: tanpa baris ini, "text-to-image
     // gagal" tidak bisa dibedakan antara kredensial yang belum sampai ke
     // container dan provider yang memang sedang bermasalah.
-    const image = getProviderStatus({ remoteStorage: isRemoteStorage() });
+    const image = getProviderStatus();
     const imageStatus = Object.entries(image.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
     console.log(`Provider gambar: ${image.chain.join(' > ') || 'none'} (${imageStatus})`);
+    // Rantai image-to-image dipisah: providernya berbeda, dan inilah satu-satunya
+    // tempat melihatnya di production.
+    console.log(
+      `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`
+    );
   });
 };
 

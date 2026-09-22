@@ -199,17 +199,16 @@ describe('GET /health', () => {
           pollinations: 'configured',
           openai: 'missing'
         },
-        // Tanpa kredensial apa pun, satu-satunya provider edit yang mungkin
-        // adalah Cloudflare (menerima bytes gambar). Pollinations butuh
-        // PUBLIC_BASE_URL, jadi ia sengaja tidak masuk rantai — kalau dipaksa,
-        // hasilnya "edit" palsu karena input gagal diambil provider.
-        imageEditProvider: 'cloudflare',
-        imageEditFallback: 'none',
+        // Tanpa kredensial apa pun tidak ada provider edit yang siap: hanya
+        // Bynara dan Cloudflare yang bisa mengedit, dan keduanya butuh kunci.
+        // Pollinations sengaja tidak dipakai untuk image-to-image.
+        imageEditProvider: 'bynara',
+        imageEditFallback: 'cloudflare',
         imageEditReady: false,
         imageEditCapabilities: {
-          bynara: false,
+          bynara: true,
           cloudflare: true,
-          pollinations: true,
+          pollinations: false,
           openai: false
         },
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
@@ -233,6 +232,7 @@ describe('GET /health', () => {
     test('kredensial Cloudflare mengaktifkan image-to-image lewat FLUX.2 [klein]', async () => {
       process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
       process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+      delete process.env.BYNARA_API_KEY;
       delete process.env.IMAGE_PROVIDER;
       delete process.env.IMAGE_EDIT_PROVIDER;
       delete process.env.IMAGE_EDIT_FALLBACK_PROVIDER;
@@ -244,16 +244,30 @@ describe('GET /health', () => {
       expect(status.imageEditCapabilities.cloudflare).toBe(true);
     });
 
-    test('PUBLIC_BASE_URL publik menambahkan Pollinations sebagai cadangan edit', async () => {
+    test('BYNARA_API_KEY menjadikan Bynara provider edit utama', async () => {
+      process.env.BYNARA_API_KEY = 'sk-nry-uji';
+      delete process.env.IMAGE_EDIT_PROVIDER;
+      delete process.env.IMAGE_EDIT_FALLBACK_PROVIDER;
+
+      const status = await services();
+
+      expect(status.imageEditProvider).toBe('bynara');
+      expect(status.imageEditFallback).toBe('cloudflare');
+      expect(status.imageEditReady).toBe(true);
+    });
+
+    test('PUBLIC_BASE_URL tidak lagi menambahkan Pollinations ke rantai edit', async () => {
       process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-123';
       process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
       process.env.PUBLIC_BASE_URL = 'https://aplikasi.example.com';
+      delete process.env.BYNARA_API_KEY;
       delete process.env.IMAGE_EDIT_PROVIDER;
 
       const status = await services();
 
       expect(status.imageEditProvider).toBe('cloudflare');
-      expect(status.imageEditFallback).toBe('pollinations');
+      expect(status.imageEditFallback).toBe('none');
+      expect(status.imageEditCapabilities.pollinations).toBe(false);
     });
 
     test('kredensial Cloudflare membuatnya menjadi provider gambar utama', async () => {

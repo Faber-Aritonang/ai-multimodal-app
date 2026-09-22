@@ -331,19 +331,6 @@ const parseImageEditRequest = (body = {}) => {
 };
 
 /**
- * URL publik gambar input untuk provider yang mengambil gambar lewat URL
- * (Pollinations). Hanya dari PUBLIC_BASE_URL — sengaja TIDAK diambil dari host
- * request, karena host lokal (localhost) tetap "terlihat valid" bagi aplikasi
- * padahal provider tidak bisa mengambilnya. Pollinations akan tetap membalas 200
- * dengan gambar dari prompt saja kalau URL-nya tidak terjangkau, jadi lebih baik
- * tidak memberi URL sama sekali daripada memberi URL yang menyesatkan.
- */
-const getPublicUploadUrl = (fileName) => {
-  const base = (process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
-  return base ? `${base}/uploads/${fileName}` : null;
-};
-
-/**
  * @POST /api/v1/media/image-to-image
  * Transformasi gambar input sesuai prompt.
  */
@@ -378,21 +365,14 @@ exports.imageToImage = async (req, res) => {
     });
     media.inputFile = savedInput.url;
 
-    // Dengan penyimpanan remote (Cloudinary/S3), URL publiknya memang terjangkau
-    // dari internet. Mode lokal tetap memakai PUBLIC_BASE_URL seperti sebelumnya —
-    // sengaja TIDAK diambil dari host request, karena host lokal (localhost) tetap
-    // "terlihat valid" bagi aplikasi padahal provider tidak bisa mengambilnya.
-    const inputPublicUrl = isRemoteStorage()
-      ? savedInput.url
-      : getPublicUploadUrl(inputFileName);
-
+    // Bytes gambar dikirim langsung ke provider edit; tidak ada provider yang
+    // mengambil gambar input lewat URL, jadi tidak perlu PUBLIC_BASE_URL.
     const result = await editImage({
       prompt: parsedRequest.prompt,
       imageBuffer: parsedImage.buffer,
       mimeType: parsedImage.mimeType,
       size: parsedRequest.size,
-      guidance: parsedRequest.guidance,
-      inputPublicUrl
+      guidance: parsedRequest.guidance
     });
 
     if (result.attempts && result.attempts.length) {
