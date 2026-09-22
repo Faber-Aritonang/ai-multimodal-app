@@ -55,6 +55,42 @@ const TextToImagePage = ({ user, setUser }) => {
     }
   }
 
+  // Riwayat diambil ulang berkala selama masih ada proses berjalan.
+  //
+  // Kasus yang ditangani: respons generate sering tidak sampai ke browser
+  // (koneksi putus, atau halaman dimuat ulang di tengah proses 20-60 detik)
+  // padahal server tetap menyimpan hasilnya lengkap. Tanpa polling ini user
+  // melihat tidak ada apa-apa sampai dia memuat ulang halaman — dan itulah yang
+  // berulang kali dilaporkan sebagai "harus refresh dulu baru gambarnya tampil".
+  // Polling juga jalan setelah halaman dimuat ulang, karena item yang masih
+  // `processing` di riwayat pun menjadi pemicunya.
+  const adaProses = generating || history.some((item) => item.status === 'processing')
+
+  useEffect(() => {
+    if (!adaProses) return undefined
+
+    // Batas aman: kalau ada record yang tertinggal dalam status `processing`
+    // (mis. proses server mati), polling berhenti sendiri setelah ±5 menit.
+    let sisa = 60
+    const timer = setInterval(async () => {
+      if (sisa-- <= 0) {
+        clearInterval(timer)
+        return
+      }
+
+      const items = await fetchHistory()
+      const terbaru = items?.find((item) => item.outputUrl)
+
+      // Dibandingkan lewat contentId supaya hasil yang sudah tampil tidak
+      // ditimpa ulang objek yang sama pada setiap putaran.
+      if (terbaru) {
+        setResult((sebelumnya) => (sebelumnya?.contentId === terbaru.contentId ? sebelumnya : terbaru))
+      }
+    }, 5000)
+
+    return () => clearInterval(timer)
+  }, [adaProses])
+
   // Provider gratis bisa butuh 40+ detik per gambar. Tanpa penanda waktu, tombol
   // yang diam terlihat seperti macet dan user memuat ulang halaman di tengah
   // proses — permintaan ikut batal, padahal server tetap menuntaskannya.
@@ -317,7 +353,11 @@ const TextToImagePage = ({ user, setUser }) => {
                           />
                         ) : (
                           <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 p-2 text-center text-xs text-rose-200">
-                            {item.status === 'failed' ? 'Generation failed' : 'No preview'}
+                            {item.status === 'failed'
+                              ? 'Generation failed'
+                              : item.status === 'processing'
+                                ? 'Generating...'
+                                : 'No preview'}
                           </div>
                         )}
 
