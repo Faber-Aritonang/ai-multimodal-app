@@ -32,18 +32,42 @@ Catatan nama yang mudah salah:
 ## `RAILWAY_TOKEN` harus milik project yang benar
 
 Project token terikat pada **satu project dan satu environment**. Kalau ia dibuat
-untuk project lain, `railway up` menolaknya dengan
-
-```
-Unauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the
-resource you're trying to use.
-```
+untuk project lain, `railway up` menolaknya — dan pesan yang muncul tidak selalu
+menyebut sebabnya (lihat dua gejalanya di bawah).
 
 Itu penyebab nyata job `deploy-backend` merah di **setiap** run: token yang
 terpasang dibuat di project `vibrant-victory` (13 Sep 2026, 15:18), sedangkan
 service `ai-multimodal-app` ada di project `truthful-imagination` (dibuat 15:36
 di hari yang sama). Karena tokennya tidak punya akses ke project itu, tidak ada
 satu pun deployment yang pernah dihasilkan oleh `railway up`.
+
+**Dua gejala, satu sebab.** Pesan yang muncul tergantung apa yang ditemukan
+lebih dulu, jadi keduanya harus dikenali sebagai masalah yang sama:
+
+```text
+Unauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the
+resource you're trying to use.
+```
+
+```text
+Service 'ai-multimodal-app' not found
+```
+
+Gejala kedua (terukur 22 Sep 2026, CLI 5.59.0, run `35708660353`) muncul saat
+project yang dipakai — entah dari `RAILWAY_PROJECT_ID`, entah dari tokennya
+sendiri — tidak memuat service bernama itu. Pesannya menyesatkan: yang perlu
+diperiksa bukan nama service-nya, melainkan **project**-nya. Pemetaan
+project → id → service, tanpa membuka dashboard:
+
+```bash
+railway list --json | python3 -c "
+import json, sys
+for p in json.load(sys.stdin):
+    print(p['name'], p['id'], [e['node']['name'] for e in (p.get('services') or {}).get('edges', [])])
+"
+# truthful-imagination d63db879-cc03-4d43-840c-4caf2e9710c9 ['ai-multimodal-app']
+# vibrant-victory      4eeb42e9-a5b0-4108-8d85-aad7ef71af37 ['pretty-connection']
+```
 
 **Cara memastikan.** Buka Railway → project yang benar
 (`truthful-imagination`) → *Project Settings* → **Tokens**. Token yang dipakai

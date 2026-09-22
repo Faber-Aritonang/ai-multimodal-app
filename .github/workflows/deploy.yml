@@ -142,14 +142,55 @@ jobs:
       # `FAILED` dengan `commit=-`, tanpa log build yang menjelaskan sebabnya).
       # Dari akar repo, konteks unggahan sama dengan konteks deployment GitHub,
       # sehingga `backend/` terbentuk benar.
+      # Kegagalan yang pernah terjadi: `railway up` berhenti dengan
+      # `Service 'ai-multimodal-app' not found`. Penyebabnya BUKAN kode, melainkan
+      # nilai secret: `RAILWAY_PROJECT_ID` menunjuk project yang tidak memuat
+      # service backend. Di akun ini ada dua project, dan hanya satu yang punya
+      # service tersebut — memasang id project yang lain menghasilkan kegagalan
+      # yang tidak menjelaskan apa pun dan mengulang di setiap push.
+      #
+      # Karena itu output-nya direkam: kalau pesannya memang "not found", job ini
+      # mencetak langkah perbaikannya (tanpa mencetak nilai secret — GitHub sudah
+      # menyamarkan secret di log, dan URI/log Railway tidak memuat kredensial).
       - name: Deploy ke Railway
         working-directory: .
         run: |
-          railway up \
+          set -o pipefail
+          service="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
+          echo "Target: service=$service environment=$RAILWAY_ENVIRONMENT"
+
+          if railway up \
             --project "$RAILWAY_PROJECT_ID" \
-            --service "${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" \
+            --service "$service" \
             --environment "$RAILWAY_ENVIRONMENT" \
-            --ci
+            --ci 2>&1 | tee /tmp/railway-up.log; then
+            exit 0
+          fi
+
+          if grep -q "not found" /tmp/railway-up.log; then
+            echo "::error::Service '$service' tidak ada di project yang ditunjuk RAILWAY_PROJECT_ID."
+            cat <<'PESAN'
+          Perbaiki secret di Settings -> Secrets and variables -> Actions:
+            RAILWAY_PROJECT_ID : id project yang BENAR-BENAR memuat service backend.
+                                 Ambil dengan `railway list --json` (kolom `id`,
+                                 lihat juga daftar `services` tiap project).
+                                 Project produksi aplikasi ini bernama
+                                 `truthful-imagination`; di akun ini HANYA project
+                                 itu yang memuat service `ai-multimodal-app`.
+                                 Project `vibrant-victory` memuat service lain
+                                 (`pretty-connection`) dan tidak akan cocok.
+            RAILWAY_SERVICE    : diisi HANYA kalau nama service backend bukan
+                                 `ai-multimodal-app`.
+            RAILWAY_TOKEN      : harus token untuk project yang sama; token project
+                                 hanya berlaku pada satu project.
+          Setelah diperbaiki, jalankan ulang: Actions -> Deploy to Railway & Vercel
+          -> Run workflow.
+          PESAN
+          else
+            echo "::error::railway up gagal - lihat log di atas (bukan masalah nama service)."
+          fi
+
+          exit 1
 
       # Verifikasi produksi, bukan sekadar "build sukses".
       #
