@@ -153,6 +153,18 @@ export const mediaAPI = {
   textToSound: ({ text, voice, style, format }) =>
     api.post('/media/text-to-sound', { text, voice, style, format }, { timeout: 180000 }),
 
+  // Bahasa & format yang diterima sound-to-text. Diambil dari backend supaya
+  // aturan yang ditampilkan ke user (format, batas ukuran) tidak perlu disalin
+  // ulang di frontend dan tidak bisa menyimpang dari yang divalidasi server.
+  getTranscribeOptions: () => api.get('/media/transcribe-options'),
+
+  // Sound to text (transkripsi). `audio` dikirim sebagai data URL (sudah
+  // dikonversi ke WAV di browser bila hasil rekaman); `language` dan `prompt`
+  // opsional. Timeout lebih panjang dari default karena provider bisa memakan
+  // puluhan detik untuk rekaman yang panjang.
+  soundToText: ({ audio, language, prompt }) =>
+    api.post('/media/sound-to-text', { audio, language, prompt }, { timeout: 180000 }),
+
   // Riwayat media milik user
   getHistory: (params = {}) => api.get('/media/history', { params }),
 

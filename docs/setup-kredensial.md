@@ -144,6 +144,12 @@ OPENAI_API_KEY=sk-...
 # GEMINI_API_KEY sudah dipakai fitur chat; Edge tidak perlu kunci
 # SOUND_PROVIDER=gemini
 
+# Provider sound-to-text (lihat langkah 3f)
+# GROQ_API_KEY=gsk_...              # gratis, 1.000 request/hari (disarankan)
+# GEMINI_API_KEY sudah dipakai fitur chat/TTS
+# STT_PROVIDER=groq
+# STT_FALLBACK_PROVIDER=gemini
+
 # Opsional: lokasi penyimpanan hasil generate (default: backend/uploads)
 # UPLOAD_DIR=uploads
 ```
@@ -967,6 +973,114 @@ Cloudinary yang penting: **tidak ada kategori "audio"** di sana — berkas suara
 masuk ke kategori `video`, dan referensinya disimpan sebagai
 `cloudinary://video/<public_id>` supaya penghapusannya memakai kategori yang
 sama. Mode `local`/S3 tidak terpengaruh.
+
+---
+
+## 3f. Sound-to-Text — Groq Whisper (gratis) + Gemini sebagai cadangan
+
+Fitur **Sound to Text** (`/tools/sound-to-text`) mengubah audio menjadi teks.
+Audio bisa **diunggah sebagai berkas** atau **direkam langsung dari mikrofon**.
+
+Tiga provider tersedia, dan bedanya dengan text-to-sound penting untuk diketahui
+lebih dulu:
+
+| Provider | Model | Biaya | Dipilih lewat |
+|---|---|---|---|
+| **Groq** | `whisper-large-v3` | **gratis, 1.000 request/hari**, jawab < 2 detik | `STT_PROVIDER=groq` (default) |
+| **Gemini** | `gemini-3.8-flash` (audio understanding) | **gratis**, kunci yang sama dengan chat/TTS | `STT_PROVIDER=gemini` / cadangan default |
+| **OpenAI** | `whisper-1` (atau `gpt-4o-transcribe`) | berbayar | `STT_PROVIDER=openai` |
+
+> ⚠️ **Tidak ada provider transkripsi yang bisa dipakai tanpa akun.** Berbeda dari
+text-to-sound yang punya Edge sebagai jalur tanpa kunci, fitur ini memang tidak
+jalan di mesin yang belum diisi kredensial apa pun. Permintaannya dijawab `503`
+dengan pesan yang menyebut variabel yang harus diisi — bukan kegagalan senyap,
+agar tidak ada yang menunggu hasil yang tidak akan pernah datang.
+
+### Urutan default & cadangan
+
+Tanpa `STT_PROVIDER` diisi, provider pertama yang **punya kunci** yang dipakai,
+urut **Groq → Gemini → OpenAI**, dan cadangan defaultnya **Gemini**. Dua pilihan
+pertama gratis, jadi akun yang sudah mengisi `GEMINI_API_KEY` untuk chat/TTS
+langsung bisa memakai fitur ini tanpa variabel baru. OpenAI **tidak pernah dipakai
+otomatis** karena berbayar; ia hanya melayani bila diminta eksplisit lewat
+`STT_PROVIDER=openai`.
+
+Kalau provider utama gagal **sesaat** (mis. kuota harian Groq habis → HTTP 429),
+rantai otomatis mencoba cadangannya dan provider yang benar-benar melayani dicatat
+di metadata serta log server. Kegagalan konfigurasi (kunci ditolak) **tidak**
+ditutupi provider lain — masalah kunci harus terlihat apa adanya.
+
+### Bahasa
+
+Bahasa defaultnya **Indonesia** (`STT_DEFAULT_LANGUAGE`). Di halaman, kolom
+**bahasa** bisa diganti ke English atau **Deteksi otomatis** (parameter bahasa
+tidak dikirim, provider yang menentukan sendiri). Kolom **konteks** opsional untuk
+membantu nama/istilah yang sulit (mis. "Aritonang, neural network").
+
+### Format audio & rekaman mikrofon
+
+Format yang diterima dari isi berkasnya: **WAV, MP3, M4A, OGG, FLAC, WEBM** (maks
+25 MB). Satu detail yang menentukan di lapangan: **Gemini tidak menerima
+WebM/Opus** — format yang paling sering dihasilkan `MediaRecorder`. Karena itu
+rekaman mikrofon **dikonversi ke WAV di browser** sebelum dikirim, sehingga hasil
+rekaman selalu bisa diproses provider mana pun. Berkas WebM yang diunggah manual
+oleh user tetap diterima, dan kalau providernya Gemini ia dilewati ke provider
+lain yang sanggup membacanya (bukan gagal).
+
+### Langkah mengaktifkan
+
+1. Ambil **satu** kunci gratis (Groq disarankan karena kuota terbesarnya):
+   - **Groq** — <https://console.groq.com/keys> (tanpa kartu kredit). Kunci yang
+     sama dipakai fitur chat, jadi kemungkinan sudah ada di `.env`.
+   - **Gemini** — <https://aistudio.google.com/apikey>
+2. Isi `backend/.env`:
+
+   ```env
+   GROQ_API_KEY=gsk_...
+   # Cadangan saat kuota harian Groq habis (opsional tapi disarankan)
+   GEMINI_API_KEY=...
+   # Opsional, semuanya punya default:
+   # STT_PROVIDER=groq                # groq | gemini | openai | none
+   # STT_FALLBACK_PROVIDER=gemini
+   # STT_DEFAULT_LANGUAGE=id
+   # STT_REQUEST_TIMEOUT_MS=120000
+   # GROQ_TRANSCRIBE_MODEL=whisper-large-v3
+   # GEMINI_TRANSCRIBE_MODEL=gemini-3.8-flash
+   ```
+
+   `STT_PROVIDER=none` mematikan fiturnya tanpa menghapus kodenya.
+3. Restart backend, lalu pastikan `/health` (di luar production) melaporkan siap:
+
+   ```bash
+   curl -s http://localhost:3000/health | python3 -m json.tool | grep -i speechToText
+   # "speechToTextProvider": "groq",
+   # "speechToTextFallback": "gemini",
+   # "speechToTextProviders": { "groq": "configured", "gemini": "configured", "openai": "missing" },
+   # "speechToTextReady": true,
+   ```
+
+   Di produksi blok `services` tidak ditampilkan; yang tersedia baris log saat boot:
+
+   ```
+   Provider transkripsi: groq > gemini (ready=true groq=configured gemini=configured openai=missing)
+   ```
+4. Buka `/tools/sound-to-text`, unggah atau rekam audio 5-15 detik, lalu tekan
+   **Transcribe audio**. Pastikan teksnya muncul di panel **Latest result** dan di
+   **Your transcriptions**, dan kolom `via` menyebut provider yang benar-benar
+   melayani.
+
+### Kuota
+
+Sama seperti text-to-sound: transkripsi memakai kuota **`videoGeneration`** yang
+sudah ada (jatah media non-gambar), dan angkanya berkurang 1 hanya setelah
+transkripnya benar-benar berhasil. Audio yang diunggah tetap disimpan (di
+penyimpanan media yang sama) supaya riwayat bisa memutarnya kembali — termasuk
+rekaman yang transkripsinya gagal, sehingga user bisa mencoba ulang tanpa
+mengunggah berkasnya lagi.
+
+> Audio sintetis (nada murni) bisa dijawab provider sebagai "tidak ada teks".
+> Itu bukan bug: provider transkripsi memang meminta ucapan, dan pesannya
+> menjelaskannya. Uji dengan rekaman suara manusia.
 
 ---
 

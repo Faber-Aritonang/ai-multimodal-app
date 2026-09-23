@@ -10,6 +10,7 @@ import {
   ImageIcon,
   TransformIcon,
   SoundIcon,
+  TranscriptIcon,
   UserIcon
 } from '../components/icons'
 
@@ -21,7 +22,8 @@ const NAVIGATION = [
   { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon, code: '03', short: 'Image' },
   { name: 'Image to Image', href: '/tools/image-to-image', icon: TransformIcon, code: '04', short: 'Transform' },
   { name: 'Text to Sound', href: '/tools/text-to-sound', icon: SoundIcon, code: '05', short: 'Sound' },
-  { name: 'Profile', href: '/profile', icon: UserIcon, code: '06', short: 'Profile' }
+  { name: 'Sound to Text', href: '/tools/sound-to-text', icon: TranscriptIcon, code: '06', short: 'Transcribe' },
+  { name: 'Profile', href: '/profile', icon: UserIcon, code: '07', short: 'Profile' }
 ]
 
 /** Inisial huruf pertama nama, dipakai saat user tidak punya foto. */

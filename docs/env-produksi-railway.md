@@ -41,6 +41,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
 | Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
+| Sound-to-Text | minimal **satu** dari `GROQ_API_KEY` (gratis, 1.000 request/hari) atau `GEMINI_API_KEY` | unggah/rekam audio di `/tools/sound-to-text`; log boot menampilkan `Provider transkripsi: groq > gemini (ready=true ...)`. **Tidak ada jalur tanpa kunci** di fitur ini: tanpa kredensial permintaannya dijawab `503` dengan pesan yang menyebut variabel yang harus diisi. |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
@@ -76,6 +77,11 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `SOUND_FALLBACK_PROVIDER` | `edge` | provider cadangan saat provider utama gagal/kuotanya habis — jalur yang dipakai begitu kuota gratis Gemini (HTTP 429) habis. Edge dipilih sebagai default karena tidak butuh kunci, jadi cadangannya benar-benar bisa dipakai |
 | `EDGE_TTS_WSS_URL` | endpoint Read Aloud Edge | alamat WebSocket provider Edge; diisi hanya bila Microsoft memindahkannya |
 | `SOUND_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu request sintesis suara |
+| `STT_PROVIDER` | provider pertama yang punya key, urut `groq → gemini → openai` | provider sound-to-text; `none` mematikan fiturnya |
+| `STT_FALLBACK_PROVIDER` | `gemini` | provider cadangan saat transkripsi gagal/kuotanya habis (keduanya gratis) |
+| `STT_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu request transkripsi |
+| `STT_DEFAULT_LANGUAGE` | `id` | bahasa default transkripsi; `auto` menyuruh provider mendeteksi sendiri |
+| `GROQ_TRANSCRIBE_MODEL` / `GEMINI_TRANSCRIBE_MODEL` / `OPENAI_TRANSCRIBE_MODEL` | `whisper-large-v3` / `gemini-3.8-flash` / `whisper-1` | model per provider transkripsi |
 | `GEMINI_TTS_MODEL` | `gemini-3.1-flash-tts-preview` | model Gemini TTS (status preview). Hanya model ini yang dipakai untuk permintaan WAV karena backend membungkus PCM-nya sendiri |
 | `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | model ElevenLabs; ini yang mendukung Bahasa Indonesia |
 | `ELEVENLABS_VOICE_ID` | — | paksa satu ID voice ElevenLabs. Tanpa ini, ID dibaca dari akun pemilik kunci (`GET /v1/voices`) karena daftar voice bawaan berbeda antar akun |

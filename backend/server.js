@@ -37,6 +37,7 @@ const {
 } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { getSpeechProviderStatus } = require('./config/soundProviders');
+const { getSpeechToTextStatus } = require('./config/speechToTextProviders');
 const { preferEnvFile } = require('./config/envFile');
 const { getBuildInfo } = require('./config/buildInfo');
 
@@ -256,7 +257,9 @@ app.get('/health', (req, res) => {
     // Provider gambar & chat yang aktif, supaya error fitur AI bisa langsung
     // dicocokkan dengan konfigurasi yang sebenarnya.
     const image = getProviderStatus();
-    const chat = getChatProviderStatus();    const speech = getSpeechProviderStatus();
+    const chat = getChatProviderStatus();
+    const speech = getSpeechProviderStatus();
+    const transcribe = getSpeechToTextStatus();
 
     payload.services = {
       firebase: isFirebaseConfigured() ? 'configured' : 'missing',
@@ -284,6 +287,17 @@ app.get('/health', (req, res) => {
       soundProviders: speech.status,
       soundVoices: speech.voices,
       soundReady: speech.ready,
+      // Provider sound-to-text (transkripsi). `speechToTextReady` menentukan
+      // apakah halaman /tools/sound-to-text bisa menghasilkan transkrip, dan
+      // spec browser memakainya untuk memilih antara menguji alur lengkap atau
+      // menguji pesan kegagalan yang jelas. Berbeda dari `soundReady`, nilainya
+      // TIDAK selalu true: tidak ada provider transkripsi yang bisa dipakai
+      // tanpa kredensial sama sekali.
+      speechToTextProvider: transcribe.chain[0] || 'none',
+      speechToTextFallback: transcribe.chain[1] || 'none',
+      speechToTextProviders: transcribe.status,
+      speechToTextModels: transcribe.models,
+      speechToTextReady: transcribe.ready,
       // Di produksi nilainya harus `cloudinary` atau `s3`; kalau `local`, gambar
       // akan hilang pada setiap deploy (filesystem container sementara).
       storage: describeStorage(),
@@ -377,6 +391,17 @@ const startServer = async () => {
       .join(' ');
     console.log(
       `Provider suara: ${speech.chain.join(' > ') || 'none'} (${speechStatus})`
+    );
+    // Sound-to-text: fitur ini BISA tidak siap sama sekali (tidak ada provider
+    // transkripsi tanpa kredensial), jadi baris ini yang membedakan "kunci belum
+    // sampai ke container" dari "providernya sedang bermasalah".
+    const transcribe = getSpeechToTextStatus();
+    const transcribeStatus = Object.entries(transcribe.status)
+      .map(([name, state]) => `${name}=${state}`)
+      .join(' ');
+    console.log(
+      `Provider transkripsi: ${transcribe.chain.join(' > ') || 'none'} ` +
+        `(ready=${transcribe.ready} ${transcribeStatus})`
     );
   });
 };

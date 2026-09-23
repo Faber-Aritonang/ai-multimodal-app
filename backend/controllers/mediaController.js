@@ -25,9 +25,17 @@
  *      config/soundProviders.js)
  *   3. simpan berkasnya ke penyimpanan media, lalu kurangi quota user
  *
+ * sound-to-text:
+ *   1. validasi audio input (data URL base64 dari browser) dari magic bytes-nya,
+ *      bukan dari header yang dikirim klien
+ *   2. simpan audionya lebih dulu agar riwayat bisa memutarnya kembali
+ *   3. minta transkrip dari provider STT (Groq/Gemini/OpenAI, lihat
+ *      config/speechToTextProviders.js), lalu kurangi quota user
+ *
  * Kuota: audio memakai `videoGeneration` yang sudah ada, bukan field baru. Fitur
  * suara masih satu keluarga dengan video (keduanya media non-gambar) dan jatah
- * video di akun ini belum pernah terpakai.
+ * video di akun ini belum pernah terpakai. Sound-to-text ikut memakai kuota yang
+ * sama untuk alasan yang sama.
  */
 
 const MediaContent = require('../models/MediaContent');
@@ -51,8 +59,17 @@ const {
   getSoundVoiceOptions,
   DEFAULT_FORMAT: DEFAULT_SOUND_FORMAT,
   MAX_TEXT_LENGTH,
-  MAX_STYLE_LENGTH
+  MAX_STYLE_LENGTH,
+  measureWavDuration
 } = require('../config/soundProviders');
+const {
+  transcribeAudio,
+  getTranscribeOptions: getTranscribeOptionsConfig,
+  detectAudioFormat,
+  mimeTypeFor,
+  MAX_AUDIO_BYTES,
+  MAX_PROMPT_LENGTH: MAX_TRANSCRIBE_PROMPT_LENGTH
+} = require('../config/speechToTextProviders');
 
 // Ukuran yang didukung frontend. Provider yang tidak sanggup memenuhi ukuran
 // tertentu akan dilewati otomatis (lihat supportedSizes di imageProviders.js).
@@ -629,6 +646,205 @@ exports.textToSound = async (req, res) => {
     const { status, body } = buildFailureResponse(error, {
       configCodes: CONFIG_ERROR_CODES,
       defaultMessage: 'Speech generation failed. Please try again.'
+    });
+
+    return res.status(status).json(body);
+  }
+};
+
+// Audio dari browser dikirim sebagai data URL (`data:audio/wav;base64,...`).
+// Bentuknya disamakan dengan image-to-image supaya tidak ada jalur multipart
+// yang perlu ditangani terpisah.
+const AUDIO_DATA_URL_PATTERN = /^data:(audio|video)\/[a-z0-9.+-]+;base64,/i;
+
+// Bahasa: kode 2-3 huruf, boleh dengan wilayah (`pt-BR`), atau `auto` untuk
+// membiarkan provider mendeteksi sendiri. Daftar bahasa Whisper terlalu panjang
+// untuk dijadikan whitelist, jadi yang dibatasi hanya bentuknya.
+const LANGUAGE_PATTERN = /^(auto|[a-z]{2,3}(-[a-z]{2,4})?)$/i;
+
+/**
+ * Ubah audio input dari body menjadi Buffer, sekaligus memastikan isinya benar
+ * audio (dicek dari magic bytes-nya).
+ *
+ * @param {string} value data URL (`data:audio/wav;base64,...`) atau base64 polos
+ * @returns {{error: string}|{buffer: Buffer, format: string, mimeType: string}}
+ */
+const parseInputAudio = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+
+  if (!raw) {
+    return { error: 'Audio is required' };
+  }
+
+  const base64 = raw.replace(AUDIO_DATA_URL_PATTERN, '');
+
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) {
+    return { error: 'Audio must be base64 or a data URL' };
+  }
+
+  const buffer = Buffer.from(base64, 'base64');
+
+  if (buffer.length === 0) {
+    return { error: 'Audio is empty' };
+  }
+
+  if (buffer.length > MAX_AUDIO_BYTES) {
+    return {
+      error: `Audio is too large (${Math.round(buffer.length / (1024 * 1024))} MB). ` +
+        `Limit is ${MAX_AUDIO_BYTES / (1024 * 1024)} MB.`
+    };
+  }
+
+  // Diperiksa dari isinya, bukan dari MIME type yang dikirim klien: nilai itu
+  // bisa salah atau sengaja dipalsukan, dan provider hanya menerima berkas yang
+  // benar-benar bisa dibacanya.
+  const format = detectAudioFormat(buffer);
+
+  if (!format) {
+    return {
+      error: 'Input audio is not a valid file. Supported formats: WAV, MP3, M4A, OGG, FLAC, WEBM.'
+    };
+  }
+
+  return { buffer, format, mimeType: mimeTypeFor(format) };
+};
+
+/**
+ * Bahasa yang dipakai satu permintaan transkripsi.
+ * @returns {{error: string}|{language: string}}
+ */
+const parseTranscribeLanguage = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return { language: 'id' };
+  }
+
+  if (typeof value !== 'string' || value.length > 12 || !LANGUAGE_PATTERN.test(value.trim())) {
+    return { error: 'Invalid language. Use a 2-3 letter code (e.g. id, en) or auto.' };
+  }
+
+  return { language: value.trim().toLowerCase() };
+};
+
+/**
+ * @GET /api/v1/media/transcribe-options
+ * Bahasa, format, dan batas ukuran yang diterima endpoint sound-to-text.
+ *
+ * Halaman /tools/sound-to-text mengambilnya dari sini supaya aturan yang
+ * ditampilkan ke user (format yang diterima, batas berkas) tidak perlu disalin
+ * ulang di frontend dan tidak bisa menyimpang dari yang divalidasi server.
+ */
+exports.getTranscribeOptions = (req, res) => {
+  res.status(200).json({ success: true, ...getTranscribeOptionsConfig() });
+};
+
+/**
+ * @POST /api/v1/media/sound-to-text
+ * Ubah audio menjadi teks (transkripsi).
+ */
+exports.soundToText = async (req, res) => {
+  const parsedAudio = parseInputAudio(req.body.audio);
+  if (parsedAudio.error) {
+    return res.status(400).json({ success: false, message: parsedAudio.error });
+  }
+
+  const parsedLanguage = parseTranscribeLanguage(req.body.language);
+  if (parsedLanguage.error) {
+    return res.status(400).json({ success: false, message: parsedLanguage.error });
+  }
+
+  // Kosa kata/nama yang sulit (mis. istilah teknis) bisa dibantu lewat prompt;
+  // opsional, dan provider yang tidak memakainya akan mengabaikannya.
+  const prompt = typeof req.body.prompt === 'string' ? req.body.prompt.trim() : '';
+
+  if (prompt.length > MAX_TRANSCRIBE_PROMPT_LENGTH) {
+    return res.status(400).json({
+      success: false,
+      message: `Prompt is too long (max ${MAX_TRANSCRIBE_PROMPT_LENGTH} characters)`
+    });
+  }
+
+  let media = null;
+
+  try {
+    // Teks hasilnya belum diketahui saat record dibuat, jadi `prompt` diisi
+    // penanda dulu dan diganti transkripnya begitu provider menjawab. Cara ini
+    // membuat permintaan yang gagal tetap tercatat utuh di riwayat.
+    media = await MediaContent.create({
+      userId: req.member.uid,
+      type: 'sound-to-text',
+      prompt: 'Audio transcription',
+      status: 'processing'
+    });
+
+    // Audionya disimpan lebih dulu supaya riwayat bisa memutarnya kembali —
+    // transkripsinya tidak bisa dibandingkan dengan sumbernya kalau berkasnya
+    // tidak ada.
+    const inputFileName = `${media.contentId}_input.${parsedAudio.format}`;
+    const savedInput = await putObject({
+      key: inputFileName,
+      buffer: parsedAudio.buffer,
+      contentType: parsedAudio.mimeType,
+      // Cloudinary menaruh berkas suara di kategori `video`.
+      resourceType: 'video'
+    });
+    media.inputFile = savedInput.url;
+
+    const result = await transcribeAudio({
+      buffer: parsedAudio.buffer,
+      format: parsedAudio.format,
+      mimeType: parsedAudio.mimeType,
+      language: parsedLanguage.language,
+      prompt
+    });
+
+    if (result.attempts && result.attempts.length) {
+      console.warn(
+        `Sound-to-text dilayani ${result.provider} (provider sebelumnya gagal/dilewati): ` +
+          result.attempts.map((item) => `${item.provider}: ${item.reason}`).join('; ')
+      );
+    }
+
+    media.prompt = result.text;
+    media.status = 'completed';
+    media.completedAt = new Date();
+    media.metadata = {
+      transcript: result.text,
+      language: result.language || parsedLanguage.language,
+      format: parsedAudio.format,
+      mimeType: parsedAudio.mimeType,
+      // Durasi hanya bisa dibaca dari header WAV.
+      duration: parsedAudio.format === 'wav' ? measureWavDuration(parsedAudio.buffer) : null,
+      provider: result.provider,
+      model: result.model
+    };
+    await media.save();
+
+    req.member.quota.videoGeneration -= 1;
+    await req.member.save();
+
+    return res.status(201).json({
+      success: true,
+      media,
+      quota: req.member.quota,
+      provider: result.provider,
+      transcript: result.text
+    });
+  } catch (error) {
+    console.error('Sound-to-text error:', error.message);
+
+    if (media) {
+      media.status = 'failed';
+      media.error = { message: error.message };
+      try {
+        await media.save();
+      } catch (saveError) {
+        console.error('Failed to update media status:', saveError.message);
+      }
+    }
+
+    const { status, body } = buildFailureResponse(error, {
+      configCodes: CONFIG_ERROR_CODES,
+      defaultMessage: 'Speech transcription failed. Please try again.'
     });
 
     return res.status(status).json(body);

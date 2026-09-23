@@ -2,8 +2,8 @@
  * Routes: Media API
  * Fitur AI multimodal berbasis gambar.
  *
- * Sudah tersedia : text-to-image, image-to-image, text-to-sound
- * Rencana        : text-to-video, image-to-video, sound-to-text
+ * Sudah tersedia : text-to-image, image-to-image, text-to-sound, sound-to-text
+ * Rencana        : text-to-video, image-to-video
  */
 
 const express = require('express');
@@ -13,7 +13,9 @@ const {
   textToImage,
   imageToImage,
   textToSound,
+  soundToText,
   getSoundVoices,
+  getTranscribeOptions,
   getMediaHistory,
   deleteMedia
 } = require('../controllers/mediaController');
@@ -28,13 +30,14 @@ router.get('/status', (req, res) => {
       'POST /api/v1/media/image-to-image',
       'POST /api/v1/media/text-to-sound',
       'GET /api/v1/media/sound-voices',
+      'POST /api/v1/media/sound-to-text',
+      'GET /api/v1/media/transcribe-options',
       'GET /api/v1/media/history',
       'DELETE /api/v1/media/:contentId'
     ],
     comingSoonEndpoints: [
       'POST /api/v1/media/text-to-video',
-      'POST /api/v1/media/image-to-video',
-      'POST /api/v1/media/sound-to-text'
+      'POST /api/v1/media/image-to-video'
     ]
   });
 });
@@ -66,8 +69,21 @@ router.post(
   textToSound
 );
 
+// sound-to-text: memakai kuota yang sama dengan text-to-sound (audio & video
+// berbagi satu jatah media non-gambar — lihat catatan di mediaController).
+router.post(
+  '/sound-to-text',
+  authenticate,
+  requireMember,
+  checkQuota('videoGeneration'),
+  soundToText
+);
+
 // Voice TTS yang sah untuk provider yang aktif (dropdown halaman text-to-sound)
 router.get('/sound-voices', authenticate, requireMember, getSoundVoices);
+
+// Bahasa & format yang diterima endpoint sound-to-text (halaman sound-to-text)
+router.get('/transcribe-options', authenticate, requireMember, getTranscribeOptions);
 
 // Riwayat & hapus media milik user
 router.get('/history', authenticate, requireMember, getMediaHistory);

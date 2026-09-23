@@ -152,6 +152,12 @@ describe('GET /health', () => {
       'ELEVENLABS_MODEL',
       'ELEVENLABS_VOICE_ID',
       'OPENAI_TTS_MODEL',
+      'STT_PROVIDER',
+      'STT_FALLBACK_PROVIDER',
+      'STT_DEFAULT_LANGUAGE',
+      'GROQ_TRANSCRIBE_MODEL',
+      'GEMINI_TRANSCRIBE_MODEL',
+      'OPENAI_TRANSCRIBE_MODEL',
       'STORAGE_PROVIDER',
       'S3_ENDPOINT',
       'S3_BUCKET',
@@ -180,7 +186,16 @@ describe('GET /health', () => {
         'ELEVENLABS_API_KEY',
         'ELEVENLABS_MODEL',
         'ELEVENLABS_VOICE_ID',
-        'OPENAI_TTS_MODEL'
+        'OPENAI_TTS_MODEL',
+        // Sound-to-text memakai ulang GROQ_API_KEY/GEMINI_API_KEY yang sudah
+        // dibersihkan di atas; variabel khusus fiturnya ikut dibersihkan supaya
+        // provider pertama yang dilaporkan tidak bergantung pada isi mesin.
+        'STT_PROVIDER',
+        'STT_FALLBACK_PROVIDER',
+        'STT_DEFAULT_LANGUAGE',
+        'GROQ_TRANSCRIBE_MODEL',
+        'GEMINI_TRANSCRIBE_MODEL',
+        'OPENAI_TRANSCRIBE_MODEL'
       ].forEach((key) => delete process.env[key]);
     };
 
@@ -294,6 +309,23 @@ describe('GET /health', () => {
         },
         soundVoices: VOICES_BY_PROVIDER.edge.map((item) => item.value),
         soundReady: true,
+        // Sound-to-text: TIDAK ADA provider transkripsi yang bisa dipakai tanpa
+        // kredensial, jadi tanpa kunci apa pun provider utamanya tetap Groq
+        // (yang paling mungkin diaktifkan) tetapi `ready` bernilai false —
+        // berbeda dari soundReady yang selalu true berkat Edge.
+        speechToTextProvider: 'groq',
+        speechToTextFallback: 'gemini',
+        speechToTextProviders: {
+          groq: 'missing',
+          gemini: 'missing',
+          openai: 'missing'
+        },
+        speechToTextModels: {
+          groq: 'whisper-large-v3',
+          gemini: 'gemini-3.8-flash',
+          openai: 'whisper-1'
+        },
+        speechToTextReady: false,
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
@@ -310,6 +342,33 @@ describe('GET /health', () => {
         },
         devLogin: 'enabled'
       });
+    });
+
+    test('GROQ_API_KEY membuat sound-to-text siap dengan Whisper gratis', async () => {
+      clearSoundEnv();
+      process.env.GROQ_API_KEY = 'gsk-kunci-uji';
+
+      const status = await services();
+
+      expect(status.speechToTextProvider).toBe('groq');
+      expect(status.speechToTextFallback).toBe('gemini');
+      expect(status.speechToTextProviders.groq).toBe('configured');
+      expect(status.speechToTextReady).toBe(true);
+    });
+
+    test('GEMINI_API_KEY saja membuat Gemini yang ditranskripsi, tanpa duplikat', async () => {
+      clearSoundEnv();
+      // GROQ_API_KEY ikut dibersihkan: test sebelumnya mengisinya, dan selama
+      // masih ada, Groq-lah yang menjadi provider utama transkripsi.
+      delete process.env.GROQ_API_KEY;
+      process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
+
+      const status = await services();
+
+      // Cadangan defaultnya Gemini juga, jadi rantainya hanya berisi satu nama.
+      expect(status.speechToTextProvider).toBe('gemini');
+      expect(status.speechToTextFallback).toBe('none');
+      expect(status.speechToTextReady).toBe(true);
     });
 
     test('kunci MiMo yang tertinggal di .env tidak muncul di /health', async () => {
@@ -495,12 +554,16 @@ describe('GET /api/v1/media/status', () => {
     expect(response.body.availableEndpoints).toEqual(
       expect.arrayContaining([
         'POST /api/v1/media/text-to-image',
-        'POST /api/v1/media/text-to-sound'
+        'POST /api/v1/media/text-to-sound',
+        'POST /api/v1/media/sound-to-text'
       ])
     );
     // Endpoint yang sudah ada tidak boleh ikut terdaftar sebagai "coming soon".
     expect(response.body.comingSoonEndpoints).not.toEqual(
       expect.arrayContaining(['POST /api/v1/media/text-to-sound'])
+    );
+    expect(response.body.comingSoonEndpoints).not.toEqual(
+      expect.arrayContaining(['POST /api/v1/media/sound-to-text'])
     );
     expect(response.body.comingSoonEndpoints).toEqual(
       expect.arrayContaining(['POST /api/v1/media/text-to-video'])
@@ -516,6 +579,8 @@ describe('route yang dilindungi auth', () => {
     ['get', '/api/v1/admin/pending-members'],
     ['post', '/api/v1/media/text-to-image'],
     ['post', '/api/v1/media/text-to-sound'],
+    ['post', '/api/v1/media/sound-to-text'],
+    ['get', '/api/v1/media/transcribe-options'],
     ['get', '/api/v1/media/history'],
     ['delete', '/api/v1/media/media_abc']
   ])('%s %s tanpa token ditolak 401', async (method, url) => {

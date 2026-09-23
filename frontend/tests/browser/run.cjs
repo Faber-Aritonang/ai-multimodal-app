@@ -16,9 +16,11 @@
  *
  * Catatan: spec memakai akun dev member dan akan memakai 1 kuota chat
  * (chat.spec), 1 kuota gambar (text-to-image.spec), dan 1 kuota video/audio
- * (text-to-sound.spec) — yang terakhir hanya bila kredensial provider TTS-nya
- * sudah diisi. Semuanya menghapus kembali data yang dibuatnya lewat API, tapi
- * kuota tidak bisa dikembalikan dari sini — jalankan saat kuota dev tersedia.
+ * (text-to-sound.spec & sound-to-text.spec) — dua yang terakhir hanya bila
+ * kredensial providernya sudah diisi (dan sound-to-text bisa berakhir sebagai
+ * kegagalan yang jelas untuk audio sintetis, tanpa memakai kuota). Semuanya
+ * menghapus kembali data yang dibuatnya lewat API, tapi kuota tidak bisa
+ * dikembalikan dari sini — jalankan saat kuota dev tersedia.
  */
 
 const { launchSession, Reporter, findChrome, sleep } = require('./lib/harness.cjs');
@@ -32,6 +34,7 @@ const ALL_SPECS = [
   require('./specs/text-to-image.spec.cjs'),
   require('./specs/image-to-image.spec.cjs'),
   require('./specs/text-to-sound.spec.cjs'),
+  require('./specs/sound-to-text.spec.cjs'),
   require('./specs/dashboard-profile.spec.cjs'),
   require('./specs/pending-approval.spec.cjs'),
   require('./specs/admin-logout.spec.cjs')

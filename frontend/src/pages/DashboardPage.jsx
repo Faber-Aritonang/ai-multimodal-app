@@ -70,12 +70,12 @@ const FEATURES = [
   {
     id: 'sound-to-text',
     title: 'Sound to Text',
-    description: 'Transkrip audio menjadi teks.',
+    description: 'Transkrip audio atau rekaman suara menjadi teks.',
     icon: '📝',
     path: '/tools/sound-to-text',
-    available: false,
-    accent: 'from-sky-400/20 to-sky-500/5',
-    ring: ''
+    available: true,
+    accent: 'from-sky-400/30 to-indigo-500/10',
+    ring: 'group-hover:border-sky-300/40'
   }
 ]
 

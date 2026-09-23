@@ -11,6 +11,7 @@ import ChatPage from './pages/ChatPage'
 import TextToImagePage from './pages/TextToImagePage'
 import ImageToImagePage from './pages/ImageToImagePage'
 import TextToSoundPage from './pages/TextToSoundPage'
+import SoundToTextPage from './pages/SoundToTextPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminMembers from './pages/admin/AdminMembers'
@@ -135,6 +136,12 @@ function App() {
         <Route path="/tools/text-to-sound" element={
           <ProtectedRoute user={user} requiredApproval={true}>
             <TextToSoundPage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/tools/sound-to-text" element={
+          <ProtectedRoute user={user} requiredApproval={true}>
+            <SoundToTextPage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
 

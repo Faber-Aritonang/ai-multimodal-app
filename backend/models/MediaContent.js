@@ -64,6 +64,13 @@ const mediaContentSchema = new mongoose.Schema({
     mimeType: String,
     voice: String,
     style: String,
+    // Khusus audio (sound-to-text): teks hasil transkripsi dan bahasa yang
+    // dipakai membacanya. Transkrip IKUT disimpan di `prompt` (supaya daftar
+    // riwayat bisa menampilkannya seperti fitur lain), tetapi bentuk aslinya
+    // tetap ada di sini agar tidak bergantung pada field yang maknanya bisa
+    // berubah di kemudian hari.
+    transcript: String,
+    language: String,
     // Provider & model yang dipakai saat generate (mis. cloudflare / flux-1-schnell)
     provider: String,
     model: String

@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Full-stack web application with AI-powered multimodal features: **chat**,
-**text-to-image**, **image-to-image**, dan **text-to-sound**. Fitur video &
-sound-to-text masih berstatus feature flag
+**text-to-image**, **image-to-image**, **text-to-sound**, dan **sound-to-text**.
+Fitur video masih berstatus feature flag
 ([lihat daftarnya](#feature-flags-pending-admin-approval)). Dibangun di atas
 layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 
@@ -46,6 +46,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
 - **Text-to-Sound**: Ubah teks menjadi suara — provider bisa ditukar (**Gemini TTS gratis** untuk suara Indonesia, **ElevenLabs free tier** sebagai cadangan saat kuota Gemini habis, **Edge TTS** tanpa kunci API). Bisa memakai voice bawaan (Kore, Puck, … untuk Gemini; Rachel, Adam, … untuk ElevenLabs; Gadis/Ardi untuk Edge) atau mengatur gaya bicara, format WAV/MP3, lengkap dengan riwayat & hapus
+- **Sound-to-Text**: Transkripsi audio menjadi teks — unggah berkas atau rekam langsung dari mikrofon (rekaman dikonversi ke WAV di browser). Provider bisa ditukar (**Groq Whisper gratis**, 1.000 request/hari; **Gemini** sebagai cadangan; OpenAI Whisper bila diminta), bahasa bisa dipilih atau dideteksi otomatis, lengkap dengan riwayat, salin teks, dan unduh `.txt`
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -53,7 +54,6 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 ### Feature Flags (Pending Admin Approval)
 - **Text-to-Video**: Generate videos from text descriptions
 - **Image-to-Video**: Create videos from images
-- **Sound-to-Text**: Transcribe audio to text
 
 ## Tech Stack
 
@@ -68,6 +68,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
 | **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
 | **Text-to-Sound** | Microsoft Edge TTS (suara neural Indonesia, **tanpa kunci API**) + Google Gemini TTS (`gemini-3.1-flash-tts-preview`); ElevenLabs free tier bila dipilih | ✅ Edge tanpa akun; kuota gratis Gemini tanpa billing; ElevenLabs 10.000 karakter/bulan | OpenAI TTS berbayar |
+| **Sound-to-Text** | Groq Whisper (`whisper-large-v3`, endpoint OpenAI-compatible) + Gemini audio understanding; OpenAI Whisper bila diminta | ✅ 1.000 request/hari (Groq); kuota gratis Gemini | OpenAI Whisper berbayar |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -465,6 +466,39 @@ dibuat.
 > dihapus dari kode. Rincian penyiapannya ada di
 > [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3e.
 
+### Transcribe Audio (Sound to Text)
+```bash
+curl -X POST http://localhost:3000/api/v1/media/sound-to-text \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "audio": "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAAB...",
+    "language": "id",
+    "prompt": "istilah yang sulit"
+  }'
+```
+
+`audio` dikirim sebagai data URL (base64) dan formatnya **dibaca dari isi
+berkasnya**, bukan dari MIME type yang dikirim klien. Format yang diterima: WAV,
+MP3, M4A, OGG, FLAC, WEBM — maksimal 25 MB. Responsnya memuat `transcript`,
+`provider`, dan `media` yang menyimpan transkrip di `metadata.transcript` serta
+audio sumbernya di `inputFile` (supaya riwayat bisa memutarnya kembali). Bahasa
+boleh diisi kode 2-3 huruf (`id`, `en`, …) atau `auto`.
+
+Daftar bahasa, format, dan batas ukurannya dilayani
+`GET /api/v1/media/transcribe-options`, jadi halaman
+`/tools/sound-to-text` tidak menyimpan salinan aturan yang bisa menyimpang dari
+validasi server. Kuota yang berkurang adalah `videoGeneration` (satu jatah yang
+sama dengan text-to-sound untuk media non-gambar), dan hanya bila transkripnya
+benar-benar berhasil.
+
+> Biaya: **gratis** memakai Groq Whisper (1.000 request/hari, kunci yang sama
+dengan chat) dengan Gemini sebagai cadangan. Berbeda dari text-to-sound, fitur
+ini **tidak punya jalur tanpa kunci** — tanpa `GROQ_API_KEY`/`GEMINI_API_KEY`
+permintaannya dijawab `503` dengan pesan yang menyebut variabel yang harus diisi.
+Rincian penyiapannya ada di
+[`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3f.
+
 ## Deployment
 
 Deploy produksi berjalan **otomatis dari CI**: satu push ke `main` menjalankan
@@ -804,9 +838,9 @@ ai-multimodal-app/
 - [x] Text-to-Image — provider bisa ditukar (Cloudflare Workers AI gratis / Pollinations tanpa API key / DALL·E 3), plus riwayat & hapus
 - [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
 - [x] Text-to-Sound — provider bisa ditukar (Gemini TTS **gratis** untuk suara Indonesia dengan ElevenLabs free tier dan Edge TTS tanpa kunci sebagai cadangan); voice bawaan atau deskripsi gaya, format WAV/MP3, riwayat & hapus
+- [x] Sound-to-Text — unggah berkas atau rekam dari mikrofon (rekaman dikonversi ke WAV di browser); provider bisa ditukar (Groq Whisper **gratis** dengan Gemini sebagai cadangan), bahasa bisa dipilih/dideteksi, riwayat, salin teks & unduh `.txt`
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
-- [ ] Sound-to-Text (Whisper)
 
 ### Phase 3: Enhancements
 - [x] Penyimpanan hasil generate di Cloudinary / S3-compatible — bukan lagi disk
@@ -885,5 +919,5 @@ Dirilis di bawah [MIT License](LICENSE) — Copyright (c) 2026 Jimmy Faber.
 ---
 
 **Note**: Proyek ini masih dikembangkan. Fitur inti (chat, text-to-image,
-image-to-image, text-to-sound) sudah berjalan di demo; fitur video & sound-to-text
+image-to-image, text-to-sound, sound-to-text) sudah berjalan di demo; fitur video
 masih berstatus feature flag dan baru aktif setelah disetujui admin.
