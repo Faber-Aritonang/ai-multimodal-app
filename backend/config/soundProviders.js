@@ -6,15 +6,15 @@
  *     -> { buffer, format, mimeType, provider, model, duration }
  *
  * Provider dipilih lewat env:
- *   SOUND_PROVIDER          = gemini | edge | elevenlabs | openai | mimo | none
- *   SOUND_FALLBACK_PROVIDER = gemini | edge | elevenlabs | openai | mimo | none
+ *   SOUND_PROVIDER          = gemini | edge | elevenlabs | openai | none
+ *   SOUND_FALLBACK_PROVIDER = gemini | edge | elevenlabs | openai | none
  *                             (default: edge)
  *
  * Default tanpa diisi: provider pertama yang kredensialnya tersedia, urut
- * Gemini -> ElevenLabs -> OpenAI -> MiMo -> Edge. Teks Indonesia diarahkan ke
- * Gemini (kuota gratis tanpa billing, logat bisa diarahkan lewat prompt) dan ke
- * Edge (suara neural Indonesia, tanpa kredensial sama sekali — lihat catatan
- * provider `edge` di bawah).
+ * Gemini -> ElevenLabs -> OpenAI -> Edge. Teks Indonesia diarahkan ke Gemini
+ * (kuota gratis tanpa billing, logat bisa diarahkan lewat prompt) dan ke Edge
+ * (suara neural Indonesia, tanpa kredensial sama sekali — lihat catatan provider
+ * `edge` di bawah).
  *
  * Cadangan defaultnya Edge, dan itu disengaja: cadangan yang membutuhkan kunci
  * akan gagal persis pada saat ia paling dibutuhkan — ketika admin belum sempat
@@ -22,49 +22,31 @@
  * permintaan yang sama langsung dicoba ke Edge dan audionya tetap berbahasa
  * Indonesia, bukan berlogat Mandarin dan bukan pula gagal.
  *
- * MiMo HANYA mendukung Mandarin dan Inggris (dokumentasi resminya: "Both Chinese
- * and English are supported"), jadi teks Indonesia diucapkan dengan logat
- * Mandarin — provider ini tinggal untuk teks Mandarin/Inggris, bukan untuk
- * Indonesia. OpenAI tetap tersedia, tetapi tidak lagi dipakai otomatis.
+ * Empat provider di sini semuanya punya suara Indonesia. OpenAI tetap tersedia,
+ * tetapi tidak dipakai otomatis karena berbayar — ia melayani hanya bila diminta
+ * lewat `SOUND_PROVIDER=openai`.
  *
  * Endpoint tiap provider berbeda dan tidak bisa saling ditukar: Gemini memakai
  * `/v1beta/interactions` dan mengembalikan PCM mentah, ElevenLabs mengembalikan
- * berkas audio langsung dari `/v1/text-to-speech/{voice_id}`, MiMo memakai chat
- * completion (base64 di dalam JSON), OpenAI memakai `/v1/audio/speech`, dan Edge
- * memakai WebSocket Read Aloud milik Microsoft yang mengirim MP3 dalam potongan
- * (lihat provider `edge`).
+ * berkas audio langsung dari `/v1/text-to-speech/{voice_id}`, OpenAI memakai
+ * `/v1/audio/speech`, dan Edge memakai WebSocket Read Aloud milik Microsoft yang
+ * mengirim MP3 dalam potongan (lihat provider `edge`).
  * Daftar voice yang sah untuk tiap provider diteruskan ke frontend lewat
  * getSoundVoiceOptions(), sehingga dropdown di UI selalu cocok dengan provider
  * yang benar-benar melayani permintaan.
  *
- * MiMo (Xiaomi) TIDAK memakai endpoint `/v1/audio/speech` seperti OpenAI,
- * melainkan `/v1/chat/completions` yang kompatibel OpenAI: teks yang diucapkan
- * dikirim sebagai pesan `assistant`, dan audionya kembali sebagai base64 di
- * `choices[0].message.audio.data`. Karena bentuknya chat completion biasa, klien
- * OpenAI SDK yang sudah dipakai modul chat/gambar bisa dipakai ulang tanpa
- * dependency baru.
- *
- * Tiga model dalam seri MiMo-V2.5-TTS, dan bedanya menentukan isi pesan:
- *   mimo-v2.5-tts              : voice bawaan (audio.voice). Pesan `assistant`
- *                                berisi teks yang diucapkan.
- *   mimo-v2.5-tts-voicedesign  : suara dibuat dari deskripsi teks. Pesan `user`
- *                                berisi deskripsi suaranya, `assistant` berisi
- *                                teks yang diucapkan. `audio.voice` TIDAK
- *                                didukung model ini.
- *   mimo-v2.5-tts-voiceclone   : butuh contoh audio base64 sebagai `audio.voice`
- *                                — belum dipakai di sini.
- *
- * Jadi satu permintaan memilih modelnya dari ada/tidaknya `style`: kalau user
- * menuliskan deskripsi gaya suara, modelnya berpindah ke voicedesign.
+ * Provider MiMo (Xiaomi) pernah ada di sini dan sudah DIHAPUS: dokumentasi
+ * resminya menyatakan hanya Mandarin dan Inggris yang didukung, sedangkan
+ * halaman /tools/text-to-sound selalu mengucapkan teks Indonesia. Selama ia ada
+ * di daftar, mengisi MIMO_API_KEY sudah cukup untuk memindahkan seluruh halaman
+ * ke suara Mandarin tanpa ada yang memintanya — dan tidak ada nilai yang hilang
+ * dengan menghapusnya, karena Gemini/ElevenLabs/Edge sama-sama bersuara
+ * Indonesia dan gratis. Jangan tambahkan lagi tanpa alasan yang lebih kuat.
  */
 
 const crypto = require('crypto');
 const WebSocketClient = require('ws');
 const { getClient } = require('./openai');
-
-const MIMO_BASE_URL = 'https://api.xiaomimimo.com/v1';
-const DEFAULT_TTS_MODEL = 'mimo-v2.5-tts';
-const DEFAULT_VOICEDESIGN_MODEL = 'mimo-v2.5-tts-voicedesign';
 
 // OpenAI Text-to-Speech. `gpt-4o-mini-tts` menerima `instructions` (deskripsi
 // gaya suara), sedangkan `tts-1`/`tts-1-hd` tidak — jadi gaya suara hanya
@@ -121,7 +103,7 @@ const WIN_EPOCH_SECONDS = 11644473600;
  * Voice yang sah PER PROVIDER, lengkap dengan label untuk dropdown UI.
  *
  * Tiap provider memakai nama voice yang sama sekali berbeda (Gemini: `Kore`,
- * ElevenLabs: UUID voice, OpenAI: `alloy`, MiMo: `Mia`), jadi satu daftar
+ * ElevenLabs: UUID voice, OpenAI: `alloy`), jadi satu daftar
  * gabungan membuat user memilih nilai yang pasti ditolak provider yang aktif.
  * Daftar ini satu-satunya sumber kebenaran — frontend mengambilnya lewat
  * GET /media/sound-voices, jadi tidak ada lagi dua daftar yang harus dijaga
@@ -169,17 +151,6 @@ const VOICES_BY_PROVIDER = {
   edge: [
     { value: 'id-ID-GadisNeural', label: 'Gadis', hint: 'wanita ID' },
     { value: 'id-ID-ArdiNeural', label: 'Ardi', hint: 'pria ID' }
-  ],
-  mimo: [
-    { value: 'mimo_default', label: 'Default', hint: 'netral' },
-    { value: '冰糖', label: '冰糖', hint: '中文' },
-    { value: '茉莉', label: '茉莉', hint: '中文' },
-    { value: '苏打', label: '苏打', hint: '中文' },
-    { value: '白桦', label: '白桦', hint: '中文' },
-    { value: 'Mia', label: 'Mia', hint: 'female' },
-    { value: 'Chloe', label: 'Chloe', hint: 'female' },
-    { value: 'Milo', label: 'Milo', hint: 'male' },
-    { value: 'Dean', label: 'Dean', hint: 'male' }
   ]
 };
 
@@ -189,8 +160,7 @@ const DEFAULT_VOICE_BY_PROVIDER = {
   gemini: 'Kore',
   edge: 'id-ID-GadisNeural',
   elevenlabs: DEFAULT_ELEVENLABS_VOICE_ID,
-  openai: 'alloy',
-  mimo: 'mimo_default'
+  openai: 'alloy'
 };
 
 /**
@@ -198,8 +168,8 @@ const DEFAULT_VOICE_BY_PROVIDER = {
  *
  * Gemini TTS mengembalikan PCM, dan proyek ini tidak punya encoder MP3 — jadi
  * yang bisa ditawarkan hanya WAV (PCM dibungkus header). ElevenLabs bisa MP3
- * langsung, dan PCM untuk permintaan WAV. MiMo dan OpenAI menerima `wav`/`mp3`
- * langsung dari API-nya.
+ * langsung, dan PCM untuk permintaan WAV. OpenAI menerima `wav`/`mp3` langsung
+ * dari API-nya.
  *
  * Dipakai dua tempat: rantai provider melewati provider yang tidak sanggup
  * memenuhi format yang diminta, dan frontend hanya menawarkan format yang valid
@@ -209,8 +179,7 @@ const SUPPORTED_FORMATS_BY_PROVIDER = {
   gemini: ['wav'],
   edge: ['mp3'],
   elevenlabs: ['wav', 'mp3'],
-  openai: ['wav', 'mp3'],
-  mimo: ['wav', 'mp3']
+  openai: ['wav', 'mp3']
 };
 
 /**
@@ -225,8 +194,7 @@ const DEFAULT_FORMAT_BY_PROVIDER = {
   gemini: 'wav',
   edge: 'mp3',
   elevenlabs: 'wav',
-  openai: 'wav',
-  mimo: 'wav'
+  openai: 'wav'
 };
 
 const defaultFormatFor = (providerName) =>
@@ -235,33 +203,8 @@ const defaultFormatFor = (providerName) =>
 const supportedFormats = (providerName) =>
   SUPPORTED_FORMATS_BY_PROVIDER[providerName] || ALLOWED_FORMATS;
 
-/**
- * Apakah deskripsi gaya suara MENGGANTIKAN voice bawaan.
- *
- * MiMo: ya — model voicedesign menolak field `voice`, suaranya dibuat dari
- * deskripsi. Provider lain: tidak — voice tetap dipakai, dan deskripsi gaya
- * ditambahkan sebagai arahan (Gemini) atau diabaikan dengan peringatan
- * (ElevenLabs, yang tidak punya parameter arahan bebas). Mematikan pilihan
- * voice di sana justru menghilangkan kontrol yang masih berlaku.
- * Frontend memakai flag ini untuk menentukan apakah dropdown voice dinonaktifkan.
- */
-const STYLE_OVERRIDES_VOICE = {
-  gemini: false,
-  edge: false,
-  elevenlabs: false,
-  openai: false,
-  mimo: true
-};
-
 const voiceValues = (providerName) =>
   (VOICES_BY_PROVIDER[providerName] || []).map((item) => item.value);
-
-/**
- * Voice bawaan model `mimo-v2.5-tts` (dari dokumentasi Speech Synthesis).
- * Dipertahankan sebagai nama lama; sekarang diturunkan dari tabel di atas.
- */
-const BUILT_IN_VOICES = voiceValues('mimo');
-const DEFAULT_VOICE = DEFAULT_VOICE_BY_PROVIDER.mimo;
 
 /** Voice provider milik provider lain → pakai voice bawaan provider itu. */
 const resolveVoice = (providerName, voice) => {
@@ -287,11 +230,7 @@ const MAX_STYLE_LENGTH = 300;
 const DEFAULT_TIMEOUT_MS = 120000;
 
 // Nilai placeholder di .env.example tidak dianggap konfigurasi valid.
-const PLACEHOLDER_VALUES = new Set([
-  'your-mimo-api-key-here',
-  'mimo-your-key-here',
-  'sk-your-openai-key-here'
-]);
+const PLACEHOLDER_VALUES = new Set(['sk-your-openai-key-here']);
 
 const isSet = (value) => {
   if (!value) return false;
@@ -319,13 +258,6 @@ const createError = (message, code) => {
 const getTimeoutMs = () =>
   Number(process.env.SOUND_REQUEST_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
 
-const getBaseUrl = () => process.env.MIMO_BASE_URL || MIMO_BASE_URL;
-
-const getTtsModel = () => process.env.MIMO_TTS_MODEL || DEFAULT_TTS_MODEL;
-
-const getVoiceDesignModel = () =>
-  process.env.MIMO_TTS_VOICEDESIGN_MODEL || DEFAULT_VOICEDESIGN_MODEL;
-
 const getOpenAiTtsModel = () =>
   process.env.OPENAI_TTS_MODEL || DEFAULT_OPENAI_TTS_MODEL;
 
@@ -342,18 +274,6 @@ const getEdgeUrl = () => process.env.EDGE_TTS_WSS_URL || EDGE_WSS_URL;
  * `tts-1` membuat permintaan ditolak, jadi parameter itu tidak ikut dikirim.
  */
 const supportsTtsInstructions = (model) => String(model).startsWith('gpt-4o');
-
-/**
- * `optimize_text_preview` meminta provider memoles teks yang diucapkan sebelum
- * disintesis. Dokumentasi resminya menyalakannya pada contoh voicedesign, tetapi
- * efeknya adalah teks user bisa berubah — dan pada alat "Text to Sound" hasil
- * audio yang tidak sesuai teks yang diketik itu membingungkan. Karena itu
- * defaultnya `false` (teks diucapkan apa adanya), dan bisa dinyalakan lewat env
- * bila memang diinginkan. Model ini juga satu-satunya yang mendukung parameter
- * tersebut.
- */
-const isOptimizeTextEnabled = () =>
-  String(process.env.MIMO_TTS_OPTIMIZE_TEXT || '').trim().toLowerCase() === 'true';
 
 /**
  * Durasi audio WAV dari headernya, dalam detik.
@@ -460,123 +380,11 @@ const readErrorMessage = async (response) => {
 };
 
 /**
- * Susun pesan sesuai model yang dipakai.
- *
- * Model voicedesign memakai pesan `user` sebagai deskripsi suara, sedangkan
- * model voice bawaan tidak menerimanya sama sekali.
- */
-const buildMessages = ({ text, style, voiceDesign }) => {
-  if (voiceDesign) {
-    return [
-      { role: 'user', content: style },
-      { role: 'assistant', content: text }
-    ];
-  }
-
-  // `voice` dikirim lewat `audio`, bukan lewat pesan; pesan hanya berisi teksnya.
-  return [{ role: 'assistant', content: text }];
-};
-
-/**
- * Provider MiMo (Xiaomi) — seri MiMo-V2.5-TTS lewat endpoint chat completion.
- */
-const mimo = {
-  name: 'mimo',
-  label: 'Xiaomi MiMo (MiMo-V2.5-TTS)',
-  envVars: ['MIMO_API_KEY'],
-
-  isConfigured: () => isSet(process.env.MIMO_API_KEY),
-
-  getModel: () => getTtsModel(),
-
-  async generate({ text, voice, style, format }) {
-    const voiceDesign = Boolean(style);
-    const model = voiceDesign ? getVoiceDesignModel() : getTtsModel();
-    const audioFormat = format || DEFAULT_FORMAT;
-    // `voice` hanya dikenal model voice bawaan; voicedesign menolaknya.
-    const usedVoice = voiceDesign ? null : resolveVoice('mimo', voice);
-
-    const audio = {
-      format: audioFormat,
-      ...(usedVoice ? { voice: usedVoice } : {}),
-      ...(voiceDesign && isOptimizeTextEnabled() ? { optimize_text_preview: true } : {})
-    };
-
-    const client = getClient({
-      apiKey: sanitizeSecret(process.env.MIMO_API_KEY),
-      baseURL: getBaseUrl(),
-      timeout: getTimeoutMs(),
-      // Retry bawaan SDK digandakan di sini menjadi dua request berbayar untuk
-      // kegagalan yang sama (mis. kredensial ditolak atau kuota habis), jadi
-      // dimatikan dan biarkan user yang memutuskan mencoba lagi.
-      maxRetries: 0
-    });
-
-    let completion;
-
-    try {
-      completion = await client.chat.completions.create({
-        model,
-        messages: buildMessages({ text, style, voiceDesign }),
-        audio,
-        // Audio tidak dipakai lewat streaming: hasilnya perlu disimpan utuh
-        // sebagai satu berkas, sedangkan streaming hanya menambah kompleksitas.
-        stream: false
-      });
-    } catch (error) {
-      // Kredensial yang ditolak (401/403) dibedakan dari kegagalan sesaat: yang
-      // satu hanya bisa diperbaiki admin, yang satu lagi cukup dicoba ulang.
-      // Tanpa pembedaan ini, user disuruh menekan tombol yang sama berulang kali.
-      const code =
-        error.status === 401 || error.status === 403
-          ? 'INVALID_PROVIDER_CONFIG'
-          : error.status && error.status >= 500
-            ? 'PROVIDER_UNAVAILABLE'
-            : 'PROVIDER_ERROR';
-
-      throw createError(
-        `MiMo TTS error: ${error.message}${error.status ? ` (HTTP ${error.status})` : ''}`,
-        code
-      );
-    }
-
-    const data = completion?.choices?.[0]?.message?.audio?.data;
-
-    // Balasan tanpa audio berarti permintaannya "berhasil" tetapi tidak ada yang
-    // bisa diputar — lebih baik gagal jelas daripada menyimpan berkas kosong.
-    if (!data) {
-      throw createError(
-        'MiMo tidak mengembalikan audio (balasan tidak memuat choices[0].message.audio.data).',
-        'PROVIDER_ERROR'
-      );
-    }
-
-    const buffer = Buffer.from(data, 'base64');
-
-    if (buffer.length === 0) {
-      throw createError('MiMo mengembalikan audio kosong.', 'PROVIDER_ERROR');
-    }
-
-    return {
-      buffer,
-      format: audioFormat,
-      mimeType: AUDIO_MIME_TYPES[audioFormat] || 'application/octet-stream',
-      provider: 'mimo',
-      model,
-      // null saat voicedesign: suaranya dibuat dari deskripsi, bukan dari voice
-      // bawaan — nilainya dipakai controller untuk mengisi riwayat.
-      voice: usedVoice,
-      duration: audioFormat === 'wav' ? measureWavDuration(buffer) : null
-    };
-  }
-};
-
-/**
  * OpenAI Text-to-Speech — `/v1/audio/speech` dengan klien OpenAI SDK yang sudah
  * dipakai modul chat/gambar, jadi tidak ada dependency baru.
  *
- * Berbeda dari MiMo yang memakai endpoint chat completion, provider ini
- * mengembalikan berkas audio mentah (bukan base64 di dalam JSON).
+ * Provider ini mengembalikan berkas audio mentah (bukan base64 di dalam JSON),
+ * jadi body-nya dibaca lewat `.arrayBuffer()`.
  */
 const openai = {
   name: 'openai',
@@ -606,8 +414,9 @@ const openai = {
     const client = getClient({
       apiKey: sanitizeSecret(process.env.OPENAI_API_KEY),
       timeout: getTimeoutMs(),
-      // Sama seperti MiMo: retry SDK digandakan menjadi dua request berbayar
-      // untuk kegagalan yang sama.
+      // Retry bawaan SDK digandakan menjadi dua request berbayar untuk
+      // kegagalan yang sama (mis. kredensial ditolak atau kuota habis), jadi
+      // dimatikan dan biarkan user yang memutuskan mencoba lagi.
       maxRetries: 0
     });
 
@@ -636,7 +445,7 @@ const openai = {
     }
 
     // Balasan berupa body audio mentah — `.arrayBuffer()` adalah satu-satunya
-    // cara membacanya di SDK ini (tidak ada bentuk JSON/base64 seperti MiMo).
+    // cara membacanya di SDK ini.
     const buffer = Buffer.from(await response.arrayBuffer());
 
     if (buffer.length === 0) {
@@ -1315,17 +1124,16 @@ const edge = {
   }
 };
 
-const PROVIDERS = { gemini, edge, elevenlabs, openai, mimo };
+const PROVIDERS = { gemini, edge, elevenlabs, openai };
 // Urutan ini menentukan provider utama default: yang gratis dan bersuara
-// Indonesia didahulukan (Gemini, lalu ElevenLabs free tier). MiMo ditaruh
-// terakhir karena tidak punya suara Indonesia, dan OpenAI ikut di belakang
-// karena berbayar (lihat catatan di atas).
-// Urutan ini menentukan provider utama default: yang gratis dan bersuara
-// Indonesia didahulukan (Gemini), lalu provider berbayar/dengan-kunci, dan Edge
-// di paling belakang. Edge sengaja di akhir justru karena ia SELALU siap: kalau
-// ia diletakkan lebih depan, ia akan selalu menang dan kunci Gemini/ElevenLabs
-// yang sudah diisi admin tidak pernah terpakai.
-const PROVIDER_ORDER = ['gemini', 'elevenlabs', 'openai', 'mimo', 'edge'];
+// Indonesia didahulukan (Gemini, lalu ElevenLabs free tier), lalu OpenAI (yang
+// berbayar), dan Edge di belakang ketiganya. Edge sengaja tidak di depan justru
+// karena ia SELALU siap: kalau ia diletakkan lebih awal, ia akan selalu menang
+// dan kunci Gemini/ElevenLabs yang sudah diisi admin tidak pernah terpakai.
+//
+// Setiap provider di daftar ini punya suara Indonesia — itu syarat masuknya,
+// karena halaman /tools/text-to-sound selalu mengucapkan teks Indonesia.
+const PROVIDER_ORDER = ['gemini', 'elevenlabs', 'openai', 'edge'];
 // Cadangan default adalah Edge — satu-satunya provider yang tidak membutuhkan
 // kredensial. Cadangan yang butuh kunci akan gagal tepat saat ia paling
 // dibutuhkan (admin belum mengisi kunci itu), sedangkan Edge selalu bisa
@@ -1420,7 +1228,7 @@ const getSoundVoiceOptions = () => {
   return {
     provider,
     voices: VOICES_BY_PROVIDER[provider] || [],
-    defaultVoice: DEFAULT_VOICE_BY_PROVIDER[provider] || DEFAULT_VOICE,
+    defaultVoice: DEFAULT_VOICE_BY_PROVIDER[provider],
     // Format mengikuti provider yang aktif, bukan seluruh provider: Gemini TTS
     // tidak bisa menghasilkan MP3, jadi menawarkan MP3 di UI hanya akan membuat
     // permintaan itu dilayani provider lain (dan kuotanya) tanpa user tahu.
@@ -1428,8 +1236,7 @@ const getSoundVoiceOptions = () => {
     // Format yang dipakai bila klien tidak mengirim `format` (POST langsung dari
     // API, bukan dari halaman web). Ikut provider yang aktif: Edge hanya bisa
     // MP3, sedangkan Gemini hanya WAV.
-    defaultFormat: defaultFormatFor(provider),
-    styleOverridesVoice: STYLE_OVERRIDES_VOICE[provider] === true
+    defaultFormat: defaultFormatFor(provider)
   };
 };
 
@@ -1630,16 +1437,12 @@ module.exports = {
   edgeGecToken,
   parseEdgeFrame,
   defaultFormatFor,
-  BUILT_IN_VOICES,
   VOICES_BY_PROVIDER,
   SUPPORTED_FORMATS_BY_PROVIDER,
   DEFAULT_VOICE_BY_PROVIDER,
   DEFAULT_FORMAT_BY_PROVIDER,
   ALLOWED_FORMATS,
   DEFAULT_FORMAT,
-  DEFAULT_VOICE,
-  DEFAULT_TTS_MODEL,
-  DEFAULT_VOICEDESIGN_MODEL,
   DEFAULT_OPENAI_TTS_MODEL,
   DEFAULT_GEMINI_TTS_MODEL,
   DEFAULT_ELEVENLABS_MODEL,
@@ -1649,7 +1452,6 @@ module.exports = {
   MAX_STYLE_LENGTH,
   GEMINI_BASE_URL,
   ELEVENLABS_BASE_URL,
-  MIMO_BASE_URL,
   EDGE_WSS_URL,
   EDGE_TRUSTED_CLIENT_TOKEN,
   EDGE_CHROMIUM_VERSION,

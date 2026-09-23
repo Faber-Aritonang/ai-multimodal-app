@@ -17,7 +17,7 @@ const FALLBACK_VOICES = [
 
 // Cadangan kalau GET /media/sound-voices tidak bisa dihubungi. Format yang sah
 // bergantung provider: Gemini TTS hanya menghasilkan WAV (PCM yang dibungkus),
-// Edge hanya MP3, sedangkan ElevenLabs/OpenAI/MiMo bisa keduanya.
+// Edge hanya MP3, sedangkan ElevenLabs/OpenAI bisa keduanya.
 const FALLBACK_FORMATS = [
   { value: 'wav', label: 'WAV', hint: 'kualitas penuh' },
   { value: 'mp3', label: 'MP3', hint: 'berkas kecil' }
@@ -35,10 +35,6 @@ const TextToSoundPage = ({ user, setUser }) => {
   const [text, setText] = useState('')
   const [voices, setVoices] = useState(FALLBACK_VOICES)
   const [voice, setVoice] = useState(FALLBACK_VOICES[0].value)
-  // Provider MiMo membuat suara BARU dari deskripsi gaya dan mengabaikan voice
-  // bawaan; OpenAI memakai keduanya sekaligus. Flag ini datang dari backend
-  // supaya dropdown voice hanya dinonaktifkan saat memang tidak berpengaruh.
-  const [styleOverridesVoice, setStyleOverridesVoice] = useState(true)
   const [style, setStyle] = useState('')
   const [format, setFormat] = useState(FALLBACK_FORMATS[0].value)
   const [formats, setFormats] = useState(FALLBACK_FORMATS)
@@ -72,7 +68,6 @@ const TextToSoundPage = ({ user, setUser }) => {
       if (!Array.isArray(daftar) || daftar.length === 0) return
 
       setVoices(daftar)
-      setStyleOverridesVoice(response.data.styleOverridesVoice !== false)
 
       // Format yang sah ikut provider yang aktif; pilihan yang sedang dipakai
       // dipindahkan kalau providernya ternyata tidak sanggup menghasilkannya
@@ -293,8 +288,7 @@ const TextToSoundPage = ({ user, setUser }) => {
                 data-testid="voice-select"
                 value={voice}
                 onChange={(e) => setVoice(e.target.value)}
-                disabled={styleOverridesVoice && style.trim().length > 0}
-                className="field disabled:cursor-not-allowed disabled:opacity-50"
+                className="field"
               >
                 {voices.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -320,9 +314,8 @@ const TextToSoundPage = ({ user, setUser }) => {
                 className="field"
               />
               <p className="mt-1.5 text-xs text-slate-500">
-                {styleOverridesVoice
-                  ? 'Isi kolom ini untuk membuat suara baru dari deskripsi — pilihan voice di atas diabaikan karena provider memakai model voice design.'
-                  : 'Isi kolom ini untuk mengatur gaya bicara (contoh: “hangat, santai, tempo lambat”). Voice di atas tetap dipakai.'}
+                Isi kolom ini untuk mengatur gaya bicara (contoh: “hangat, santai,
+                tempo lambat”). Voice di atas tetap dipakai.
               </p>
             </div>
 
@@ -403,11 +396,7 @@ const TextToSoundPage = ({ user, setUser }) => {
                   {/* Durasi hanya terbaca dari header WAV; untuk MP3 tidak ditampilkan. */}
                   {result.metadata?.duration ? `${result.metadata.duration}s · ` : ''}
                   {result.metadata?.format?.toUpperCase()}
-                  {result.metadata?.voice
-                    ? ` · voice ${result.metadata.voice}`
-                    : result.metadata?.style
-                      ? ` · voice design: ${result.metadata.style}`
-                      : ''}
+                  {result.metadata?.voice ? ` · voice ${result.metadata.voice}` : ''}
                   {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
                 </p>
 

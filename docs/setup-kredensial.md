@@ -141,8 +141,8 @@ OPENAI_API_KEY=sk-...
 # CHAT_FALLBACK_PROVIDER=gemini
 
 # Provider text-to-sound (lihat langkah 3e)
-# MIMO_API_KEY=...
-# SOUND_PROVIDER=mimo
+# GEMINI_API_KEY sudah dipakai fitur chat; Edge tidak perlu kunci
+# SOUND_PROVIDER=gemini
 
 # Opsional: lokasi penyimpanan hasil generate (default: backend/uploads)
 # UPLOAD_DIR=uploads
@@ -749,7 +749,8 @@ variabel di Railway bisa berisi spasi di ujung, tetapi kode sudah memangkasnya
 ## 3e. Text-to-Sound — Edge (tanpa kunci) + Gemini sebagai pilihan utama
 
 Fitur **Text to Sound** (`/tools/text-to-sound`) mengubah teks menjadi audio.
-Lima provider tersedia; yang membedakannya bahasa dan biayanya:
+Empat provider tersedia, dan **semuanya bersuara Indonesia** — itu syaratnya,
+karena halaman ini memang selalu mengucapkan teks Indonesia:
 
 | Provider | Bahasa | Biaya | Dipilih lewat |
 |---|---|---|---|
@@ -757,10 +758,9 @@ Lima provider tersedia; yang membedakannya bahasa dan biayanya:
 | **Gemini TTS** | Indonesia + 70 bahasa lain, logat bisa diarahkan | **gratis, tanpa billing** | `SOUND_PROVIDER=gemini` |
 | **ElevenLabs** | Indonesia (multilingual v2) | **gratis 10.000 karakter/bulan** | `SOUND_PROVIDER=elevenlabs` |
 | **OpenAI** (`gpt-4o-mini-tts`) | Indonesia + puluhan bahasa lain | berbayar | `SOUND_PROVIDER=openai` |
-| **MiMo** (Xiaomi, MiMo-V2.5-TTS) | **hanya Mandarin + Inggris** | berbayar | `SOUND_PROVIDER=mimo` |
 
 Tanpa `SOUND_PROVIDER` diisi, yang dipakai adalah provider pertama yang
-kredensialnya tersedia, urut **Gemini → ElevenLabs → OpenAI → MiMo → Edge**, dan
+kredensialnya tersedia, urut **Gemini → ElevenLabs → OpenAI → Edge**, dan
 cadangannya default `edge`.
 
 ### Tanpa kredensial apa pun, fiturnya tetap hidup
@@ -802,7 +802,7 @@ backend membungkusnya menjadi WAV. Edge sebaliknya hanya bisa MP3. Jadi pilihan
 format mengikuti provider yang aktif: saat Gemini yang aktif **MP3 tidak
 ditawarkan**, saat Edge yang aktif **WAV tidak ditawarkan**, dan permintaan yang
 formatnya tidak mungkin dijawab dijawab 400 dengan pesan yang menyebut
-providernya. ElevenLabs/OpenAI/MiMo bisa WAV dan MP3.
+providernya. ElevenLabs/OpenAI bisa WAV dan MP3, Edge hanya MP3.
 
 Kalau `GEMINI_API_KEY` terisi tetapi kuncinya sudah dicabut, yang muncul adalah
 503 dengan pesan `Gemini TTS error: HTTP 401` — bukan audio dari Edge, karena
@@ -810,16 +810,25 @@ galat konfigurasi memang sengaja ditampilkan. Perbaikannya: ambil kunci baru,
 atau kosongkan baris itu agar Edge menjadi provider utama (halaman lalu menawarkan
 MP3 dan berfungsi tanpa kunci).
 
-Daftar voice, format, dan apakah kolom *voice style* menggantikan voice — semuanya
-dilayani `GET /media/sound-voices` sesuai provider yang aktif, jadi dropdown di
-halaman tidak pernah menawarkan nilai milik provider lain.
+Daftar voice dan format dilayani `GET /media/sound-voices` sesuai provider yang
+aktif, jadi dropdown di halaman tidak pernah menawarkan nilai milik provider
+lain. Kolom *voice style* hanya mengatur **cara bicara** — ia tidak pernah
+menggantikan voice yang dipilih user.
 
-### Kenapa MiMo bukan pilihan untuk teks Indonesia
+### Kenapa MiMo dihapus dari proyek ini
 
-Dokumentasi resminya berbunyi *"Both Chinese and English are supported"* — tidak
-ada suara Indonesia. Mengganti pilihan voice atau mengisi kolom *voice style*
-tidak memperbaikinya, karena pelafalannya tetap memakai fonem
-Mandarin/Inggris. MiMo tetap berguna untuk teks berbahasa Mandarin/Inggris.
+Provider MiMo (Xiaomi, `MIMO_API_KEY`) pernah ada di daftar dan sudah **dihapus**.
+Sebabnya: dokumentasi resminya berbunyi *"Both Chinese and English are
+supported"* — tidak ada suara Indonesia, sedangkan halaman ini selalu
+mengucapkan teks Indonesia. Selama ia ada di daftar, mengisi `MIMO_API_KEY`
+sudah cukup untuk memindahkan seluruh halaman ke suara Mandarin tanpa ada yang
+memintanya, dan memperbaiki satu halaman itu tidak menghilangkan masalahnya:
+selama provider tanpa suara Indonesia ada di daftar, kombinasi kunci di server
+menentukan bahasa yang keluar. Menghapusnya tidak menghilangkan kemampuan apa
+pun — Gemini, ElevenLabs, dan Edge sama-sama bersuara Indonesia dan gratis.
+
+Kalau `MIMO_API_KEY` masih terisi di server, tidak ada yang perlu dibersihkan:
+variabel itu tidak lagi dibaca, dan `/health` tidak lagi melaporkannya.
 
 ### Gemini TTS — provider utama
 
@@ -844,36 +853,17 @@ Mandarin/Inggris. MiMo tetap berguna untuk teks berbahasa Mandarin/Inggris.
 - kolom **voice style** **diabaikan** (dengan peringatan di log): provider ini
   tidak punya parameter arahan gaya bebas. Untuk mengatur logat/gaya, pakai Gemini.
 
-### MiMo dan satu hal yang membedakannya dari provider lain
+### Peran kolom *voice style* di tiap provider
 
-MiMo **tidak** memakai endpoint `/v1/audio/speech` seperti OpenAI. Endpoint-nya
-kompatibel OpenAI, tetapi berupa **chat completion biasa**:
+Tidak ada provider di sini yang membuat suara baru dari deskripsi; yang dipilih
+user di dropdown voice selalu dipakai:
 
-- teks yang diucapkan dikirim sebagai pesan ber-`role: assistant`,
-- audionya kembali sebagai base64 di `choices[0].message.audio.data`,
-- parameter `audio: { format: "wav" }` menentukan format keluaran.
-
-Karena bentuknya chat completion, klien OpenAI SDK yang sudah dipakai modul chat
-bisa dipakai ulang — tidak ada dependency baru, dan `base_url`-nya cukup
-`https://api.xiaomimimo.com/v1`.
-
-### Dua model, dan kapan masing-masing dipakai
-
-Aplikasi memilih modelnya dari isi permintaan, jadi satu halaman mengerjakan
-keduanya:
-
-| Kolom di halaman | Model | Isi pesan |
-|---|---|---|
-| **voice** dipilih | `mimo-v2.5-tts` | `assistant` = teks yang diucapkan; `audio.voice` = voice bawaan |
-| **voice style** diisi | `mimo-v2.5-tts-voicedesign` | `user` = deskripsi suara; `assistant` = teks yang diucapkan (model ini menolak `audio.voice`) |
-
-Voice bawaan yang tersedia: `mimo_default`, `冰糖`, `茉莉`, `苏打`, `白桦`,
-`Mia`, `Chloe`, `Milo`, `Dean`.
-
-> `optimize_text_preview` (yang memoles teks sebelum diucapkan) **dimatikan**
-> secara default, walau contoh resmi provider menyalakannya. Alasannya: teks
-> hasil polesan membuat audio tidak lagi sesuai dengan teks yang diketik user.
-> Nyalakan dengan `MIMO_TTS_OPTIMIZE_TEXT=true` bila memang ingin begitu.
+| Provider | Yang dilakukan dengan *voice style* |
+|---|---|
+| **Gemini** | dikirim sebagai arahan bahasa alami di depan teks |
+| **OpenAI** | dikirim lewat parameter `instructions` (hanya model `gpt-4o-*`) |
+| **Edge** | diabaikan, dengan peringatan di log |
+| **ElevenLabs** | diabaikan, dengan peringatan di log |
 
 ### Langkah mengaktifkan
 
@@ -897,18 +887,13 @@ kalau ingin logat yang bisa diarahkan (Gemini) atau suara berbayar (OpenAI).
    # Cadangan/alternatif gratis lain (bila tidak ingin bergantung Edge)
    ELEVENLABS_API_KEY=sk_...
    # Opsional, semuanya punya default:
-   # SOUND_PROVIDER=gemini            # gemini | edge | elevenlabs | openai | mimo | none
+   # SOUND_PROVIDER=gemini            # gemini | edge | elevenlabs | openai | none
    # SOUND_FALLBACK_PROVIDER=edge
    # GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
    # ELEVENLABS_MODEL=eleven_multilingual_v2
    # ELEVENLABS_VOICE_ID=             # paksa voice tertentu (opsional)
    # SOUND_REQUEST_TIMEOUT_MS=120000
    # EDGE_TTS_WSS_URL=                # hanya bila Microsoft memindahkan endpointnya
-
-   # Khusus Mandarin/Inggris
-   # MIMO_API_KEY=kunci-dari-platform-mimo
-   # MIMO_TTS_MODEL=mimo-v2.5-tts
-   # MIMO_TTS_VOICEDESIGN_MODEL=mimo-v2.5-tts-voicedesign
    ```
 
 3. Restart backend, lalu buka `/health` (di luar production) dan pastikan:
@@ -938,10 +923,9 @@ kalau ingin logat yang bisa diarahkan (Gemini) atau suara berbayar (OpenAI).
 
 4. Buka halaman `/tools/text-to-sound` dan pastikan dropdown **voice** berisi
    voice provider yang aktif (`id-ID-GadisNeural`, `id-ID-ArdiNeural` untuk Edge;
-   `Kore`, `Puck`, … untuk Gemini; `Rachel`, `Adam`, … untuk ElevenLabs;
-   `mimo_default`, `冰糖`, … untuk MiMo). Daftar itu berasal dari
-   `GET /media/sound-voices` — kalau isinya tidak berubah setelah mengganti
-   provider, halaman perlu dimuat ulang.
+   `Kore`, `Puck`, … untuk Gemini; `Rachel`, `Adam`, … untuk ElevenLabs). Daftar
+   itu berasal dari `GET /media/sound-voices` — kalau isinya tidak berubah setelah
+   mengganti provider, halaman perlu dimuat ulang.
 5. Uji jalur cadangannya (opsional): set `SOUND_PROVIDER=gemini` sementara kuota
    Gemini masih ada, lalu bandingkan metadata hasil di riwayat — kolom `via`
    menyebut provider yang benar-benar dipakai.

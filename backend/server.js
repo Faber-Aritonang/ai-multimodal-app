@@ -272,8 +272,8 @@ app.get('/health', (req, res) => {
       imageEditFallback: image.editChain[1] || 'none',
       imageEditReady: image.editReady,
       imageEditCapabilities: image.editCapabilities,
-      // Provider text-to-sound (Gemini/Edge untuk suara Indonesia, ElevenLabs
-      // free tier sebagai pilihan cadangan, MiMo untuk Mandarin/Inggris).
+      // Provider text-to-sound (Gemini untuk suara Indonesia yang logatnya bisa
+      // diarahkan, ElevenLabs free tier sebagai cadangan, Edge tanpa kunci).
       // `soundReady` menentukan apakah halaman /tools/text-to-sound bisa
       // benar-benar menghasilkan audio, dan spec browser memakainya untuk
       // memilih antara menguji alur lengkap atau menguji pesan kegagalan yang
@@ -369,9 +369,8 @@ const startServer = async () => {
       `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`
     );
     // Text-to-sound: tanpa baris ini, "audio gagal" tidak bisa dibedakan antara
-    // OPENAI_API_KEY/MIMO_API_KEY yang belum sampai ke container dan provider
-    // yang bermasalah — dan provider yang dipakai ikut terlihat (openai untuk
-    // suara Indonesia, mimo untuk Mandarin/Inggris).
+    // GEMINI_API_KEY yang belum sampai ke container dan provider yang memang
+    // bermasalah — dan provider yang dipakai ikut terlihat.
     const speech = getSpeechProviderStatus();
     const speechStatus = Object.entries(speech.status)
       .map(([name, state]) => `${name}=${state}`)

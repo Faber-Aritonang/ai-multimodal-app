@@ -134,7 +134,7 @@ export const mediaAPI = {
   getStatus: () => api.get('/media/status'),
 
   // Voice TTS yang sah untuk provider yang sedang aktif. Diambil dari backend
-  // karena providernya bisa ditukar lewat env dan nama voice MiMo berbeda
+  // karena providernya bisa ditukar lewat env dan nama voice Gemini berbeda
   // sepenuhnya dari voice OpenAI.
   getSoundVoices: () => api.get('/media/sound-voices'),
 
@@ -146,9 +146,10 @@ export const mediaAPI = {
   imageToImage: ({ prompt, image, size }) =>
     api.post('/media/image-to-image', { prompt, image, size }, { timeout: 180000 }),
 
-  // Text to sound (TTS). `style` opsional: bila diisi, provider membuat suara
-  // baru dari deskripsi itu alih-alih memakai voice bawaan. Timeout lebih
-  // panjang dari default karena sintesis suara bisa memakan puluhan detik.
+  // Text to sound (TTS). `style` opsional: deskripsi gaya bicara yang dikirim ke
+  // provider yang mendukungnya (Gemini lewat arahan bahasa alami, OpenAI lewat
+  // `instructions`); voice yang dipilih tetap dipakai. Timeout lebih panjang
+  // dari default karena sintesis suara bisa memakan puluhan detik.
   textToSound: ({ text, voice, style, format }) =>
     api.post('/media/text-to-sound', { text, voice, style, format }, { timeout: 180000 }),
 

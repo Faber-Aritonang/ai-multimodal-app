@@ -53,7 +53,7 @@ module.exports = {
 
   async run({ session, reporter, api, sleep, health }) {
     // Backend sendiri yang memutuskan apakah fitur ini bisa dijalankan
-    // (MIMO_API_KEY sudah sampai ke container atau belum).
+    // (kredensial provider suara sudah sampai ke container atau belum).
     const providerSiap = health?.services?.soundReady === true;
 
     await session.open('/tools/text-to-sound');
@@ -66,15 +66,15 @@ module.exports = {
     const kuotaAwal = awal ? angkaDari(awal.kuota) : null;
     reporter.check('halaman menampilkan sisa kuota audio', Number.isFinite(kuotaAwal), awal?.kuota);
     reporter.equal('tombol generate nonaktif sebelum ada teks', awal?.tombolNonaktif, true);
-    // Voice & voice design ada di satu halaman, jadi pemilih voice bawaan harus
-    // benar-benar terisi (bukan daftar kosong).
+    // Pemilih voice harus benar-benar terisi (bukan daftar kosong), karena
+    // daftarnya datang dari provider yang aktif di backend.
     reporter.check('daftar voice bawaan terisi', (awal?.jumlahVoice || 0) >= 2, `voice terpilih: ${awal?.voiceTerpilih}`);
 
     // 1. Isi teks yang akan diucapkan
     await session.evaluate(`(() => {
       const ta = document.querySelector('[data-testid="text-input"]');
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-      setter.call(ta, 'Selamat pagi, ini contoh suara yang dibuat dari teks oleh Mr. Mimo.');
+      setter.call(ta, 'Selamat pagi, ini contoh suara yang dibuat dari teks.');
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       return 'teks terisi';
     })()`);
@@ -112,7 +112,7 @@ module.exports = {
 
       reporter.check(
         'pesan error menyebut cara mengaktifkannya (bukan pesan generik)',
-        /MIMO_API_KEY/.test(selesai.teksError || ''),
+        /SOUND_PROVIDER=none|GEMINI_API_KEY/.test(selesai.teksError || ''),
         selesai.teksError
       );
       reporter.check('tidak ada bagian hasil yang menyesatkan', selesai.adaHasil === false);
@@ -149,7 +149,14 @@ module.exports = {
     const daftar = await api.get('/media/history?type=text-to-sound&limit=1');
     const terbaru = daftar.body?.media?.[0];
 
-    reporter.equal('riwayat server menyimpan format berkasnya', terbaru?.metadata?.format, 'wav');
+    // Formatnya ikut provider yang melayani: Edge (tanpa kunci) menghasilkan
+    // MP3, sedangkan Gemini hanya WAV. Yang penting formatnya salah satu yang
+    // memang ditawarkan halaman ini.
+    reporter.check(
+      'riwayat server menyimpan format berkasnya',
+      /^(wav|mp3)$/.test(String(terbaru?.metadata?.format || '')),
+      terbaru?.metadata?.format
+    );
 
     if (terbaru?.contentId) {
       const hapus = await api.del(`/media/${terbaru.contentId}`);

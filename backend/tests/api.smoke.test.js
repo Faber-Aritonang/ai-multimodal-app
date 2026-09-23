@@ -152,11 +152,6 @@ describe('GET /health', () => {
       'ELEVENLABS_MODEL',
       'ELEVENLABS_VOICE_ID',
       'OPENAI_TTS_MODEL',
-      'MIMO_API_KEY',
-      'MIMO_BASE_URL',
-      'MIMO_TTS_MODEL',
-      'MIMO_TTS_VOICEDESIGN_MODEL',
-      'MIMO_TTS_OPTIMIZE_TEXT',
       'STORAGE_PROVIDER',
       'S3_ENDPOINT',
       'S3_BUCKET',
@@ -185,12 +180,7 @@ describe('GET /health', () => {
         'ELEVENLABS_API_KEY',
         'ELEVENLABS_MODEL',
         'ELEVENLABS_VOICE_ID',
-        'OPENAI_TTS_MODEL',
-        'MIMO_API_KEY',
-        'MIMO_BASE_URL',
-        'MIMO_TTS_MODEL',
-        'MIMO_TTS_VOICEDESIGN_MODEL',
-        'MIMO_TTS_OPTIMIZE_TEXT'
+        'OPENAI_TTS_MODEL'
       ].forEach((key) => delete process.env[key]);
     };
 
@@ -209,6 +199,13 @@ describe('GET /health', () => {
         'GEMINI_API_KEY',
         'OPENROUTER_API_KEY',
         'OPENROUTER_CHAT_MODEL',
+        // OPENAI_API_KEY ikut dibersihkan: `backend/.env` di mesin pengembang
+        // sering sudah berisi kunci ini (dipakai fitur chat, gambar, sekaligus
+        // suara), dan begitu terisi ia menggeser provider chat utama serta
+        // menandai provider openai sebagai `configured` — hasil test jadi
+        // berbeda antara mesin lokal dan CI. Test yang memang ingin memeriksa
+        // perilaku kunci ini mengisinya sendiri setelah pembersihan.
+        'OPENAI_API_KEY',
         // Penyimpanan juga dibersihkan: nilainya ikut muncul di /health, dan
         // test bisa berjalan di mesin yang env-nya sudah berisi kredensial S3.
         'STORAGE_PROVIDER',
@@ -223,9 +220,7 @@ describe('GET /health', () => {
       ].forEach((key) => delete process.env[key]);
 
       // Kredensial suara juga dibersihkan: nilainya ikut menentukan isi blok
-      // `services`, dan mesin pengembang bisa saja sudah mengisi MIMO_API_KEY
-      // atau GEMINI_API_KEY. OPENAI_API_KEY dihapus pemanggilnya masing-masing
-      // karena dipakai juga oleh fitur gambar/chat.
+      // `services`, dan mesin pengembang bisa saja sudah mengisi GEMINI_API_KEY.
       clearSoundEnv();
     };
 
@@ -245,9 +240,8 @@ describe('GET /health', () => {
     const services = async () => (await request(app).get('/health')).body.services;
 
     test('tanpa kredensial keduanya dilaporkan missing', async () => {
-      delete process.env.FIREBASE_SERVICE_ACCOUNT;
-      delete process.env.OPENAI_API_KEY;
       clearChatAndImageEnv();
+      delete process.env.FIREBASE_SERVICE_ACCOUNT;
 
       // Tanpa kredensial apa pun provider gambar tetap tersedia lewat
       // Pollinations, jadi fitur text-to-image tidak pernah mati total.
@@ -286,9 +280,8 @@ describe('GET /health', () => {
         // diarahkan lewat deskripsi gaya, dan Edge sebagai provider yang TIDAK
         // butuh kredensial sama sekali (suara neural Indonesia bawaan Microsoft)
         // — jadi tanpa kredensial apa pun fiturnya tetap siap, bukan mati.
-        // MiMo hanya untuk Mandarin/Inggris, dan ElevenLabs/OpenAI hanya dipakai
-        // bila diminta. Yang dilaporkan sebagai provider utama adalah yang
-        // kredensialnya tersedia.
+        // ElevenLabs/OpenAI hanya dipakai bila kuncinya ada. Yang dilaporkan
+        // sebagai provider utama adalah yang kredensialnya tersedia.
         soundProvider: 'edge',
         // 'none' di sini artinya rantainya hanya berisi satu provider: Edge
         // sudah menjadi cadangannya sendiri, jadi tidak ada provider kedua.
@@ -297,7 +290,6 @@ describe('GET /health', () => {
           gemini: 'missing',
           elevenlabs: 'missing',
           openai: 'missing',
-          mimo: 'missing',
           edge: 'configured'
         },
         soundVoices: VOICES_BY_PROVIDER.edge.map((item) => item.value),
@@ -320,18 +312,20 @@ describe('GET /health', () => {
       });
     });
 
-    test('MIMO_API_KEY sendirian membuat text-to-sound siap dipakai', async () => {
+    test('kunci MiMo yang tertinggal di .env tidak muncul di /health', async () => {
       clearSoundEnv();
       process.env.MIMO_API_KEY = 'mimo-kunci-uji';
 
       const status = await services();
 
-      expect(status.soundProvider).toBe('mimo');
-      expect(status.soundProviders.mimo).toBe('configured');
+      // Provider MiMo sudah dihapus dan kuncinya tidak dibaca lagi: yang
+      // melayani halaman text-to-sound tetap Edge (suara Indonesia, tanpa kunci).
+      expect(status.soundProvider).toBe('edge');
+      expect(status.soundProviders.mimo).toBeUndefined();
       expect(status.soundReady).toBe(true);
-      // Cadangan defaultnya Edge: provider gratis yang tidak butuh kunci, jadi
-      // cadangannya benar-benar bisa dipakai, bukan menunggu admin mengisi kunci.
-      expect(status.soundFallback).toBe('edge');
+      // 'none' di sini berarti rantainya hanya berisi satu provider: Edge sudah
+      // menjadi cadangannya sendiri, jadi tidak ada provider kedua.
+      expect(status.soundFallback).toBe('none');
     });
 
     test('GEMINI_API_KEY mendahulukan provider gratis bersuara Indonesia', async () => {
@@ -343,8 +337,8 @@ describe('GET /health', () => {
       expect(status.soundProvider).toBe('gemini');
       expect(status.soundProviders.gemini).toBe('configured');
       expect(status.soundReady).toBe(true);
-      // Daftar voice ikut provider yang aktif — nama voice MiMo/OpenAI tidak
-      // dikenal Gemini, jadi daftar gabungan justru menawarkan nilai yang salah.
+      // Daftar voice ikut provider yang aktif — nama voice OpenAI tidak dikenal
+      // Gemini, jadi daftar gabungan justru menawarkan nilai yang salah.
       expect(status.soundVoices).toContain('Kore');
       expect(status.soundVoices).not.toContain('Mia');
       expect(status.soundVoices).not.toContain('alloy');
@@ -364,13 +358,13 @@ describe('GET /health', () => {
     test('SOUND_FALLBACK_PROVIDER muncul di blok layanan', async () => {
       clearSoundEnv();
       process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
-      process.env.SOUND_FALLBACK_PROVIDER = 'mimo';
-      process.env.MIMO_API_KEY = 'mimo-kunci-uji';
+      process.env.OPENAI_API_KEY = 'sk-kunci-uji';
+      process.env.SOUND_FALLBACK_PROVIDER = 'openai';
 
       const status = await services();
 
       expect(status.soundProvider).toBe('gemini');
-      expect(status.soundFallback).toBe('mimo');
+      expect(status.soundFallback).toBe('openai');
     });
 
     test('kredensial Cloudflare mengaktifkan image-to-image lewat FLUX.2 [klein]', async () => {
@@ -431,11 +425,15 @@ describe('GET /health', () => {
     });
 
     test('GROQ_API_KEY membuat Groq menjadi provider chat utama', async () => {
+      // Konfigurasi chat di mesin pengembang bisa menggeser hasilnya: .env yang
+      // berisi CHAT_PROVIDER, OPENAI_API_KEY, atau OPENROUTER_API_KEY membuat
+      // provider utama/keadaan provider lain berbeda dari yang diharapkan test
+      // ini. clearChatAndImageEnv membersihkan ketiganya; perilaku key-key itu
+      // diuji di test tersendiri di bawah.
+      clearChatAndImageEnv();
+
       process.env.GROQ_API_KEY = 'gsk-test';
       process.env.GEMINI_API_KEY = 'gemini-test';
-      // Kredensial OpenRouter milik mesin pengembang (dari .env) tidak boleh
-      // membuat test ini gagal — perilakunya diuji di test tersendiri di bawah.
-      delete process.env.OPENROUTER_API_KEY;
 
       const status = await services();
 
@@ -449,6 +447,10 @@ describe('GET /health', () => {
     });
 
     test('OPENROUTER_API_KEY menambah cadangan tanpa menggeser provider utama', async () => {
+      // Sama seperti di atas: provider utama di mesin pengembang tidak boleh
+      // ikut menentukan hasil test ini.
+      clearChatAndImageEnv();
+
       process.env.GROQ_API_KEY = 'gsk-test';
       process.env.OPENROUTER_API_KEY = 'sk-or-test';
 

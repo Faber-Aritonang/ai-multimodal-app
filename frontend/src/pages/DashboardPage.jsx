@@ -60,7 +60,7 @@ const FEATURES = [
   {
     id: 'text-to-sound',
     title: 'Text to Sound',
-    description: 'Ubah teks menjadi suara, dengan pilihan voice atau voice design.',
+    description: 'Ubah teks menjadi suara, lengkap dengan pilihan voice dan gaya bicara.',
     icon: '🔊',
     path: '/tools/text-to-sound',
     available: true,

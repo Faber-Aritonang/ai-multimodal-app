@@ -207,8 +207,9 @@ Untuk fitur AI, tambahkan minimal satu provider chat (`GROQ_API_KEY`,
 bawaan Microsoft) melayaninya tanpa kunci API. Opsional, `GEMINI_API_KEY` yang
 sudah dipakai fitur chat juga menjadi provider suara dengan logat yang bisa
 diarahkan (gratis, tanpa billing), dan `ELEVENLABS_API_KEY` menyediakan
-cadangan free tier 10.000 karakter/bulan. MiMo (`MIMO_API_KEY`) hanya mendukung
-Mandarin/Inggris. Fitur yang key-nya belum ada tetap tampil di UI tetapi
+cadangan free tier 10.000 karakter/bulan. Keempatnya bersuara Indonesia — itu
+syarat sebuah provider masuk ke daftar, jadi tidak ada kunci yang bisa
+menggeser halaman ini ke bahasa lain. Fitur yang key-nya belum ada tetap tampil di UI tetapi
 menjawab dengan pesan yang menyebut variabel mana yang harus diisi.
 
 ### Mengisi variabel lewat CLI

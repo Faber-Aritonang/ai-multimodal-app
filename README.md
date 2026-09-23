@@ -45,7 +45,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Chat**: AI-powered conversational chat — provider bisa ditukar (Groq **gratis** sebagai default, Gemini/OpenAI/OpenRouter sebagai fallback)
 - **Text-to-Image**: Generate images from text prompts — provider bisa ditukar (Cloudflare Workers AI **gratis**, Pollinations tanpa API key, atau DALL·E 3), lengkap dengan riwayat & hapus
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
-- **Text-to-Sound**: Ubah teks menjadi suara — provider bisa ditukar (**Gemini TTS gratis** untuk suara Indonesia, **ElevenLabs free tier** sebagai cadangan saat kuota Gemini habis, MiMo-V2.5-TTS untuk Mandarin/Inggris). Bisa memakai voice bawaan (Kore, Puck, … untuk Gemini; Rachel, Adam, … untuk ElevenLabs) atau mengatur gaya bicara, format WAV/MP3, lengkap dengan riwayat & hapus
+- **Text-to-Sound**: Ubah teks menjadi suara — provider bisa ditukar (**Gemini TTS gratis** untuk suara Indonesia, **ElevenLabs free tier** sebagai cadangan saat kuota Gemini habis, **Edge TTS** tanpa kunci API). Bisa memakai voice bawaan (Kore, Puck, … untuk Gemini; Rachel, Adam, … untuk ElevenLabs; Gadis/Ardi untuk Edge) atau mengatur gaya bicara, format WAV/MP3, lengkap dengan riwayat & hapus
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -67,7 +67,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
 | **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
-| **Text-to-Sound** | Microsoft Edge TTS (suara neural Indonesia, **tanpa kunci API**) + Google Gemini TTS (`gemini-3.1-flash-tts-preview`) ; ElevenLabs free tier bila dipilih; MiMo-V2.5-TTS untuk Mandarin/Inggris | ✅ Edge tanpa akun; kuota gratis Gemini tanpa billing; ElevenLabs 10.000 karakter/bulan | OpenAI TTS berbayar |
+| **Text-to-Sound** | Microsoft Edge TTS (suara neural Indonesia, **tanpa kunci API**) + Google Gemini TTS (`gemini-3.1-flash-tts-preview`); ElevenLabs free tier bila dipilih | ✅ Edge tanpa akun; kuota gratis Gemini tanpa billing; ElevenLabs 10.000 karakter/bulan | OpenAI TTS berbayar |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -162,22 +162,14 @@ CHAT_FALLBACK_PROVIDER=gemini,openrouter
 # dengan suara neural Indonesia bawaan Microsoft (id-ID-GadisNeural,
 # id-ID-ArdiNeural), MP3. Opsional: GEMINI_API_KEY di atas (logat bisa diarahkan,
 # WAV) dan ElevenLabs free tier (lihat docs/setup-kredensial.md bagian 3e).
-# Urutan default: Gemini -> ElevenLabs -> OpenAI -> MiMo -> Edge, dengan Edge
-# sebagai cadangan karena ia tidak butuh kredensial.
+# Urutan default: Gemini -> ElevenLabs -> OpenAI -> Edge, dengan Edge sebagai
+# cadangan karena ia tidak butuh kredensial.
 ELEVENLABS_API_KEY=sk_your-elevenlabs-key
-# SOUND_PROVIDER=gemini            # gemini | edge | elevenlabs | openai | mimo | none
+# SOUND_PROVIDER=gemini            # gemini | edge | elevenlabs | openai | none
 # SOUND_FALLBACK_PROVIDER=edge
 # GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
 # ELEVENLABS_MODEL=eleven_multilingual_v2
 # EDGE_TTS_WSS_URL=                # hanya bila Microsoft memindahkan endpointnya
-#
-# Alternatif Xiaomi MiMo (hanya Mandarin + Inggris). Endpointnya kompatibel
-# OpenAI, tetapi BUKAN /v1/audio/speech: teks yang diucapkan dikirim sebagai
-# pesan `assistant` ke /v1/chat/completions dan audionya kembali sebagai base64.
-# Kunci dari https://mimo.mi.com
-# MIMO_API_KEY=mimo-your-key-here
-# MIMO_TTS_MODEL=mimo-v2.5-tts
-# MIMO_TTS_VOICEDESIGN_MODEL=mimo-v2.5-tts-voicedesign
 
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
@@ -367,7 +359,7 @@ dikembalikan dari sini.
 | GET | `/api/v1/member/referral-stats` | Statistik referral (jumlah yang diundang) | ✅ Member |
 | POST | `/api/v1/media/text-to-image` | Generate gambar dari prompt | ✅ Member |
 | POST | `/api/v1/media/image-to-image` | Transformasi gambar sesuai prompt | ✅ Member |
-| POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (Edge TTS tanpa kunci, atau Gemini/ElevenLabs/OpenAI/MiMo) | ✅ Member |
+| POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (Edge TTS tanpa kunci, atau Gemini/ElevenLabs/OpenAI) | ✅ Member |
 | GET | `/api/v1/media/sound-voices` | Voice & format yang sah untuk provider TTS yang aktif | ✅ Member |
 | GET | `/api/v1/media/history` | Riwayat media user | ✅ Member |
 | DELETE | `/api/v1/media/:contentId` | Hapus media (record + file) | ✅ Member |
@@ -447,14 +439,15 @@ curl -X POST http://localhost:3000/api/v1/media/text-to-sound \
 
 Daftar voice, format, dan format bawaannya diambil dari
 `GET /api/v1/media/sound-voices` — nama voice Edge (`id-ID-GadisNeural`, …) tidak
-dikenal Gemini/ElevenLabs/MiMo dan sebaliknya, jadi halaman
+dikenal Gemini/ElevenLabs dan sebaliknya, jadi halaman
 `/tools/text-to-sound` mengambil daftarnya dari sana alih-alih menyimpannya di
 frontend. `voice` dan `format` boleh dikosongkan: yang dipakai adalah voice dan
 format bawaan provider yang aktif.
 
 Isi `style` (mis. `"logat Indonesia baku, tempo santai"`) untuk mengatur gaya
-bicara. Pada Gemini gaya itu dikirim sebagai arahan bahasa alami di depan teks;
-pada MiMo backend berpindah ke model voice design, jadi voice bawaan diabaikan.
+bicara. Pada Gemini gaya itu dikirim sebagai arahan bahasa alami di depan teks,
+pada OpenAI lewat parameter `instructions`, dan pada Edge/ElevenLabs diabaikan
+(dengan peringatan di log). Voice yang dipilih user selalu tetap dipakai.
 Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>` di
 `/tools/text-to-sound`. Kuota yang berkurang adalah `videoGeneration` (satu jatah
 untuk media non-gambar), dan berkurang hanya bila audionya benar-benar berhasil
@@ -467,8 +460,9 @@ dibuat.
 > adalah Edge (tanpa kredensial), dan begitu provider utama gagal — paling sering
 > karena kuota gratis Gemini habis (HTTP 429) — percobaan yang gagal dicatat di
 > log serta di metadata hasil, yang selalu menyebut provider yang benar-benar
-> melayani. MiMo **tidak punya suara Indonesia** (dokumentasi resminya: hanya
-> Mandarin dan Inggris). Rincian penyiapannya ada di
+> melayani. Setiap provider di daftar punya suara Indonesia — itu syaratnya,
+> dan provider yang tidak punya (dulu MiMo: hanya Mandarin/Inggris) sudah
+> dihapus dari kode. Rincian penyiapannya ada di
 > [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3e.
 
 ## Deployment
@@ -529,7 +523,6 @@ IMAGE_PROVIDER=cloudflare
 IMAGE_FALLBACK_PROVIDER=pollinations
 SOUND_PROVIDER=gemini
 SOUND_FALLBACK_PROVIDER=edge
-# Alternatif Mandarin/Inggris: MIMO_API_KEY=mimo-your-key-here
 # Catatan: text-to-sound juga jalan TANPA variabel SOUND_* di atas — Edge TTS
 # (suara Indonesia, tanpa kunci API) menjadi providernya.
 
@@ -810,7 +803,7 @@ ai-multimodal-app/
 ### Phase 2: Media Features
 - [x] Text-to-Image — provider bisa ditukar (Cloudflare Workers AI gratis / Pollinations tanpa API key / DALL·E 3), plus riwayat & hapus
 - [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
-- [x] Text-to-Sound — provider bisa ditukar (Gemini TTS **gratis** untuk suara Indonesia dengan ElevenLabs free tier sebagai cadangan, MiMo-V2.5-TTS untuk Mandarin/Inggris); voice bawaan atau deskripsi gaya, format WAV/MP3, riwayat & hapus
+- [x] Text-to-Sound — provider bisa ditukar (Gemini TTS **gratis** untuk suara Indonesia dengan ElevenLabs free tier dan Edge TTS tanpa kunci sebagai cadangan); voice bawaan atau deskripsi gaya, format WAV/MP3, riwayat & hapus
 - [ ] Text-to-Video (RunwayML, Pika Labs)
 - [ ] Image-to-Video
 - [ ] Sound-to-Text (Whisper)

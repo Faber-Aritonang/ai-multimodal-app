@@ -2,14 +2,10 @@
  * Test: config/soundProviders
  *
  * Klien OpenAI SDK di-mock, jadi test tidak menembak jaringan dan bisa jalan
- * tanpa kredensial OpenAI maupun MiMo. Yang diuji di sini adalah bentuk
- * permintaan ke provider (endpoint, model, pesan, parameter `audio`) dan
- * pembacaan balasannya.
+ * tanpa kredensial OpenAI. Yang diuji di sini adalah bentuk permintaan ke
+ * provider (endpoint, model, pesan, parameter) dan pembacaan balasannya.
  */
 
-const mockCreate = jest.fn();
-// OpenAI TTS memakai jalur lain di SDK yang sama (audio.speech), jadi mock-nya
-// dipisah supaya test MiMo dan OpenAI tidak saling mengganggu.
 const mockSpeechCreate = jest.fn();
 const mockGetClient = jest.fn();
 // Gemini & ElevenLabs memakai fetch bawaan Node, bukan SDK — keduanya di-mock
@@ -35,12 +31,9 @@ const {
   edgeGecToken,
   parseEdgeFrame,
   defaultFormatFor,
-  BUILT_IN_VOICES,
   VOICES_BY_PROVIDER,
   SUPPORTED_FORMATS_BY_PROVIDER,
   DEFAULT_FORMAT_BY_PROVIDER,
-  DEFAULT_TTS_MODEL,
-  DEFAULT_VOICEDESIGN_MODEL,
   DEFAULT_OPENAI_TTS_MODEL,
   DEFAULT_GEMINI_TTS_MODEL,
   DEFAULT_ELEVENLABS_MODEL,
@@ -48,7 +41,7 @@ const {
   EDGE_WSS_URL,
   EDGE_TRUSTED_CLIENT_TOKEN,
   PROVIDERS,
-  MIMO_BASE_URL
+  PROVIDER_ORDER
 } = require('../config/soundProviders');
 
 const SOUND_ENV_VARS = [
@@ -62,11 +55,6 @@ const SOUND_ENV_VARS = [
   'ELEVENLABS_VOICE_ID',
   'OPENAI_API_KEY',
   'OPENAI_TTS_MODEL',
-  'MIMO_API_KEY',
-  'MIMO_BASE_URL',
-  'MIMO_TTS_MODEL',
-  'MIMO_TTS_VOICEDESIGN_MODEL',
-  'MIMO_TTS_OPTIMIZE_TEXT',
   'EDGE_TTS_WSS_URL'
 ];
 
@@ -93,12 +81,8 @@ const wavBytes = (seconds = 1, sampleRate = 8000) => {
   return buffer;
 };
 
-const audioReply = (buffer) => ({
-  choices: [{ message: { role: 'assistant', audio: { data: buffer.toString('base64') } } }]
-});
-
 // OpenAI mengembalikan body audio mentah; satu-satunya cara membacanya adalah
-// `.arrayBuffer()` — bukan JSON berisi base64 seperti MiMo.
+// `.arrayBuffer()`.
 const rawAudioReply = (buffer) => ({
   arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
 });
@@ -189,14 +173,11 @@ beforeEach(() => {
   savedEnv = Object.fromEntries(SOUND_ENV_VARS.map((key) => [key, process.env[key]]));
   SOUND_ENV_VARS.forEach((key) => delete process.env[key]);
 
-  mockCreate.mockReset();
   mockSpeechCreate.mockReset();
   mockGetClient.mockReset();
   mockGetClient.mockReturnValue({
-    chat: { completions: { create: mockCreate } },
     audio: { speech: { create: mockSpeechCreate } }
   });
-  mockCreate.mockResolvedValue(audioReply(wavBytes(1)));
   mockSpeechCreate.mockResolvedValue(rawAudioReply(wavBytes(1)));
 
   mockFetch.mockReset();
@@ -263,26 +244,29 @@ describe('pemilihan provider', () => {
     expect(getSpeechChain()).toEqual(['openai', 'edge']);
   });
 
-  test('SOUND_PROVIDER=mimo tetap bisa dipaksa', () => {
-    process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
-    process.env.SOUND_PROVIDER = 'mimo';
+  test('setiap provider di daftar default punya suara Indonesia', () => {
+    // Syarat masuk PROVIDER_ORDER: halaman text-to-sound selalu mengucapkan teks
+    // Indonesia, jadi provider tanpa suara Indonesia tidak boleh ada di daftar —
+    // sekalipun kuncinya terisi (itulah yang dulu terjadi pada MiMo: hanya
+    // Mandarin + Inggris, dan mengisi MIMO_API_KEY memindahkan seluruh halaman).
+    expect(PROVIDERS.mimo).toBeUndefined();
 
-    expect(getSpeechChain()).toEqual(['mimo', 'edge']);
+    expect(PROVIDER_ORDER).toEqual(['gemini', 'elevenlabs', 'openai', 'edge']);
   });
 
-  test('kolom MiMo dan OpenAI tidak bisa saling ditukar', () => {
+  test('kolom OpenAI dan Gemini tidak bisa saling ditukar', () => {
     process.env.OPENAI_API_KEY = 'sk-kunci-uji';
 
-    // Voice MiMo bukan nilai yang sah untuk provider OpenAI.
-    expect(getSoundVoiceOptions().voices.map((item) => item.value)).not.toContain('Mia');
+    // Voice Gemini bukan nilai yang sah untuk provider OpenAI.
+    expect(getSoundVoiceOptions().voices.map((item) => item.value)).not.toContain('Kore');
     expect(getSoundVoiceOptions().defaultVoice).toBe('alloy');
   });
 
   test('SOUND_FALLBACK_PROVIDER menimpa cadangan default', () => {
     process.env.GEMINI_API_KEY = 'gemini-kunci-uji';
-    process.env.SOUND_FALLBACK_PROVIDER = 'mimo';
+    process.env.SOUND_FALLBACK_PROVIDER = 'openai';
 
-    expect(getSpeechChain()).toEqual(['gemini', 'mimo']);
+    expect(getSpeechChain()).toEqual(['gemini', 'openai']);
   });
 
   test('SOUND_FALLBACK_PROVIDER=none mematikan cadangan', () => {
@@ -313,15 +297,15 @@ describe('pemilihan provider', () => {
     );
   });
 
-  test('daftar voice menerangkan apakah gaya suara menggantikan voice', () => {
-    // Default tanpa kredensial adalah OpenAI, dan di sana gaya suara dipakai
-    // bersama voice (tidak menggantikannya).
-    expect(getSoundVoiceOptions().styleOverridesVoice).toBe(false);
+  test('deskripsi gaya suara tidak pernah menggantikan pilihan voice', () => {
+    // Tidak ada provider di sini yang membuat suara dari deskripsi; pada Gemini
+    // gaya dikirim sebagai arahan di depan teks, pada OpenAI lewat
+    // `instructions`, dan pada Edge/ElevenLabs diabaikan. Jadi pilihan voice
+    // user selalu berlaku.
+    process.env.SOUND_PROVIDER = 'gemini';
 
-    process.env.SOUND_PROVIDER = 'mimo';
-
-    // MiMo voicedesign menolak field `voice`; suaranya dibuat dari deskripsi.
-    expect(getSoundVoiceOptions().styleOverridesVoice).toBe(true);
+    expect(getSoundVoiceOptions().voices.map((item) => item.value)).toContain('Kore');
+    expect(getSoundVoiceOptions().defaultVoice).toBe('Kore');
   });
 });
 
@@ -610,7 +594,6 @@ describe('elevenlabs', () => {
     expect(result.format).toBe('mp3');
     expect(result.mimeType).toBe('audio/mpeg');
     expect(result.voice).toBe('VOICE-B');
-    // Tanpa @voicedesign: metadatanya menyebut voice yang benar-benar dipakai.
     expect(result.buffer.toString()).toBe('ID3audio');
   });
 
@@ -692,161 +675,6 @@ describe('elevenlabs', () => {
     expect(bodyDipanggil(1).text).toBe('halo');
 
     peringatan.mockRestore();
-  });
-});
-
-describe('mimo', () => {
-  test('mengirim teks sebagai pesan assistant ke endpoint chat completions', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-
-    const result = await generateSpeech({ text: 'Halo, saya siap membantu.' });
-
-    expect(mockGetClient).toHaveBeenCalledWith({
-      apiKey: 'mimo-kunci-uji',
-      baseURL: MIMO_BASE_URL,
-      timeout: 120000,
-      // Retry bawaan SDK dimatikan: dua request berbayar untuk kegagalan yang
-      // sama (mis. kredensial atau kuota) tidak menolong siapa pun.
-      maxRetries: 0
-    });
-
-    expect(mockCreate).toHaveBeenCalledWith({
-      model: DEFAULT_TTS_MODEL,
-      messages: [{ role: 'assistant', content: 'Halo, saya siap membantu.' }],
-      audio: { format: 'wav', voice: 'mimo_default' },
-      stream: false
-    });
-
-    expect(result.provider).toBe('mimo');
-    expect(result.model).toBe(DEFAULT_TTS_MODEL);
-    expect(result.format).toBe('wav');
-    expect(result.mimeType).toBe('audio/wav');
-    expect(result.buffer.equals(wavBytes(1))).toBe(true);
-    // Durasi dibaca dari header WAV, bukan diminta ke provider.
-    expect(result.duration).toBe(1);
-  });
-
-  test('membersihkan kunci yang tercemar baris `export`', async () => {
-    process.env.MIMO_API_KEY = 'mimo-bersih\nexport MIMO_API_KEY=mimo-bersih';
-
-    await generateSpeech({ text: 'halo' });
-
-    expect(mockGetClient).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: 'mimo-bersih' })
-    );
-  });
-
-  test('voice bawaan yang dipilih diteruskan lewat parameter audio', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-
-    await generateSpeech({ text: 'halo', voice: 'Mia', format: 'mp3' });
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ audio: { format: 'mp3', voice: 'Mia' } })
-    );
-  });
-
-  test('deskripsi gaya suara memakai model voicedesign dan pesan user', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-
-    const result = await generateSpeech({
-      text: 'Yes, I had a sandwich.',
-      style: 'Give me a young male tone.'
-    });
-
-    const [params] = mockCreate.mock.calls[0];
-
-    expect(params.model).toBe(DEFAULT_VOICEDESIGN_MODEL);
-    expect(params.messages).toEqual([
-      { role: 'user', content: 'Give me a young male tone.' },
-      { role: 'assistant', content: 'Yes, I had a sandwich.' }
-    ]);
-    // Model ini menolak field `voice` — mengirimnya membuat permintaan gagal.
-    expect(params.audio).toEqual({ format: 'wav' });
-    expect(result.model).toBe(DEFAULT_VOICEDESIGN_MODEL);
-  });
-
-  test('optimize_text_preview hanya dikirim saat diminta lewat env', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-    process.env.MIMO_TTS_OPTIMIZE_TEXT = 'true';
-
-    await generateSpeech({ text: 'halo', style: 'suara hangat' });
-
-    // Default-nya false: teks yang diketik user diucapkan apa adanya, karena
-    // teks hasil polesan membuat audio tidak sesuai dengan yang diketik.
-    expect(mockCreate.mock.calls[0][0].audio).toEqual({
-      format: 'wav',
-      optimize_text_preview: true
-    });
-  });
-
-  test('model dan base URL bisa dioverride lewat env', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-    process.env.MIMO_BASE_URL = 'https://proxy.internal/v1';
-    process.env.MIMO_TTS_MODEL = 'mimo-v2.5-tts-voiceclone';
-    process.env.SOUND_REQUEST_TIMEOUT_MS = '5000';
-
-    await generateSpeech({ text: 'halo' });
-
-    expect(mockGetClient).toHaveBeenCalledWith(
-      expect.objectContaining({ baseURL: 'https://proxy.internal/v1', timeout: 5000 })
-    );
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'mimo-v2.5-tts-voiceclone' })
-    );
-  });
-
-  test('balasan tanpa audio gagal dengan jelas, bukan menyimpan berkas kosong', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-    mockCreate.mockResolvedValue({ choices: [{ message: { content: 'tidak ada audio' } }] });
-
-    await expect(generateSpeech({ text: 'halo' })).rejects.toThrow(
-      /tidak mengembalikan audio/
-    );
-  });
-
-  test('kredensial ditolak dibedakan dari kegagalan sesaat', async () => {
-    process.env.MIMO_API_KEY = 'mimo-salah';
-    mockCreate.mockRejectedValue(providerError('Unauthorized', 401));
-
-    await expect(generateSpeech({ text: 'halo' })).rejects.toMatchObject({
-      code: 'INVALID_PROVIDER_CONFIG'
-    });
-    await expect(generateSpeech({ text: 'halo' })).rejects.toThrow(/HTTP 401/);
-  });
-
-  test('gangguan provider dilaporkan sebagai kegagalan yang bisa dicoba ulang', async () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
-    mockCreate.mockRejectedValue(providerError('upstream error', 503));
-
-    await expect(generateSpeech({ text: 'halo' })).rejects.toMatchObject({
-      code: 'PROVIDER_UNAVAILABLE'
-    });
-  });
-
-  test('tanpa MIMO_API_KEY: tidak menembak provider MiMo sama sekali', async () => {
-    // Tanpa MIMO_API_KEY, provider MiMo tidak pernah masuk rantai default,
-    // jadi permintaannya dilayani provider lain (Edge) — bukan gagal.
-    setEdgeSocketFactory(() => {
-      const socket = buatSocketEdgePalsu();
-      setImmediate(() => {
-        socket.picu('message', frameEdge('audio', Buffer.from('ID3edge')), true);
-        socket.picu('message', frameTeksEdge('turn.end'), false);
-      });
-      return socket;
-    });
-
-    const result = await generateSpeech({ text: 'halo' });
-
-    expect(result.provider).toBe('edge');
-    expect(result.format).toBe('mp3');
-    expect(mockCreate).not.toHaveBeenCalled();
-  });
-
-  test('nilai placeholder di .env.example tidak dianggap kredensial valid', async () => {
-    process.env.MIMO_API_KEY = 'mimo-your-key-here';
-
-    expect(getSpeechProviderStatus().status.mimo).toBe('missing');
   });
 });
 
@@ -1060,8 +888,6 @@ describe('edge', () => {
     ]);
     expect(opsi.formats).toEqual(['mp3']);
     expect(opsi.defaultFormat).toBe('mp3');
-    // Gaya suara tidak menggantikan voice, tapi memang tidak dipakai provider ini.
-    expect(opsi.styleOverridesVoice).toBe(false);
     expect(defaultFormatFor('gemini')).toBe('wav');
     expect(DEFAULT_FORMAT_BY_PROVIDER.edge).toBe('mp3');
   });
@@ -1111,26 +937,38 @@ describe('measureWavDuration', () => {
 
 describe('getSpeechProviderStatus', () => {
   test('melaporkan rantai, ketersediaan, voice, dan format', () => {
-    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
+    process.env.OPENAI_API_KEY = 'sk-kunci-uji';
 
     expect(getSpeechProviderStatus()).toEqual({
-      chain: ['mimo', 'edge'],
+      chain: ['openai', 'edge'],
       status: {
         gemini: 'missing',
         elevenlabs: 'missing',
-        openai: 'missing',
-        mimo: 'configured',
+        openai: 'configured',
         // Tanpa kredensial: selalu siap, karena itu ia boleh jadi cadangan
         // default di mesin mana pun.
         edge: 'configured'
       },
       ready: true,
-      defaultPrimary: 'mimo',
+      defaultPrimary: 'openai',
       // Voice mengikuti provider di urutan pertama rantai — /health dipakai
       // untuk mencocokkan error dengan konfigurasi yang sebenarnya.
-      voices: BUILT_IN_VOICES,
+      voices: VOICES_BY_PROVIDER.openai.map((item) => item.value),
       formats: ['wav', 'mp3']
     });
+  });
+
+  test('kunci MiMo yang tertinggal di .env tidak berpengaruh apa pun', () => {
+    // MiMo sudah dihapus dari daftar provider. Kunci lama yang masih terisi di
+    // server tidak boleh muncul di status maupun menggeser provider utama.
+    process.env.MIMO_API_KEY = 'mimo-kunci-uji';
+
+    const status = getSpeechProviderStatus();
+
+    expect(status.chain).toEqual(['edge']);
+    expect(status.defaultPrimary).toBe('edge');
+    expect(status.status.mimo).toBeUndefined();
+    expect(status.voices).toEqual(VOICES_BY_PROVIDER.edge.map((item) => item.value));
   });
 
   test('kunci Gemini menggeser provider utama dan daftar voice-nya', () => {
@@ -1148,7 +986,6 @@ describe('getSpeechProviderStatus', () => {
 
     expect(status.ready).toBe(true);
     expect(status.status.edge).toBe('configured');
-    expect(status.status.mimo).toBe('missing');
     expect(status.status.openai).toBe('missing');
     expect(status.status.gemini).toBe('missing');
     expect(status.status.elevenlabs).toBe('missing');

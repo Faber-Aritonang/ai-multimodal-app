@@ -21,8 +21,8 @@
  *
  * text-to-sound:
  *   1. validasi teks yang diucapkan + suara/gaya + format keluaran
- *   2. minta audio dari provider TTS (Gemini/Edge/ElevenLabs/OpenAI/MiMo,
- *      lihat config/soundProviders.js)
+ *   2. minta audio dari provider TTS (Gemini/Edge/ElevenLabs/OpenAI, lihat
+ *      config/soundProviders.js)
  *   3. simpan berkasnya ke penyimpanan media, lalu kurangi quota user
  *
  * Kuota: audio memakai `videoGeneration` yang sudah ada, bukan field baru. Fitur
@@ -483,7 +483,7 @@ const parseSoundRequest = (body = {}) => {
   }
 
   // Divalidasi terhadap voice milik PROVIDER YANG AKTIF, bukan gabungan semua
-  // provider: nama voice MiMo tidak dikenal OpenAI dan sebaliknya, jadi daftar
+  // provider: voice Gemini tidak dikenal OpenAI dan sebaliknya, jadi daftar
   // gabungan justru menerima nilai yang pasti ditolak providernya. Daftar yang
   // sama juga dilayani GET /media/sound-voices, jadi dropdown di frontend tidak
   // pernah menawarkan nilai yang salah.
@@ -529,7 +529,7 @@ const parseSoundRequest = (body = {}) => {
  * Voice yang sah untuk provider TTS yang sedang aktif.
  *
  * Halaman /tools/text-to-sound mengambil daftarnya dari sini, supaya dropdown
- * tidak pernah basi: MiMo dan OpenAI memakai nama voice yang sama sekali
+ * tidak pernah basi: Gemini dan OpenAI memakai nama voice yang sama sekali
  * berbeda, dan providernya bisa ditukar lewat env tanpa mengubah frontend.
  */
 exports.getSoundVoices = (req, res) => {
@@ -592,11 +592,11 @@ exports.textToSound = async (req, res) => {
       mimeType: result.mimeType,
       // Durasi hanya bisa dibaca dari header WAV; null untuk MP3.
       duration: result.duration || null,
-      // Provider melaporkan voice yang benar-benar dipakai. MiMo voice design
-      // mengirim null (suaranya dibuat dari deskripsi), sedangkan OpenAI tetap
-      // memakai voice bawaan walau ada deskripsi gaya — jadi hasilnya dicatat apa
-      // adanya, bukan disimpulkan dari ada/tidaknya `style`.
-      voice: result.voice === undefined ? (parsed.style ? null : parsed.voice) : result.voice,
+      // Provider melaporkan voice yang benar-benar dipakai — bisa berbeda dari
+      // yang diminta user, mis. saat voice ElevenLabs tidak ada di akun pemilik
+      // kunci dan digantikan voice lain. Jadi hasilnya dicatat apa adanya, bukan
+      // disimpulkan dari request.
+      voice: result.voice === undefined ? parsed.voice : result.voice,
       style: parsed.style || null,
       provider: result.provider,
       model: result.model

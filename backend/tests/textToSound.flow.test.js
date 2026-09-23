@@ -4,7 +4,7 @@
  * Stack yang diuji adalah stack asli: route -> requireMember -> checkQuota ->
  * mediaController -> penulisan berkas -> express.static. Hanya MongoDB (model)
  * dan provider suara yang di-mock, jadi test tetap jalan di CI tanpa kredensial
- * MiMo.
+ * provider suara mana pun.
  */
 
 const fs = require('fs');
@@ -33,12 +33,13 @@ const { app } = require('../server');
 
 // Provider suara dipatok supaya daftar voice yang divalidasi tidak bergantung
 // pada kredensial yang kebetulan sudah ada di mesin pengembang: begitu
-// OPENAI_API_KEY terisi, provider aktif berpindah dan voice MiMo jadi tidak sah.
+// OPENAI_API_KEY terisi, provider aktif berpindah dan voice Gemini jadi tidak
+// sah. Gemini adalah provider utama default untuk teks Indonesia.
 const ENV_PROVIDER = ['SOUND_PROVIDER', 'SOUND_FALLBACK_PROVIDER'];
 const envAwal = Object.fromEntries(ENV_PROVIDER.map((key) => [key, process.env[key]]));
 
 beforeEach(() => {
-  process.env.SOUND_PROVIDER = 'mimo';
+  process.env.SOUND_PROVIDER = 'gemini';
 });
 
 afterAll(() => {
@@ -71,8 +72,9 @@ beforeEach(() => {
     buffer: WAV_BYTES,
     format: 'wav',
     mimeType: 'audio/wav',
-    provider: 'mimo',
-    model: 'mimo-v2.5-tts',
+    provider: 'gemini',
+    model: 'gemini-3.1-flash-tts-preview',
+    voice: 'Kore',
     duration: 1.5,
     attempts: []
   });
@@ -92,19 +94,19 @@ describe('POST /api/v1/media/text-to-sound', () => {
     const response = await request(app)
       .post('/api/v1/media/text-to-sound')
       .set(authHeader())
-      .send({ text: 'Selamat pagi, ini contoh suara.', voice: 'Mia', format: 'wav' });
+      .send({ text: 'Selamat pagi, ini contoh suara.', voice: 'Kore', format: 'wav' });
 
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
-    expect(response.body.provider).toBe('mimo');
+    expect(response.body.provider).toBe('gemini');
     expect(response.body.duration).toBe(1.5);
     expect(response.body.media.outputUrl).toBe('/uploads/media_sound.wav');
     expect(response.body.media.metadata).toMatchObject({
       format: 'wav',
       mimeType: 'audio/wav',
       duration: 1.5,
-      voice: 'Mia',
-      model: 'mimo-v2.5-tts'
+      voice: 'Kore',
+      model: 'gemini-3.1-flash-tts-preview'
     });
 
     // Kuota yang berkurang adalah videoGeneration, bukan imageGeneration.
@@ -114,7 +116,7 @@ describe('POST /api/v1/media/text-to-sound', () => {
 
     expect(mockGenerateSpeech).toHaveBeenCalledWith({
       text: 'Selamat pagi, ini contoh suara.',
-      voice: 'Mia',
+      voice: 'Kore',
       style: '',
       format: 'wav'
     });
@@ -126,14 +128,15 @@ describe('POST /api/v1/media/text-to-sound', () => {
     expect(fileResponse.headers['content-type']).toMatch(/audio\/wav/);
   });
 
-  test('deskripsi gaya suara dicatat, dan voice bawaan tidak ikut disimpan', async () => {
+  test('deskripsi gaya suara dicatat, dan voice yang dipakai tetap ikut disimpan', async () => {
     User.findOne.mockResolvedValue(approvedMember(3));
     mockGenerateSpeech.mockResolvedValue({
       buffer: WAV_BYTES,
       format: 'wav',
       mimeType: 'audio/wav',
-      provider: 'mimo',
-      model: 'mimo-v2.5-tts-voicedesign',
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-tts-preview',
+      voice: 'Kore',
       duration: null,
       attempts: []
     });
@@ -145,9 +148,10 @@ describe('POST /api/v1/media/text-to-sound', () => {
 
     expect(response.status).toBe(201);
     expect(response.body.media.metadata.style).toBe('young male tone');
-    // Suaranya dibuat dari deskripsi, jadi tidak ada voice bawaan yang dipakai.
-    expect(response.body.media.metadata.voice).toBeNull();
-    expect(response.body.media.metadata.model).toBe('mimo-v2.5-tts-voicedesign');
+    // Deskripsi gaya TIDAK menggantikan pilihan voice: Gemini tetap memakai
+    // voice yang dipilih, gayanya dikirim sebagai arahan di depan teks.
+    expect(response.body.media.metadata.voice).toBe('Kore');
+    expect(response.body.media.metadata.model).toBe('gemini-3.1-flash-tts-preview');
   });
 
   test('member tanpa kuota audio ditolak 403 dan provider tidak dipanggil', async () => {
@@ -205,24 +209,24 @@ describe('POST /api/v1/media/text-to-sound', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.message).toMatch(/Invalid voice/);
-    expect(response.body.message).toMatch(/mimo_default/);
+    expect(response.body.message).toMatch(/Kore/);
     expect(mockGenerateSpeech).not.toHaveBeenCalled();
   });
 
-  test('voice provider lain ditolak: nama MiMo bukan nilai sah untuk OpenAI', async () => {
+  test('voice provider lain ditolak: nama voice Gemini bukan nilai sah untuk OpenAI', async () => {
     User.findOne.mockResolvedValue(approvedMember(3));
     process.env.SOUND_PROVIDER = 'openai';
 
     const response = await request(app)
       .post('/api/v1/media/text-to-sound')
       .set(authHeader())
-      .send({ text: 'halo', voice: 'Mia' });
+      .send({ text: 'halo', voice: 'Kore' });
 
     expect(response.status).toBe(400);
     // Pesannya menyebut daftar provider yang AKTIF, supaya user tahu nilai
     // benar yang harus dikirim — bukan daftar gabungan yang menyesatkan.
     expect(response.body.message).toMatch(/alloy/);
-    expect(response.body.message).not.toMatch(/mimo_default/);
+    expect(response.body.message).not.toMatch(/Kore/);
   });
 
   test('voice yang dilaporkan provider dicatat apa adanya, bukan dari request', async () => {
@@ -242,7 +246,7 @@ describe('POST /api/v1/media/text-to-sound', () => {
     const response = await request(app)
       .post('/api/v1/media/text-to-sound')
       .set(authHeader())
-      .send({ text: 'halo', voice: 'Mia' });
+      .send({ text: 'halo', voice: 'Kore' });
 
     expect(response.status).toBe(201);
     expect(response.body.media.metadata.voice).toBe('alloy');
@@ -265,7 +269,7 @@ describe('POST /api/v1/media/text-to-sound', () => {
     const member = approvedMember(3);
     User.findOne.mockResolvedValue(member);
 
-    const providerError = new Error('All sound providers failed (mimo: HTTP 503)');
+    const providerError = new Error('All sound providers failed (gemini: HTTP 503)');
     providerError.code = 'PROVIDER_UNAVAILABLE';
     mockGenerateSpeech.mockRejectedValue(providerError);
 
@@ -287,8 +291,12 @@ describe('POST /api/v1/media/text-to-sound', () => {
   test('kredensial provider yang belum diisi dijawab 503, bukan menyuruh coba lagi', async () => {
     User.findOne.mockResolvedValue(approvedMember(3));
 
+    // Pesan asli dari config/soundProviders.js saat rantainya kosong.
     const missing = new Error(
-      'Text-to-sound belum dikonfigurasi di server. Isi MIMO_API_KEY di backend/.env.'
+      'Text-to-sound dimatikan di server (SOUND_PROVIDER=none). Lepaskan ' +
+        'pengaturan itu untuk memakai Edge TTS (suara Indonesia, tanpa kunci) ' +
+        'atau isi GEMINI_API_KEY (https://aistudio.google.com/apikey) untuk ' +
+        'logat yang bisa diarahkan lewat deskripsi gaya.'
     );
     missing.code = 'MISSING_CREDENTIALS';
     mockGenerateSpeech.mockRejectedValue(missing);
@@ -299,7 +307,8 @@ describe('POST /api/v1/media/text-to-sound', () => {
       .send({ text: 'halo' });
 
     expect(response.status).toBe(503);
-    expect(response.body.message).toMatch(/MIMO_API_KEY/);
+    expect(response.body.message).toMatch(/SOUND_PROVIDER=none/);
+    expect(response.body.message).toMatch(/GEMINI_API_KEY/);
   });
 });
 
@@ -322,11 +331,9 @@ describe('GET /api/v1/media/sound-voices', () => {
     const response = await ambil();
 
     expect(response.status).toBe(200);
-    expect(response.body.provider).toBe('mimo');
-    expect(response.body.defaultVoice).toBe('mimo_default');
-    expect(response.body.voices.map((item) => item.value)).toContain('Mia');
-    // MiMo voicedesign mengabaikan voice bawaan, jadi dropdown-nya dinonaktifkan.
-    expect(response.body.styleOverridesVoice).toBe(true);
+    expect(response.body.provider).toBe('gemini');
+    expect(response.body.defaultVoice).toBe('Kore');
+    expect(response.body.voices.map((item) => item.value)).toContain('Kore');
   });
 
   test('daftar berpindah begitu providernya ditukar, tanpa mengubah frontend', async () => {
@@ -337,11 +344,9 @@ describe('GET /api/v1/media/sound-voices', () => {
 
     expect(response.body.provider).toBe('openai');
     expect(response.body.defaultVoice).toBe('alloy');
-    // Voice MiMo tidak dikenal OpenAI — inilah yang membuat salah pilih tidak
+    // Voice Gemini tidak dikenal OpenAI — inilah yang membuat salah pilih tidak
     // mungkin terjadi dari UI.
-    expect(response.body.voices.map((item) => item.value)).not.toContain('Mia');
-    // OpenAI memakai voice BERSAMA deskripsi gaya, jadi dropdown tetap aktif.
-    expect(response.body.styleOverridesVoice).toBe(false);
+    expect(response.body.voices.map((item) => item.value)).not.toContain('Kore');
   });
 
   test('format yang sah ikut provider: Gemini hanya WAV', async () => {

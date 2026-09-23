@@ -40,7 +40,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Chat — cadangan OpenRouter | `OPENROUTER_API_KEY` | badge `via openrouter` muncul saat Groq/Gemini kehabisan kuota. Tanpa key ini provider hanya dilewati, bukan error. |
 | Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
-| Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY`; MiMo/Mandarin-Inggris: `MIMO_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
+| Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
@@ -72,7 +72,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `BYNARA_API_KEY` | — | kunci NaraRouter (`sk-nry-`); cukup satu variabel untuk generate + unduh hasil |
 | `IMAGE_REQUEST_TIMEOUT_MS` | `120000` | batas waktu request gambar |
 | `IMAGE_EDIT_PROVIDER` / `IMAGE_EDIT_FALLBACK_PROVIDER` | `bynara` lalu `cloudflare` | urutan provider image-to-image; `pollinations` tidak tersedia di sini |
-| `SOUND_PROVIDER` | provider pertama yang punya key, urut `gemini → elevenlabs → openai → mimo → edge` | provider text-to-sound; `none` mematikan fiturnya |
+| `SOUND_PROVIDER` | provider pertama yang punya key, urut `gemini → elevenlabs → openai → edge` | provider text-to-sound; `none` mematikan fiturnya |
 | `SOUND_FALLBACK_PROVIDER` | `edge` | provider cadangan saat provider utama gagal/kuotanya habis — jalur yang dipakai begitu kuota gratis Gemini (HTTP 429) habis. Edge dipilih sebagai default karena tidak butuh kunci, jadi cadangannya benar-benar bisa dipakai |
 | `EDGE_TTS_WSS_URL` | endpoint Read Aloud Edge | alamat WebSocket provider Edge; diisi hanya bila Microsoft memindahkannya |
 | `SOUND_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu request sintesis suara |
@@ -80,8 +80,6 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | model ElevenLabs; ini yang mendukung Bahasa Indonesia |
 | `ELEVENLABS_VOICE_ID` | — | paksa satu ID voice ElevenLabs. Tanpa ini, ID dibaca dari akun pemilik kunci (`GET /v1/voices`) karena daftar voice bawaan berbeda antar akun |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | model OpenAI TTS (berbayar, tidak dipakai otomatis). Hanya model `gpt-4o-*` yang menerima `instructions`, jadi pada `tts-1`/`tts-1-hd` deskripsi gaya diabaikan |
-| `MIMO_TTS_MODEL` / `MIMO_TTS_VOICEDESIGN_MODEL` | `mimo-v2.5-tts` / `mimo-v2.5-tts-voicedesign` | model TTS MiMo (hanya Mandarin/Inggris) |
-| `MIMO_TTS_OPTIMIZE_TEXT` | `false` | `true` meminta provider memoles teks sebelum diucapkan (audio jadi tidak persis sama dengan teks yang diketik) |
 | `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |

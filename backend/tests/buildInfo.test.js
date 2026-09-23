@@ -80,7 +80,7 @@ describe('getBuildInfo', () => {
   test.each([
     ['berkas penanda tidak ada', undefined],
     ['berkas penanda bukan JSON', '{ ini bukan json'],
-    ['isi penanda bukan SHA', JSON.stringify({ commit: 'mimo-your-key-here' })],
+    ['isi penanda bukan SHA', JSON.stringify({ commit: 'not-a-commit-sha' })],
     ['SHA terlalu pendek untuk sebuah commit', JSON.stringify({ commit: 'abc12' })],
     ['penanda tanpa kolom commit', JSON.stringify({ builtAt: '2026-09-22T09:47:12Z' })]
   ])('%s -> commit null', (_nama, isi) => {
