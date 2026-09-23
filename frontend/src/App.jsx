@@ -10,6 +10,8 @@ import DashboardPage from './pages/DashboardPage'
 import ChatPage from './pages/ChatPage'
 import TextToImagePage from './pages/TextToImagePage'
 import ImageToImagePage from './pages/ImageToImagePage'
+import TextToVideoPage from './pages/TextToVideoPage'
+import ImageToVideoPage from './pages/ImageToVideoPage'
 import TextToSoundPage from './pages/TextToSoundPage'
 import SoundToTextPage from './pages/SoundToTextPage'
 import ProfilePage from './pages/ProfilePage'
@@ -130,6 +132,18 @@ function App() {
         <Route path="/tools/image-to-image" element={
           <ProtectedRoute user={user} requiredApproval={true}>
             <ImageToImagePage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/tools/text-to-video" element={
+          <ProtectedRoute user={user} requiredApproval={true}>
+            <TextToVideoPage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/tools/image-to-video" element={
+          <ProtectedRoute user={user} requiredApproval={true}>
+            <ImageToVideoPage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
 

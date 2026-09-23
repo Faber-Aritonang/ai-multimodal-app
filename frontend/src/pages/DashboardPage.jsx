@@ -43,9 +43,9 @@ const FEATURES = [
     description: 'Hasilkan video pendek dari teks.',
     icon: '🎬',
     path: '/tools/text-to-video',
-    available: false,
-    accent: 'from-rose-400/20 to-rose-500/5',
-    ring: ''
+    available: true,
+    accent: 'from-rose-400/30 to-rose-500/10',
+    ring: 'group-hover:border-rose-300/40'
   },
   {
     id: 'image-to-video',
@@ -53,9 +53,9 @@ const FEATURES = [
     description: 'Hidupkan gambar menjadi video.',
     icon: '🎥',
     path: '/tools/image-to-video',
-    available: false,
-    accent: 'from-amber-400/20 to-amber-500/5',
-    ring: ''
+    available: true,
+    accent: 'from-amber-400/30 to-amber-500/10',
+    ring: 'group-hover:border-amber-300/40'
   },
   {
     id: 'text-to-sound',

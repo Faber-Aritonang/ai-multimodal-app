@@ -72,10 +72,14 @@ module.exports = {
     // Angka ini berubah saat fitur baru diaktifkan — assertion-nya menyengaja
     // agar daftar fitur di dashboard tidak diam-diam bergeser.
     reporter.equal('jumlah kartu tool', dashboard?.jumlahKartu, 7);
-    // Bertambah saat sound-to-text diaktifkan: chat, text-to-image,
-    // image-to-image, text-to-sound, sound-to-text.
-    reporter.equal('kartu yang bisa dipakai', dashboard?.kartuTersedia, 5);
-    reporter.equal('kartu "Coming Soon"', dashboard?.kartuSegera, 2);
+
+    // Bertambah saat text-to-video & image-to-video diaktifkan: chat,
+    // text-to-image, image-to-image, text-to-video, image-to-video,
+    // text-to-sound, sound-to-text.
+    reporter.equal('kartu yang bisa dipakai', dashboard?.kartuTersedia, 7);
+    // Tidak ada kartu yang tersisa sebagai rencana: seluruh alat sudah jalan.
+    reporter.equal('kartu "Coming Soon"', dashboard?.kartuSegera, 0);
+    reporter.equal('tidak ada label Coming Soon di dashboard', dashboard?.adaBadgeSegera, false);
 
     if (kuotaApi.body?.quota) {
       reporter.equal('kuota chat di dashboard sesuai API', dashboard?.kuota?.chat, String(kuotaApi.body.quota.chat));

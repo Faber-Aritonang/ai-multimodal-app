@@ -42,6 +42,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
 | Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
 | Sound-to-Text | minimal **satu** dari `GROQ_API_KEY` (gratis, 1.000 request/hari) atau `GEMINI_API_KEY` | unggah/rekam audio di `/tools/sound-to-text`; log boot menampilkan `Provider transkripsi: groq > gemini (ready=true ...)`. **Tidak ada jalur tanpa kunci** di fitur ini: tanpa kredensial permintaannya dijawab `503` dengan pesan yang menyebut variabel yang harus diisi. |
+| Text-to-Video & Image-to-Video | `BYNARA_API_KEY` (kunci yang sama dipakai text-to-image) | generate 1 video di `/tools/text-to-video`; log boot menampilkan `Provider video: bynara (ready=true bynara=configured)`. **Tidak ada jalur tanpa kunci:** Cloudflare tidak punya model video dan seluruh model video Pollinations `paid_only`, jadi tanpa kunci permintaannya dijawab `503` yang menyebut `BYNARA_API_KEY`. **Perhatian: berbayar** — satu video = satu pekerjaan berbayar di NaraRouter. |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
@@ -85,6 +86,15 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `GEMINI_TTS_MODEL` | `gemini-3.1-flash-tts-preview` | model Gemini TTS (status preview). Hanya model ini yang dipakai untuk permintaan WAV karena backend membungkus PCM-nya sendiri |
 | `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | model ElevenLabs; ini yang mendukung Bahasa Indonesia |
 | `ELEVENLABS_VOICE_ID` | — | paksa satu ID voice ElevenLabs. Tanpa ini, ID dibaca dari akun pemilik kunci (`GET /v1/voices`) karena daftar voice bawaan berbeda antar akun |
+| `VIDEO_PROVIDER` | `bynara` (satu-satunya) | provider text-to-video/image-to-video; `none` mematikan fiturnya |
+| `VIDEO_FALLBACK_PROVIDER` | `none` | belum ada provider video kedua yang terpasang |
+| `BYNARA_VIDEO_MODEL` | `agnes-video-v2.0` | alias model video NaraRouter. Mode (`t2v`/`i2v`) dikirim sebagai field terpisah, bukan akhiran nama model |
+| `VIDEO_RESOLUTION` | `720p` | `720p` / `1080p`. **480p tidak didukung provider**, jadi nilainya tidak ditawarkan di UI maupun diterima API |
+| `VIDEO_DURATION` | `5` | durasi awal satu video dalam detik (3-15). User tetap bisa memilih 3-15 detik di UI; nilai ini hanya yang terpilih lebih dulu |
+| `VIDEO_RATIO` | `16:9` | bentuk gambar untuk text-to-video; image-to-video mengikuti gambar pertamanya |
+| `VIDEO_JOB_TIMEOUT_MS` | `600000` | batas total satu pekerjaan video (provider menyelesaikan 1-5 menit) |
+| `VIDEO_POLL_INTERVAL_MS` | `5000` | jeda antar pemeriksaan status pekerjaan |
+| `VIDEO_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu permintaan HTTP ke provider video |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | model OpenAI TTS (berbayar, tidak dipakai otomatis). Hanya model `gpt-4o-*` yang menerima `instructions`, jadi pada `tts-1`/`tts-1-hd` deskripsi gaya diabaikan |
 | `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |

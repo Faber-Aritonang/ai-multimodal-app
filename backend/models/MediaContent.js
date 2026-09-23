@@ -71,6 +71,14 @@ const mediaContentSchema = new mongoose.Schema({
     // berubah di kemudian hari.
     transcript: String,
     language: String,
+    // Khusus video (text-to-video / image-to-video): bentuk gambar (aspect
+    // ratio), mode yang diminta (t2v/i2v), dan id pekerjaan di provider. `mode`
+    // ikut disimpan karena satu model video melayani beberapa mode, dan tanpa
+    // catatan ini tidak bisa dibedakan hasil yang berangkat dari teks dengan
+    // yang berangkat dari gambar ketika tidak ada gambar inputnya.
+    aspectRatio: String,
+    mode: String,
+    jobId: String,
     // Provider & model yang dipakai saat generate (mis. cloudflare / flux-1-schnell)
     provider: String,
     model: String

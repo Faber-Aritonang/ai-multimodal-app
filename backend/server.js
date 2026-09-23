@@ -37,6 +37,7 @@ const {
 } = require('./config/storage');
 const { getChatProviderStatus } = require('./config/chatProviders');
 const { getSpeechProviderStatus } = require('./config/soundProviders');
+const { getVideoProviderStatus } = require('./config/videoProviders');
 const { getSpeechToTextStatus } = require('./config/speechToTextProviders');
 const { preferEnvFile } = require('./config/envFile');
 const { getBuildInfo } = require('./config/buildInfo');
@@ -260,6 +261,7 @@ app.get('/health', (req, res) => {
     const chat = getChatProviderStatus();
     const speech = getSpeechProviderStatus();
     const transcribe = getSpeechToTextStatus();
+    const video = getVideoProviderStatus();
 
     payload.services = {
       firebase: isFirebaseConfigured() ? 'configured' : 'missing',
@@ -298,6 +300,17 @@ app.get('/health', (req, res) => {
       speechToTextProviders: transcribe.status,
       speechToTextModels: transcribe.models,
       speechToTextReady: transcribe.ready,
+      // Provider video (text-to-video & image-to-video). Sama seperti
+      // sound-to-text, `videoReady` TIDAK selalu true: tidak ada provider video
+      // yang bisa dipakai tanpa kredensial sama sekali (Cloudflare tidak punya
+      // model video, Pollinations video semuanya berbayar), sehingga nilainya
+      // benar-benar bisa false — dan itulah yang membedakan "kunci belum sampai
+      // ke container" dari "providernya sedang bermasalah".
+      videoProvider: video.chain[0] || 'none',
+      videoFallback: video.chain[1] || 'none',
+      videoProviders: video.status,
+      videoModels: video.models,
+      videoReady: video.ready,
       // Di produksi nilainya harus `cloudinary` atau `s3`; kalau `local`, gambar
       // akan hilang pada setiap deploy (filesystem container sementara).
       storage: describeStorage(),
@@ -402,6 +415,17 @@ const startServer = async () => {
     console.log(
       `Provider transkripsi: ${transcribe.chain.join(' > ') || 'none'} ` +
         `(ready=${transcribe.ready} ${transcribeStatus})`
+    );
+    // Video: fitur ini juga bisa tidak siap sama sekali (tidak ada provider
+    // video tanpa kredensial), jadi baris ini yang membedakan "BYNARA_API_KEY
+    // belum sampai ke container" dari "providernya sedang bermasalah".
+    const video = getVideoProviderStatus();
+    const videoStatus = Object.entries(video.status)
+      .map(([name, state]) => `${name}=${state}`)
+      .join(' ');
+    console.log(
+      `Provider video: ${video.chain.join(' > ') || 'none'} ` +
+        `(ready=${video.ready} ${videoStatus})`
     );
   });
 };

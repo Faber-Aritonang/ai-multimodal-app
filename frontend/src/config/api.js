@@ -165,6 +165,22 @@ export const mediaAPI = {
   soundToText: ({ audio, language, prompt }) =>
     api.post('/media/sound-to-text', { audio, language, prompt }, { timeout: 180000 }),
 
+  // Mode, resolusi, durasi & batas yang diterima endpoint video. Diambil dari
+  // backend supaya aturan yang ditampilkan ke user tidak disalin ulang di sini
+  // dan tidak bisa menyimpang dari yang divalidasi server.
+  getVideoOptions: () => api.get('/media/video-options'),
+
+  // Text to video & image to video. Keduanya membalas 202 segera (pekerjaannya
+  // 1-5 menit dan berjalan di server), jadi hasilnya TIDAK ada di respons — ia
+  // menyusul di riwayat. Karena itu timeout-nya tidak perlu panjang: yang
+  // ditunggu hanyalah pembuatan record.
+  textToVideo: ({ prompt, resolution, ratio, duration }) =>
+    api.post('/media/text-to-video', { prompt, resolution, ratio, duration }, { timeout: 60000 }),
+
+  // `image` dikirim sebagai data URL (sudah diperkecil di browser).
+  imageToVideo: ({ prompt, image, resolution, duration }) =>
+    api.post('/media/image-to-video', { prompt, image, resolution, duration }, { timeout: 60000 }),
+
   // Riwayat media milik user
   getHistory: (params = {}) => api.get('/media/history', { params }),
 

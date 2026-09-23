@@ -47,13 +47,11 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Image-to-Image**: Transformasi gambar yang diunggah sesuai prompt (FLUX.2 [klein] di Cloudflare). Gambar diperkecil otomatis di browser, riwayat menyimpan sebelum/sesudah
 - **Text-to-Sound**: Ubah teks menjadi suara — provider bisa ditukar (**Gemini TTS gratis** untuk suara Indonesia, **ElevenLabs free tier** sebagai cadangan saat kuota Gemini habis, **Edge TTS** tanpa kunci API). Bisa memakai voice bawaan (Kore, Puck, … untuk Gemini; Rachel, Adam, … untuk ElevenLabs; Gadis/Ardi untuk Edge) atau mengatur gaya bicara, format WAV/MP3, lengkap dengan riwayat & hapus
 - **Sound-to-Text**: Transkripsi audio menjadi teks — unggah berkas atau rekam langsung dari mikrofon (rekaman dikonversi ke WAV di browser). Provider bisa ditukar (**Groq Whisper gratis**, 1.000 request/hari; **Gemini** sebagai cadangan; OpenAI Whisper bila diminta), bahasa bisa dipilih atau dideteksi otomatis, lengkap dengan riwayat, salin teks, dan unduh `.txt`
+- **Text-to-Video**: Hasilkan video pendek (3-15 detik, 720p/1080p) dari deskripsi teks lewat **NaraRouter** (model `agnes-video-v2.0`). Pekerjaannya berjalan di latar belakang — halaman membalas segera dan hasilnya muncul sendiri di riwayat saat selesai (1-5 menit), lengkap dengan pemutar video & unduh MP4
+- **Image-to-Video**: Hidupkan satu gambar menjadi video — gambar yang diunggah menjadi frame **pertama** (diperkecil otomatis di browser ke maks 1280px), lalu diberi gerakan sesuai prompt. Memakai provider & pekerjaan latar belakang yang sama dengan Text-to-Video
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
-
-### Feature Flags (Pending Admin Approval)
-- **Text-to-Video**: Generate videos from text descriptions
-- **Image-to-Video**: Create videos from images
 
 ## Tech Stack
 
@@ -69,6 +67,7 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 | **Chat (LLM)** | Groq + Gemini/OpenRouter fallback (endpoint OpenAI-compatible) | ✅ 1.000 request/hari (Groq) | OpenAI / paid tiers |
 | **Text-to-Sound** | Microsoft Edge TTS (suara neural Indonesia, **tanpa kunci API**) + Google Gemini TTS (`gemini-3.1-flash-tts-preview`); ElevenLabs free tier bila dipilih | ✅ Edge tanpa akun; kuota gratis Gemini tanpa billing; ElevenLabs 10.000 karakter/bulan | OpenAI TTS berbayar |
 | **Sound-to-Text** | Groq Whisper (`whisper-large-v3`, endpoint OpenAI-compatible) + Gemini audio understanding; OpenAI Whisper bila diminta | ✅ 1.000 request/hari (Groq); kuota gratis Gemini | OpenAI Whisper berbayar |
+| **Text-to-Video / Image-to-Video** | NaraRouter `agnes-video-v2.0` (endpoint video asinkron, kunci sama dengan text-to-image) | ❌ berbayar/paket — **tidak ada provider video yang gratis**: Cloudflare Workers AI tidak punya model video, dan semua model video Pollinations `paid_only` | Veo / Seedance / Runway lewat NaraRouter atau provider lain |
 | **Hosting** | Local/Hostinger | ✅ Free | Paid VPS |
 
 ### Alternative Stack Options
@@ -171,6 +170,19 @@ ELEVENLABS_API_KEY=sk_your-elevenlabs-key
 # GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
 # ELEVENLABS_MODEL=eleven_multilingual_v2
 # EDGE_TTS_WSS_URL=                # hanya bila Microsoft memindahkan endpointnya
+
+# Text-to-Video & Image-to-Video — satu-satunya fitur yang TIDAK punya jalur
+# gratis (lihat "Generate Video" di bawah). Memakai BYNARA_API_KEY yang sama
+# dengan text-to-image; modelnya agnes-video-v2.0.
+# BYNARA_API_KEY=sk-nry-your-key
+# VIDEO_PROVIDER=bynara                  # bynara | none
+# VIDEO_FALLBACK_PROVIDER=none
+# BYNARA_VIDEO_MODEL=agnes-video-v2.0
+# VIDEO_RESOLUTION=720p                  # 720p | 1080p (480p tidak didukung)
+# VIDEO_DURATION=5                       # 3-15 detik
+# VIDEO_RATIO=16:9                       # hanya untuk text-to-video
+# VIDEO_JOB_TIMEOUT_MS=600000            # batas total satu pekerjaan video
+# VIDEO_POLL_INTERVAL_MS=5000            # jeda antar pemeriksaan status
 
 # Penyimpanan media (opsional di lokal, WAJIB di produksi)
 # Tanpa ini, gambar hasil generate disimpan di filesystem container dan ikut
@@ -499,6 +511,64 @@ permintaannya dijawab `503` dengan pesan yang menyebut variabel yang harus diisi
 Rincian penyiapannya ada di
 [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3f.
 
+### Generate Video (Text to Video)
+```bash
+curl -X POST http://localhost:3000/api/v1/media/text-to-video \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "a paper boat drifting down a rain-soaked street at night",
+    "resolution": "720p"
+  }'
+```
+
+**Endpoint ini menjawab `202`, bukan `201`.** Generate video memakan 1-5 menit,
+jadi permintaannya tidak ditunggu di dalam siklus request/response: yang kembali
+hanya record `media` berstatus `processing`. Pekerjaannya berjalan di server, dan
+hasilnya muncul di `GET /media/history?type=text-to-video` setelah statusnya
+menjadi `completed` (halaman `/tools/text-to-video` melakukan polling untuk ini).
+Kalau pembuatannya gagal, record-nya berstatus `failed` dan `error.message`
+menjelaskan sebabnya. Kuota `videoGeneration` berkurang **hanya setelah** videonya
+benar-benar tersimpan, jadi percobaan yang gagal tidak menghabiskan jatah user.
+
+`resolution` menerima `720p` atau `1080p` (bawaan `720p`). **`480p` sengaja tidak
+ada** — dokumentasi NaraRouter hanya menyebut 720p/1080p, dan menawarkan nilai
+yang pasti ditolak provider hanya berakhir sebagai kegagalan yang sulit
+dijelaskan. Durasi bisa dipilih **3-15 detik** di halaman; nilai awalnya 5 detik
+(dapat diubah operator lewat `VIDEO_DURATION`). Daftar mode, resolusi, durasi, dan
+batas prompt dilayani `GET /api/v1/media/video-options`.
+
+### Animate Image (Image to Video)
+```bash
+curl -X POST http://localhost:3000/api/v1/media/image-to-video \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "the camera slowly pushes in while the clouds drift",
+    "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+    "resolution": "720p"
+  }'
+```
+
+Sama seperti text-to-video (202 + pekerjaan latar belakang). Bedanya: gambar yang
+dikirim menjadi frame **pertama** video, jadi `image` wajib dan komposisinya
+diikuti provider — `ratio` diabaikan karena bentuk videonya mengikuti gambar itu.
+Gambar sumbernya disimpan lebih dulu (`inputFile`) supaya riwayat bisa menunjukkan
+dari mana videonya berangkat, dan berkasnya ikut terhapus ketika record-nya
+dihapus. Batasnya: 8 MB dan maks 1920px per sisi; halaman web memperkecilnya ke
+maks 1280px di browser sebelum mengirim.
+
+> Biaya: **fitur video adalah satu-satunya yang tidak punya jalur gratis.** Ini
+> sudah diperiksa langsung ke sumbernya: Cloudflare Workers AI (dipakai
+> text-to-image) tidak memiliki satu pun model video, dan seluruh model video
+> Pollinations berstatus `paid_only` (dihargai pollen; akun gratis hanya ±1,5
+> pollen/minggu), sementara Video API OpenRouter berbayar per detik. Karena itu
+> providernya NaraRouter — memakai kunci `BYNARA_API_KEY` yang **sama** dengan
+> text-to-image, dengan model `agnes-video-v2.0`. Tanpa kunci itu permintaannya
+> dijawab `503` dengan pesan yang menyebut variabelnya, bukan `502` "coba lagi".
+> Rincian penyiapannya ada di
+> [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3g.
+
 ## Deployment
 
 Deploy produksi berjalan **otomatis dari CI**: satu push ke `main` menjalankan
@@ -559,6 +629,13 @@ SOUND_PROVIDER=gemini
 SOUND_FALLBACK_PROVIDER=edge
 # Catatan: text-to-sound juga jalan TANPA variabel SOUND_* di atas — Edge TTS
 # (suara Indonesia, tanpa kunci API) menjadi providernya.
+
+# Text-to-Video & Image-to-Video. Tidak ada provider video tanpa kredensial,
+# jadi tanpa BYNARA_API_KEY (di atas, dipakai text-to-image juga) fitur ini
+# dijawab 503 dengan pesan yang menyebut variabelnya.
+VIDEO_PROVIDER=bynara
+VIDEO_RESOLUTION=720p
+VIDEO_DURATION=5
 
 # WAJIB di produksi — tanpa ini gambar hilang setiap deploy (lihat bagian
 # "Penyimpanan media" di bawah). Diperiksa lewat GET /health → services.storage.

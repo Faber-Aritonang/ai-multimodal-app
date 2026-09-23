@@ -21,6 +21,18 @@
  * kegagalan yang jelas untuk audio sintetis, tanpa memakai kuota). Semuanya
  * menghapus kembali data yang dibuatnya lewat API, tapi kuota tidak bisa
  * dikembalikan dari sini — jalankan saat kuota dev tersedia.
+ *
+ * PENGECUALIAN PENTING — video:
+ * text-to-video.spec & image-to-video.spec TIDAK menghasilkan video sungguhan
+ * secara default. Provider video satu-satunya (NaraRouter) berbayar per pekerjaan
+ * dan satu video memakan 1-5 menit, jadi menjalankannya di setiap run berarti
+ * membelanjakan saldo dan menunggu lama tanpa alasan. Keduanya tetap menguji
+ * tentang opsi/validasi/pesan kegagalan; alur generate lengkapnya hanya jalan bila
+ * diminta eksplisit:
+ *
+ *   TEST_VIDEO_GENERATE=1 npm run test:browser
+ *
+ * Kuota yang terpakai saat itu: 1 kuota video per spec video.
  */
 
 const { launchSession, Reporter, findChrome, sleep } = require('./lib/harness.cjs');
@@ -33,6 +45,8 @@ const ALL_SPECS = [
   require('./specs/chat.spec.cjs'),
   require('./specs/text-to-image.spec.cjs'),
   require('./specs/image-to-image.spec.cjs'),
+  require('./specs/text-to-video.spec.cjs'),
+  require('./specs/image-to-video.spec.cjs'),
   require('./specs/text-to-sound.spec.cjs'),
   require('./specs/sound-to-text.spec.cjs'),
   require('./specs/dashboard-profile.spec.cjs'),

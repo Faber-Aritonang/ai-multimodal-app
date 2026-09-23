@@ -39,6 +39,9 @@
  */
 
 const MediaContent = require('../models/MediaContent');
+// Dipakai pekerjaan video di latar belakang: kuotanya dibaca ulang dari
+// database setelah request-nya selesai (lihat runVideoJob).
+const User = require('../models/User');
 const {
   putObject,
   removeByReference,
@@ -70,6 +73,12 @@ const {
   MAX_AUDIO_BYTES,
   MAX_PROMPT_LENGTH: MAX_TRANSCRIBE_PROMPT_LENGTH
 } = require('../config/speechToTextProviders');
+const {
+  generateVideo,
+  getVideoOptions: getVideoOptionsConfig,
+  MAX_PROMPT_LENGTH: MAX_VIDEO_PROMPT_LENGTH,
+  MAX_INPUT_BYTES: MAX_VIDEO_INPUT_BYTES
+} = require('../config/videoProviders');
 
 // Ukuran yang didukung frontend. Provider yang tidak sanggup memenuhi ukuran
 // tertentu akan dilewati otomatis (lihat supportedSizes di imageProviders.js).
@@ -84,6 +93,9 @@ const MAX_PROMPT_LENGTH = 1000;
 // akan membaik dengan mengulang permintaan.
 const CONFIG_ERROR_CODES = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'];
 const EDIT_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
+// Sama seperti edit gambar: provider yang tidak sanggup mode yang diminta juga
+// masalah konfigurasi, bukan gangguan sesaat — mencoba lagi tidak menolong.
+const VIDEO_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
 
 /**
  * Pesan untuk kegagalan yang berasal dari konfigurasi penyimpanan server.
@@ -849,6 +861,362 @@ exports.soundToText = async (req, res) => {
 
     return res.status(status).json(body);
   }
+};
+
+// ---------------------------------------------------------------------------
+// text-to-video / image-to-video
+// ---------------------------------------------------------------------------
+//
+// Alur fitur ini BEDA dari fitur media lain, dan bedanya disengaja: generate
+// video memakan 1-5 menit, jadi permintaannya TIDAK ditunggu di dalam siklus
+// request/response. Endpoint-nya membalas 202 segera dengan record yang masih
+// `processing`, lalu pekerjaannya berjalan di latar belakang dan hasilnya
+// muncul di riwayat (yang sudah dipolling halaman web). Kalau ditunggu di dalam
+// request, setiap generate akan menahan koneksi selama menit dan hampir pasti
+// diputus proxy di depan backend.
+
+/**
+ * Batas sisi gambar pertama untuk image-to-video.
+ *
+ * Berbeda dari image-to-image (512px, batas FLUX.2 [klein]): provider video
+ * tidak menyebut batas sisi, dan gambar pertama yang terlalu kecil membuat
+ * gerakannya kabur. Frontend memperkecil ke <= 1280px; nilai ini validasi lapis
+ * kedua di server.
+ */
+const MAX_VIDEO_INPUT_EDGE = 1920;
+
+/**
+ * Gambar pertama untuk image-to-video, dari data URL atau base64 polos.
+ *
+ * Sama seperti image-to-image, isinya diperiksa dari magic bytes — bukan dari
+ * header yang dikirim klien — karena MIME type yang salah hanya akan gagal di
+ * provider dengan pesan yang sulit dipahami.
+ */
+const parseVideoInputImage = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+
+  if (!raw) {
+    return { error: 'Input image is required' };
+  }
+
+  const base64 = raw.replace(DATA_URL_PATTERN, '');
+
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) {
+    return { error: 'Input image must be base64 or a data URL' };
+  }
+
+  const buffer = Buffer.from(base64, 'base64');
+
+  if (buffer.length === 0) {
+    return { error: 'Input image is empty' };
+  }
+
+  if (buffer.length > MAX_VIDEO_INPUT_BYTES) {
+    return {
+      error: `Input image is too large (${Math.round(buffer.length / (1024 * 1024))} MB). ` +
+        `Limit is ${MAX_VIDEO_INPUT_BYTES / (1024 * 1024)} MB.`
+    };
+  }
+
+  if (!looksLikeImage(buffer)) {
+    return { error: 'Input image is not a valid PNG, JPEG, or WEBP file' };
+  }
+
+  const { format, mimeType } = detectFormat(buffer);
+  const dimensions = measureImage(buffer);
+
+  if (!dimensions) {
+    return { error: 'Failed to read input image dimensions' };
+  }
+
+  // Batas atas hanya untuk menjaga unggahan multipart tetap wajar; gambar yang
+  // lebih kecil dari ini tetap diterima.
+  if (dimensions.width > MAX_VIDEO_INPUT_EDGE || dimensions.height > MAX_VIDEO_INPUT_EDGE) {
+    return {
+      error: `Input image must be at most ${MAX_VIDEO_INPUT_EDGE}x${MAX_VIDEO_INPUT_EDGE} pixels ` +
+        `(received ${dimensions.width}x${dimensions.height}). Resize it first.`
+    };
+  }
+
+  return { buffer, format, mimeType, ...dimensions };
+};
+
+/**
+ * Validasi parameter video yang berlaku untuk kedua mode.
+ *
+ * Divalidasi terhadap opsi provider yang AKTIF (lihat getVideoOptions()),
+ * bukan daftar bebas di sini: resolusi, bentuk gambar, dan durasi yang tidak
+ * didukung provider hanya akan ditolak di tengah pekerjaan — dan pada fitur
+ * asinkron itu berarti user menunggu satu menit untuk kegagalan yang bisa
+ * dijelaskan seketika.
+ *
+ * @returns {{error: string}|{prompt: string, resolution: string, ratio: string, duration: number}}
+ */
+const parseVideoRequest = (body = {}) => {
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+
+  if (!prompt) {
+    return { error: 'Prompt is required' };
+  }
+
+  if (prompt.length > MAX_VIDEO_PROMPT_LENGTH) {
+    return { error: `Prompt is too long (max ${MAX_VIDEO_PROMPT_LENGTH} characters)` };
+  }
+
+  const opsi = getVideoOptionsConfig();
+
+  const resolution = body.resolution || opsi.defaultResolution;
+  if (!opsi.resolutions.includes(resolution)) {
+    return { error: `Invalid resolution. Allowed values: ${opsi.resolutions.join(', ')}` };
+  }
+
+  // Bentuk gambar hanya berarti untuk text-to-video: image-to-video mengikuti
+  // bentuk gambar pertamanya, jadi nilainya diabaikan provider (dan karena itu
+  // tidak divalidasi di sini).
+  const ratio = body.ratio || opsi.defaultRatio;
+  if (!opsi.ratios.includes(ratio)) {
+    return { error: `Invalid aspect ratio. Allowed values: ${opsi.ratios.join(', ')}` };
+  }
+
+  // Durasi divalidasi terhadap daftar yang dilaporkan provider (3-15 detik).
+  // Daftar itu datang dari getVideoOptions(), jadi rentangnya hanya didefinisikan
+  // di satu tempat — permintaan di luar rentang ditolak seketika di sini, bukan
+  // setelah user menunggu pekerjaan yang pasti gagal.
+  const duration = body.duration === undefined || body.duration === null || body.duration === ''
+    ? opsi.defaultDuration
+    : Number(body.duration);
+
+  if (!opsi.durations.includes(duration)) {
+    return { error: `Invalid duration. Allowed values: ${opsi.durations.join(', ')}` };
+  }
+
+  return { prompt, resolution, ratio, duration };
+};
+
+/**
+ * @GET /api/v1/media/video-options
+ * Mode, resolusi, durasi, dan batas yang diterima endpoint video.
+ *
+ * Kedua halaman video mengambilnya dari sini supaya aturan yang ditampilkan ke
+ * user tidak disalin ulang di frontend dan tidak bisa menyimpang dari yang
+ * divalidasi server.
+ */
+exports.getVideoOptions = (req, res) => {
+  res.status(200).json({ success: true, ...getVideoOptionsConfig() });
+};
+
+/**
+ * Jalankan pekerjaan video di latar belakang, lalu simpan hasilnya.
+ *
+ * Tidak pernah melempar: pemanggilnya sengaja tidak menunggu (lihat catatan di
+ * atas), jadi satu-satunya cara kegagalan bisa terlihat user adalah dengan
+ * menutup record-nya di sini. Record yang tertinggal `processing` akan membuat
+ * halaman web memolling selamanya.
+ */
+const runVideoJob = async ({ media, params }) => {
+  try {
+    const result = await generateVideo({
+      prompt: params.prompt,
+      mode: params.mode,
+      imageBuffer: params.image?.buffer,
+      mimeType: params.image?.mimeType,
+      resolution: params.resolution,
+      ratio: params.ratio,
+      duration: params.duration
+    });
+
+    // Sama seperti fitur lain: penggantian provider dicatat supaya penurunan
+    // kualitas tidak hanya terlihat dari metadata.
+    if (result.attempts && result.attempts.length) {
+      console.warn(
+        `Video dilayani ${result.provider} (provider sebelumnya gagal): ` +
+          result.attempts.map((item) => `${item.provider}: ${item.reason}`).join('; ')
+      );
+    }
+
+    const fileName = `${media.contentId}.${result.format}`;
+    const saved = await putObject({
+      key: fileName,
+      buffer: result.buffer,
+      contentType: result.mimeType,
+      // Cloudinary menaruh berkas video di kategori `video`; mode S3/lokal
+      // mengabaikan nilai ini.
+      resourceType: 'video'
+    });
+
+    media.outputFile = saved.reference;
+    media.outputUrl = saved.url;
+    media.status = 'completed';
+    media.completedAt = new Date();
+    media.metadata = {
+      format: result.format,
+      mimeType: result.mimeType,
+      duration: result.duration || params.duration,
+      resolution: params.resolution,
+      aspectRatio: params.mode === 't2v' ? params.ratio : null,
+      mode: params.mode,
+      jobId: result.jobId,
+      provider: result.provider,
+      model: result.model
+    };
+    await media.save();
+
+    // Kuota dikurangi hanya setelah videonya benar-benar tersimpan. Anggota
+    // dibaca ulang dari database (bukan dari objek request) karena request-nya
+    // sudah selesai sejak lama; objek lama bisa sudah tidak mencerminkan sisa
+    // kuota yang sebenarnya.
+    const member = await User.findOne({ uid: media.userId });
+
+    if (member) {
+      member.quota.videoGeneration -= 1;
+      await member.save();
+    }
+
+    return media;
+  } catch (error) {
+    console.error('Video generation error:', error.message);
+
+    // Pesannya disamakan dengan jalur sinkron fitur lain: masalah konfigurasi
+    // server (kunci belum diisi, kredensial ditolak) dijelaskan apa adanya
+    // supaya user tidak menekan tombol yang sama berulang kali.
+    const { body } = buildFailureResponse(error, {
+      configCodes: VIDEO_CONFIG_ERROR_CODES,
+      defaultMessage: 'Video generation failed. Please try again.'
+    });
+
+    media.status = 'failed';
+    media.error = { message: body.message, code: error.code };
+
+    try {
+      await media.save();
+    } catch (saveError) {
+      console.error('Failed to update media status:', saveError.message);
+    }
+
+    return null;
+  }
+};
+
+/**
+ * @POST /api/v1/media/text-to-video
+ * Buat video pendek dari teks. Membalas 202; hasilnya menyusul di riwayat.
+ */
+exports.textToVideo = async (req, res) => {
+  const parsed = parseVideoRequest(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ success: false, message: parsed.error });
+  }
+
+  let media = null;
+
+  try {
+    media = await MediaContent.create({
+      userId: req.member.uid,
+      type: 'text-to-video',
+      prompt: parsed.prompt,
+      status: 'processing'
+    });
+  } catch (error) {
+    console.error('Text-to-video error:', error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Video generation failed. Please try again.',
+      error: error.message
+    });
+  }
+
+  // Sengaja tidak di-await: pekerjaannya memakan menit dan hasilnya dilaporkan
+  // lewat record. `catch` kosong tidak diperlukan karena runVideoJob tidak
+  // pernah melempar — kegagalannya masuk ke status record.
+  runVideoJob({ media, params: { ...parsed, mode: 't2v' } });
+
+  return res.status(202).json({
+    success: true,
+    message: 'Video generation started. It will appear in your history when ready.',
+    status: 'processing',
+    media,
+    // Kuota belum berkurang: angkanya baru berubah setelah videonya tersimpan.
+    quota: req.member.quota
+  });
+};
+
+/**
+ * @POST /api/v1/media/image-to-video
+ * Hidupkan satu gambar menjadi video pendek. Membalas 202.
+ */
+exports.imageToVideo = async (req, res) => {
+  const parsed = parseVideoRequest(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ success: false, message: parsed.error });
+  }
+
+  const parsedImage = parseVideoInputImage(req.body.image);
+  if (parsedImage.error) {
+    return res.status(400).json({ success: false, message: parsedImage.error });
+  }
+
+  let media = null;
+
+  try {
+    media = await MediaContent.create({
+      userId: req.member.uid,
+      type: 'image-to-video',
+      prompt: parsed.prompt,
+      status: 'processing'
+    });
+
+    // Gambar pertamanya ikut disimpan supaya riwayat bisa menunjukkan dari mana
+    // videonya berangkat — tanpa itu hasilnya tidak bisa dibandingkan dengan
+    // sumbernya, dan berkasnya juga tidak bisa dihapus bersama record-nya.
+    const inputFileName = `${media.contentId}_input.${parsedImage.format}`;
+    const savedInput = await putObject({
+      key: inputFileName,
+      buffer: parsedImage.buffer,
+      contentType: parsedImage.mimeType
+      // resourceType sengaja tidak diisi: isinya gambar, bukan video.
+    });
+    media.inputFile = savedInput.url;
+  } catch (error) {
+    console.error('Image-to-video error:', error.message);
+
+    const { status, body } = buildFailureResponse(error, {
+      configCodes: VIDEO_CONFIG_ERROR_CODES,
+      defaultMessage: 'Video generation failed. Please try again.'
+    });
+
+    if (media) {
+      media.status = 'failed';
+      media.error = { message: body.message, code: error.code };
+      try {
+        await media.save();
+      } catch (saveError) {
+        console.error('Failed to update media status:', saveError.message);
+      }
+    }
+
+    return res.status(status).json(body);
+  }
+
+  runVideoJob({
+    media,
+    params: {
+      ...parsed,
+      mode: 'i2v',
+      image: parsedImage,
+      // Gambar pertama menentukan bentuk videonya, jadi bentuk yang diminta
+      // user tidak dikirim untuk mode ini (provider mengabaikannya).
+      ratio: null
+    }
+  });
+
+  return res.status(202).json({
+    success: true,
+    message: 'Video generation started. It will appear in your history when ready.',
+    status: 'processing',
+    media,
+    quota: req.member.quota
+  });
 };
 
 /**

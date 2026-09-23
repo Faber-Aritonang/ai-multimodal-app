@@ -9,6 +9,8 @@ import {
   ChatIcon,
   ImageIcon,
   TransformIcon,
+  VideoIcon,
+  AnimateIcon,
   SoundIcon,
   TranscriptIcon,
   UserIcon
@@ -21,9 +23,11 @@ const NAVIGATION = [
   { name: 'Chat', href: '/chat', icon: ChatIcon, code: '02', short: 'Chat' },
   { name: 'Text to Image', href: '/tools/text-to-image', icon: ImageIcon, code: '03', short: 'Image' },
   { name: 'Image to Image', href: '/tools/image-to-image', icon: TransformIcon, code: '04', short: 'Transform' },
-  { name: 'Text to Sound', href: '/tools/text-to-sound', icon: SoundIcon, code: '05', short: 'Sound' },
-  { name: 'Sound to Text', href: '/tools/sound-to-text', icon: TranscriptIcon, code: '06', short: 'Transcribe' },
-  { name: 'Profile', href: '/profile', icon: UserIcon, code: '07', short: 'Profile' }
+  { name: 'Text to Video', href: '/tools/text-to-video', icon: VideoIcon, code: '05', short: 'Video' },
+  { name: 'Image to Video', href: '/tools/image-to-video', icon: AnimateIcon, code: '06', short: 'Animate' },
+  { name: 'Text to Sound', href: '/tools/text-to-sound', icon: SoundIcon, code: '07', short: 'Sound' },
+  { name: 'Sound to Text', href: '/tools/sound-to-text', icon: TranscriptIcon, code: '08', short: 'Transcribe' },
+  { name: 'Profile', href: '/profile', icon: UserIcon, code: '09', short: 'Profile' }
 ]
 
 /** Inisial huruf pertama nama, dipakai saat user tidak punya foto. */

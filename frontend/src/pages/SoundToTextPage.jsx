@@ -438,7 +438,7 @@ const SoundToTextPage = ({ user, setUser }) => {
     <Layout user={user} setUser={setUser}>
       <div className="space-y-5">
         <PageHeader
-          eyebrow="alat 06 · audio"
+          eyebrow="alat 08 · audio"
           title="Sound to Text"
           description="Unggah berkas audio atau rekam langsung dari mikrofon, lalu AI akan menuliskannya menjadi teks."
           actions={

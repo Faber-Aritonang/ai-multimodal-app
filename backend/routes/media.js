@@ -2,8 +2,8 @@
  * Routes: Media API
  * Fitur AI multimodal berbasis gambar.
  *
- * Sudah tersedia : text-to-image, image-to-image, text-to-sound, sound-to-text
- * Rencana        : text-to-video, image-to-video
+ * Sudah tersedia : text-to-image, image-to-image, text-to-sound, sound-to-text,
+ *                  text-to-video, image-to-video
  */
 
 const express = require('express');
@@ -16,6 +16,9 @@ const {
   soundToText,
   getSoundVoices,
   getTranscribeOptions,
+  getVideoOptions,
+  textToVideo,
+  imageToVideo,
   getMediaHistory,
   deleteMedia
 } = require('../controllers/mediaController');
@@ -32,13 +35,15 @@ router.get('/status', (req, res) => {
       'GET /api/v1/media/sound-voices',
       'POST /api/v1/media/sound-to-text',
       'GET /api/v1/media/transcribe-options',
+      'POST /api/v1/media/text-to-video',
+      'POST /api/v1/media/image-to-video',
+      'GET /api/v1/media/video-options',
       'GET /api/v1/media/history',
       'DELETE /api/v1/media/:contentId'
     ],
-    comingSoonEndpoints: [
-      'POST /api/v1/media/text-to-video',
-      'POST /api/v1/media/image-to-video'
-    ]
+    // Tidak ada fitur media yang tersisa sebagai rencana: seluruh kartu di
+    // Dashboard sudah benar-benar aktif.
+    comingSoonEndpoints: []
   });
 });
 
@@ -78,6 +83,29 @@ router.post(
   checkQuota('videoGeneration'),
   soundToText
 );
+
+// text-to-video & image-to-video: memakai kuota videoGeneration yang memang
+// diperuntukkan bagi video (aturan yang sama juga dipakai middleware).
+// Keduanya membalas 202 dan menyelesaikan pekerjaannya di latar belakang —
+// lihat catatan panjang di mediaController.
+router.post(
+  '/text-to-video',
+  authenticate,
+  requireMember,
+  checkQuota('videoGeneration'),
+  textToVideo
+);
+
+router.post(
+  '/image-to-video',
+  authenticate,
+  requireMember,
+  checkQuota('videoGeneration'),
+  imageToVideo
+);
+
+// Mode, resolusi, durasi & batas yang diterima endpoint video (halaman video)
+router.get('/video-options', authenticate, requireMember, getVideoOptions);
 
 // Voice TTS yang sah untuk provider yang aktif (dropdown halaman text-to-sound)
 router.get('/sound-voices', authenticate, requireMember, getSoundVoices);

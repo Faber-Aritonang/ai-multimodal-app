@@ -158,6 +158,17 @@ describe('GET /health', () => {
       'GROQ_TRANSCRIBE_MODEL',
       'GEMINI_TRANSCRIBE_MODEL',
       'OPENAI_TRANSCRIBE_MODEL',
+      // Provider video memakai BYNARA_API_KEY yang sama dengan text-to-image,
+      // jadi kuncinya cukup dibersihkan di clearChatAndImageEnv; variabel khusus
+      // fiturnya disimpan di sini supaya test bisa mengubahnya.
+      'VIDEO_PROVIDER',
+      'VIDEO_FALLBACK_PROVIDER',
+      'VIDEO_MODEL',
+      'BYNARA_VIDEO_MODEL',
+      'BYNARA_VIDEO_BASE_URL',
+      'VIDEO_RESOLUTION',
+      'VIDEO_RATIO',
+      'VIDEO_DURATION',
       'STORAGE_PROVIDER',
       'S3_ENDPOINT',
       'S3_BUCKET',
@@ -208,6 +219,17 @@ describe('GET /health', () => {
         'BYNARA_API_KEY',
         'BYNARA_BASE_URL',
         'BYNARA_IMAGE_MODEL',
+        // Video memakai kunci yang sama, tetapi rantai & modelnya punya env
+        // sendiri — ikut dibersihkan supaya blok `services` tidak berbeda
+        // antara mesin pengembang dan CI.
+        'BYNARA_VIDEO_MODEL',
+        'BYNARA_VIDEO_BASE_URL',
+        'VIDEO_PROVIDER',
+        'VIDEO_FALLBACK_PROVIDER',
+        'VIDEO_MODEL',
+        'VIDEO_RESOLUTION',
+        'VIDEO_RATIO',
+        'VIDEO_DURATION',
         'CHAT_PROVIDER',
         'CHAT_FALLBACK_PROVIDER',
         'GROQ_API_KEY',
@@ -326,6 +348,18 @@ describe('GET /health', () => {
           openai: 'whisper-1'
         },
         speechToTextReady: false,
+        // Video: sama seperti sound-to-text, TIDAK ada provider video yang bisa
+        // dipakai tanpa kredensial. Provider utamanya tetap dilaporkan `bynara`
+        // (satu-satunya yang ada) tetapi `ready` bernilai false.
+        videoProvider: 'bynara',
+        videoFallback: 'none',
+        videoProviders: {
+          bynara: 'missing'
+        },
+        videoModels: {
+          bynara: 'agnes-video-v2.0'
+        },
+        videoReady: false,
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
         // Railway hilang tiap deploy.
@@ -354,6 +388,29 @@ describe('GET /health', () => {
       expect(status.speechToTextFallback).toBe('gemini');
       expect(status.speechToTextProviders.groq).toBe('configured');
       expect(status.speechToTextReady).toBe(true);
+    });
+
+    test('BYNARA_API_KEY membuat video siap dengan model Agnes Video', async () => {
+      clearChatAndImageEnv();
+      process.env.BYNARA_API_KEY = 'sk-nry-kunci-uji';
+
+      const status = await services();
+
+      expect(status.videoProvider).toBe('bynara');
+      expect(status.videoProviders.bynara).toBe('configured');
+      expect(status.videoModels.bynara).toBe('agnes-video-v2.0');
+      expect(status.videoReady).toBe(true);
+    });
+
+    test('VIDEO_PROVIDER=none mematikan fitur video walau kuncinya ada', async () => {
+      clearChatAndImageEnv();
+      process.env.BYNARA_API_KEY = 'sk-nry-kunci-uji';
+      process.env.VIDEO_PROVIDER = 'none';
+
+      const status = await services();
+
+      expect(status.videoProvider).toBe('none');
+      expect(status.videoReady).toBe(false);
     });
 
     test('GEMINI_API_KEY saja membuat Gemini yang ditranskripsi, tanpa duplikat', async () => {
@@ -546,7 +603,7 @@ describe('GET /health', () => {
 });
 
 describe('GET /api/v1/media/status', () => {
-  test('mendaftar endpoint media yang sudah dan belum tersedia', async () => {
+  test('mendaftar endpoint media yang sudah tersedia', async () => {
     const response = await request(app).get('/api/v1/media/status');
 
     expect(response.status).toBe(200);
@@ -555,19 +612,21 @@ describe('GET /api/v1/media/status', () => {
       expect.arrayContaining([
         'POST /api/v1/media/text-to-image',
         'POST /api/v1/media/text-to-sound',
-        'POST /api/v1/media/sound-to-text'
+        'POST /api/v1/media/sound-to-text',
+        'POST /api/v1/media/text-to-video',
+        'POST /api/v1/media/image-to-video',
+        'GET /api/v1/media/video-options'
       ])
     );
     // Endpoint yang sudah ada tidak boleh ikut terdaftar sebagai "coming soon".
-    expect(response.body.comingSoonEndpoints).not.toEqual(
-      expect.arrayContaining(['POST /api/v1/media/text-to-sound'])
-    );
-    expect(response.body.comingSoonEndpoints).not.toEqual(
-      expect.arrayContaining(['POST /api/v1/media/sound-to-text'])
-    );
-    expect(response.body.comingSoonEndpoints).toEqual(
-      expect.arrayContaining(['POST /api/v1/media/text-to-video'])
-    );
+    ['text-to-sound', 'sound-to-text', 'text-to-video', 'image-to-video'].forEach((fitur) => {
+      expect(response.body.comingSoonEndpoints).not.toEqual(
+        expect.arrayContaining([`POST /api/v1/media/${fitur}`])
+      );
+    });
+    // Seluruh kartu di Dashboard kini benar-benar aktif, jadi daftar rencananya
+    // kosong — bukan berisi endpoint yang sebenarnya sudah jalan.
+    expect(response.body.comingSoonEndpoints).toEqual([]);
   });
 });
 
@@ -581,6 +640,9 @@ describe('route yang dilindungi auth', () => {
     ['post', '/api/v1/media/text-to-sound'],
     ['post', '/api/v1/media/sound-to-text'],
     ['get', '/api/v1/media/transcribe-options'],
+    ['post', '/api/v1/media/text-to-video'],
+    ['post', '/api/v1/media/image-to-video'],
+    ['get', '/api/v1/media/video-options'],
     ['get', '/api/v1/media/history'],
     ['delete', '/api/v1/media/media_abc']
   ])('%s %s tanpa token ditolak 401', async (method, url) => {

@@ -150,6 +150,13 @@ OPENAI_API_KEY=sk-...
 # STT_PROVIDER=groq
 # STT_FALLBACK_PROVIDER=gemini
 
+# Provider text-to-video & image-to-video (lihat langkah 3g)
+# Tidak ada jalur gratis: WAJIB ada kunci. Memakai kunci yang sama dengan
+# text-to-image, jadi kalau BYNARA_API_KEY di atas sudah diisi, tidak ada yang
+# perlu ditambah.
+# VIDEO_PROVIDER=bynara
+# VIDEO_RESOLUTION=720p
+
 # Opsional: lokasi penyimpanan hasil generate (default: backend/uploads)
 # UPLOAD_DIR=uploads
 ```
@@ -1081,6 +1088,117 @@ mengunggah berkasnya lagi.
 > Audio sintetis (nada murni) bisa dijawab provider sebagai "tidak ada teks".
 > Itu bukan bug: provider transkripsi memang meminta ucapan, dan pesannya
 > menjelaskannya. Uji dengan rekaman suara manusia.
+
+---
+
+## 3g. Text-to-Video & Image-to-Video (NaraRouter)
+
+Fitur **Text to Video** (`/tools/text-to-video`) dan **Image to Video**
+(`/tools/image-to-video`) menghasilkan video pendek lewat satu endpoint yang
+sama, `POST /v1/videos` di NaraRouter, dengan model **`agnes-video-v2.0`**.
+
+### Kenapa fitur ini berbeda: tidak ada jalur gratis
+
+Semua fitur media lain punya jalan keluar tanpa kredensial (Pollinations untuk
+gambar, Edge TTS untuk suara). Video **tidak**. Ini sudah diperiksa langsung ke
+sumber masing-masing, jangan diulang dari nol tanpa alasan:
+
+| Kandidat | Hasil pemeriksaan |
+|---|---|
+| **Cloudflare Workers AI** | Katalognya 65 model (teks, gambar, TTS, STT, embedding) — **tidak ada satu pun model video** |
+| **Pollinations** | Punya banyak model video (Veo 3.1, Seedance, Wan, MiniMax) tetapi **semuanya `paid_only: true`**, dihargai pollen; akun gratis hanya ±1,5 pollen/minggu, dan satu-satunya model komunitasnya berstatus `down` |
+| **OpenRouter Video API** | Rapi (job async + webhook) tetapi **berbayar per detik**, dan kunci OpenRouter repo ini dicabut (`docs/rotasi-kredensial.md`) |
+| **Veo lewat Google API** | Butuh billing aktif di Google Cloud |
+
+Karena itu providernya NaraRouter — kunci yang **sama** dengan text-to-image,
+sehingga isi `BYNARA_API_KEY` di langkah 3b sudah cukup. Tanpa kunci itu
+permintaannya dijawab `503` dengan pesan yang menyebut `BYNARA_API_KEY`, bukan
+`502` "coba lagi".
+
+### 1. Pastikan kuncinya ada
+
+```bash
+BYNARA_API_KEY=sk-nry-...
+```
+
+Model video `agnes-video-v2.0` masuk paket langganan NaraRouter (bukan
+bayar-per-pakai), jadi pastikan paket/saldo akun Anda memuatnya —
+`GET https://router.bynara.id/api/pricing` menandainya dengan
+`"supports_video_generation": true`.
+
+### 2. Verifikasi konfigurasi
+
+```bash
+curl -s http://localhost:3000/health | python3 -m json.tool | grep -i video
+# "videoProvider": "bynara",
+# "videoFallback": "none",
+# "videoProviders": { "bynara": "configured" },
+# "videoModels": { "bynara": "agnes-video-v2.0" },
+# "videoReady": true,
+```
+
+Di produksi blok `services` tidak ditampilkan; yang tersedia baris log saat boot:
+
+```
+Provider video: bynara (ready=true bynara=configured)
+```
+
+`videoReady: false` berarti `BYNARA_API_KEY` belum sampai ke proses — bukan soal
+modelnya (sama seperti sound-to-text, ini fitur yang benar-benar bisa mati).
+
+### 3. Uji dari halaman
+
+Buka `/tools/text-to-video`, tulis satu adegan, lalu tekan **Generate video**.
+Yang benar akan terjadi:
+
+1. Tombol berubah menjadi `Generating... Ns` dan panel **Rendering** muncul —
+   endpointnya membalas `202` segera, bukan hasilnya.
+2. Setelah 1-5 menit, panel **Latest result** terisi sendiri dengan pemutar video
+   dan tautan **Download video**. Tidak perlu memuat ulang halaman.
+3. Kuota **`videoGeneration`** berkurang 1 (lihat chip **sisa video** di kanan
+   atas). Ia **tidak** berkurang kalau pembuatannya gagal.
+
+### Pengaturan yang bisa diubah
+
+| Variabel | Default | Kegunaan |
+|---|---|---|
+| `VIDEO_PROVIDER` | provider pertama yang punya kunci (`bynara`) | `none` mematikan fiturnya |
+| `VIDEO_FALLBACK_PROVIDER` | `none` | belum ada provider video lain yang terpasang |
+| `BYNARA_VIDEO_MODEL` | `agnes-video-v2.0` | alias model video |
+| `VIDEO_RESOLUTION` | `720p` | `720p` / `1080p` saja |
+| `VIDEO_DURATION` | `5` | durasi awal dalam detik (3-15); user bisa memilih 3-15 di UI |
+| `VIDEO_RATIO` | `16:9` | hanya untuk text-to-video |
+| `VIDEO_JOB_TIMEOUT_MS` | `600000` | batas total satu pekerjaan |
+| `VIDEO_POLL_INTERVAL_MS` | `5000` | jeda antar pemeriksaan status |
+
+> **480p tidak akan muncul** walau lebih murah. Dokumentasi NaraRouter hanya
+> mendukung 720p dan 1080p; menawarkan nilai yang pasti ditolak provider hanya
+> berubah menjadi kegagalan setelah user menunggu satu menit.
+>
+> **`GET /api/v1/media/video-options`** melayani daftar mode/resolusi/durasi/limit
+> ke kedua halaman video, jadi aturan yang ditampilkan ke user selalu sama dengan
+> yang divalidasi server.
+
+### Cara kerjanya (dan kenapa berbeda dari fitur lain)
+
+Endpoint videonya **asinkron**: `POST /v1/videos` membalas `202` dengan `id`, lalu
+statusnya diperiksa lewat `GET /v1/videos/{id}` sampai `succeeded` (rata-rata
+1-5 menit), baru berkasnya diunduh. Backend ini memantau pekerjaan itu **di latar
+belakang** — permintaan dari browser tidak ditunggu. Efeknya terlihat di UI:
+record-nya dibuat berstatus `processing`, dan halaman web memolling riwayat
+sampai record itu menjadi `completed`/`failed`. Kalau kontainer backend
+di-restart di tengah pekerjaan, record itu berhenti di `processing`; halaman
+berhenti memolling sendiri setelah ±12 menit.
+
+Untuk **image-to-video**, gambar diunggah sebagai `multipart/form-data` pada field
+`image` (dokumentasi NaraRouter membedakan JSON untuk t2v dan multipart untuk
+i2v), dan provider memakai gambar itu sebagai frame **pertama** — jadi bentuk
+videonya mengikuti gambar, bukan `ratio` yang dikirim. Halaman web memperkecil
+gambar ke maks 1280px di browser; server menolak di atas 1920px atau 8 MB.
+
+> Biayanya nyata: satu video = satu pekerjaan berbayar di NaraRouter. Kunci yang
+> sama juga dipakai text-to-image, jadi kegagalan karena saldo habis akan muncul
+> sebagai `PROVIDER_UNPAID` di log backend.
 
 ---
 

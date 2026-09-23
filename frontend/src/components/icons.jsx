@@ -209,6 +209,47 @@ export const TranscriptIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 )
 
+export const VideoIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M3 7a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M15 10.5l5-3v9l-5-3v-3z"
+    />
+  </svg>
+)
+
+// Ikon image-to-video: bingkai gambar dengan tombol putar di tengahnya, supaya
+// bedanya dari VideoIcon (teks → video) terlihat sekilas di navigasi.
+export const AnimateIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <rect x={2.5} y={4.5} width={19} height={15} rx={2.5} strokeWidth={2} />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M10 9.5l5 2.5-5 2.5v-5z"
+    />
+  </svg>
+)
+
 export const GoogleIcon = ({ className = "w-5 h-5" }) => (
   <svg 
     className={className} 
@@ -305,6 +346,8 @@ export default {
   UserIcon,
   ImageIcon,
   TransformIcon,
+  VideoIcon,
+  AnimateIcon,
   SoundIcon,
   TranscriptIcon,
   CogIcon,
