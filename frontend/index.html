@@ -1,7 +1,15 @@
-<html lang="en">
+<html lang="en" translate="no">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      JANGAN diterjemahkan Chrome/Google Translate: penerjemahan memutasi node
+      DOM di bawah React, dan navigasi klien lalu melempar
+      "NotFoundError: Failed to execute 'insertBefore' on 'Node'" yang membongkar
+      seluruh pohon React (halaman jadi kosong sampai refresh). Aplikasi ini
+      memang campur Indonesia-English dan dirancang tampil apa adanya.
+    -->
+    <meta name="google" content="notranslate" />
     <title>AI Multimodal App</title>
     <meta name="theme-color" content="#04060e" />
     <meta name="description" content="Satu ruang kerja untuk chat AI, text to image, dan image to image." />
