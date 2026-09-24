@@ -17,6 +17,9 @@ import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
  * endpoint-nya membalas 202 segera, sementara videonya baru selesai 1-5 menit
  * kemudian di server. Karena itu panel hasil TIDAK diisi dari respons, melainkan
  * dari riwayat yang dipolling sampai record pekerjaan itu berubah status.
+ * Riwayat juga menjadi satu-satunya sumber panel hasil (cermin), jadi halaman
+ * yang dimuat ulang di tengah pekerjaan menyusul dengan sendirinya tanpa
+ * memuat ulang browser lagi.
  */
 
 // Batas sisi gambar pertama di browser. Provider tidak menyebut batasnya, tetapi
@@ -95,11 +98,10 @@ const VideoTool = ({
   const [loadingImage, setLoadingImage] = useState(false)
   const [dragging, setDragging] = useState(false)
   // `pending` adalah contentId pekerjaan yang sedang berjalan. Menyimpannya
-  // (bukan sekadar flag boolean) membuat panel hasil hanya menampilkan hasil
-  // pekerjaan INI — bukan record lama yang kebetulan sudah selesai.
+  // (bukan sekadar flag boolean) membuat polling tahu kapan pekerjaan INI
+  // selesai atau gagal — bukan record lama yang kebetulan sudah selesai.
   const [pending, setPending] = useState(null)
   const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [quota, setQuota] = useState(null)
@@ -107,6 +109,17 @@ const VideoTool = ({
   const fileInputRef = useRef(null)
 
   const generating = pending !== null
+
+  // Panel "Latest result" adalah CERMIN riwayat: video terbaru yang sudah jadi
+  // selalu tampil — langsung setelah halaman dibuka, sesudah riwayat diambil
+  // ulang, maupun tepat setelah pekerjaan selesai — tanpa menekan generate lagi
+  // atau memuat ulang halaman. Sebelumnya panel hanya diisi oleh alur `pending`
+  // yang hidup di memori halaman; begitu halaman dimuat ulang di tengah
+  // pekerjaan (yang memakan 1-5 menit), `pending` hilang, polling mati, dan
+  // panel serta riwayat diam di tempat — itulah yang dilaporkan sebagai
+  // "text to video selalu minta refresh browser". Selama generate berjalan
+  // panel diganti panel progres: hasil lama yang tampil justru menyesatkan.
+  const result = generating ? null : history.find((item) => item.outputUrl)
   const remainingVideos = quota?.videoGeneration ?? null
   const outOfQuota = remainingVideos !== null && remainingVideos <= 0
   const maxPromptLength = options?.maxPromptLength || 2000
@@ -162,28 +175,53 @@ const VideoTool = ({
   // akan menutup record-nya (mis. kontainer backend di-restart).
   const MAX_POLL = 144
 
+  // Riwayat dipolling selama ADA pekerjaan yang belum tuntas — bukan hanya yang
+  // baru dimulai di halaman ini (`pending`), tapi juga record yang masih
+  // `processing` di riwayat. Pemicu kedua inilah yang menangani halaman yang
+  // dimuat ulang di tengah pekerjaan: `pending` hilang bersama state halaman,
+  // jadi tanpa pemicu ini polling mati, tile riwayat diam di "Rendering…",
+  // dan satu-satunya cara melihat videonya jadi adalah memuat ulang browser
+  // berulang kali. Pola yang sama sudah dipakai halaman gambar dan audio.
+  const adaProses = generating || history.some((item) => item.status === 'processing')
+
   useEffect(() => {
-    if (!pending) return undefined
+    if (!adaProses) return undefined
 
     let sisa = MAX_POLL
     const timer = setInterval(async () => {
       if (sisa-- <= 0) {
         clearInterval(timer)
-        setPending(null)
-        setError(
-          'The video is taking longer than expected. Check your history in a moment — ' +
-            'if it finished, it will show up there.'
-        )
+        // Hanya pekerjaan yang sedang ditunggu di halaman ini yang dilaporkan
+        // lewat pesan error; record yang tertinggal `processing` cukup berhenti
+        // dipolling — tile riwayatnya sudah menampilkan statusnya.
+        if (pending) {
+          setPending(null)
+          setError(
+            'The video is taking longer than expected. Check your history in a moment — ' +
+              'if it finished, it will show up there.'
+          )
+        }
         return
       }
 
       const items = await fetchHistory()
+
+      // Halaman dimuat ulang di tengah pekerjaan: tidak ada `pending` yang
+      // ditunggu di sini, jadi cukup riwayatnya yang diperbarui. Panel hasil
+      // mengikut lewat cermin `result`, dan kuota baru diketahui turun setelah
+      // server menyimpan videonya — diambil ulang begitu semua record selesai.
+      if (!pending) {
+        if (items && !items.some((item) => item.status === 'processing')) fetchQuota()
+        return
+      }
+
       const pekerjaan = (items || []).find((item) => item.contentId === pending)
 
       if (!pekerjaan) return
 
       if (pekerjaan.outputUrl) {
-        setResult(pekerjaan)
+        // Panel hasil tidak diisi langsung lagi: `setHistory` di fetchHistory
+        // sudah memicu cermin `result` dengan record yang sama.
         setPending(null)
         // Kuota baru berkurang setelah server menyimpan videonya, jadi angkanya
         // harus diambil ulang di sini.
@@ -198,7 +236,7 @@ const VideoTool = ({
     }, 5000)
 
     return () => clearInterval(timer)
-  }, [pending])
+  }, [adaProses, pending])
 
   // Tanpa penanda waktu, tombol yang diam selama beberapa menit terlihat seperti
   // macet — dan user memuat ulang halaman di tengah proses.
@@ -236,7 +274,6 @@ const VideoTool = ({
     if (!canGenerate) return
 
     setError('')
-    setResult(null)
 
     try {
       const response = requiresImage
@@ -287,8 +324,10 @@ const VideoTool = ({
 
     try {
       await mediaAPI.deleteMedia(contentId)
+      // Panel hasil tidak perlu dikosongkan sendiri: `result` adalah cermin
+      // riwayat, jadi ia otomatis menampilkan video terbaru yang masih ada —
+      // atau kosong kalau tidak ada sisa video sama sekali.
       setHistory((items) => items.filter((item) => item.contentId !== contentId))
-      if (result?.contentId === contentId) setResult(null)
     } catch (err) {
       console.error('Delete failed:', err)
       setError('Failed to delete this video.')
