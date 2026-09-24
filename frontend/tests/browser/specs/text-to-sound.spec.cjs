@@ -91,12 +91,18 @@ module.exports = {
       return 'generate diklik';
     })()`);
 
+    // Penanda selesainya BUKAN sekadar "ada <audio> di halaman": panel hasil
+    // sudah terisi otomatis dari riwayat, jadi audio milik hasil sebelumnya pun
+    // memenuhi syarat itu dan generate-nya jadi tidak terukur. Yang dipakai:
+    // kuota audio sudah berkurang satu (server menguranginya setelah berkasnya
+    // benar-benar tersimpan), atau kotak error muncul di mode tanpa kredensial.
     const selesai = await session.waitFor(async () => {
       const state = await session.evaluate(READ_STATE);
       if (state.teksError) return state;
+      const kuotaTurun = angkaDari(state.kuota) === kuotaAwal - 1;
       // `readyState >= 1` berarti metadatanya sudah terbaca — audio benar-benar
       // tersedia, bukan sekadar elemen yang terpasang.
-      return state.audio && state.audio.readyState >= 1 ? state : null;
+      return kuotaTurun && state.audio && state.audio.readyState >= 1 ? state : null;
     }, { timeoutMs: 210000, intervalMs: 3000 });
 
     if (!reporter.check('permintaan sintesis selesai (audio atau pesan error)',
@@ -133,6 +139,29 @@ module.exports = {
 
     // ---------- Mode provider siap: alur lengkap ----------
     reporter.check('audio termuat dan bisa diputar di browser', selesai.audio.readyState >= 1, JSON.stringify(selesai.audio));
+
+    // Panel "Latest result" harus mengikuti riwayat, bukan hanya diisi oleh
+    // permintaan yang baru saja dikirim. Inilah yang membuat audio hasil
+    // generate tetap terlihat setelah halaman dibuka ulang — tanpa itu, hasil
+    // yang sudah tersimpan hanya terlihat di daftar "Your generations" dan user
+    // mengira harus menekan generate/refresh dulu.
+    await session.open('/tools/text-to-sound', { settleMs: 3000 });
+
+    const setelahMuatUlang = await session.waitFor(async () => {
+      const state = await session.evaluate(READ_STATE);
+      return state.adaHasil ? state : null;
+    }, { timeoutMs: 20000, intervalMs: 1000 });
+
+    reporter.check(
+      'panel hasil terisi sendiri dari riwayat setelah halaman dibuka ulang (tanpa klik generate)',
+      Boolean(setelahMuatUlang),
+      setelahMuatUlang ? setelahMuatUlang.metadata.join(' ; ') : 'panel kosong'
+    );
+    reporter.check(
+      'audio di panel juga benar-benar termuat setelah dibuka ulang',
+      (setelahMuatUlang?.audio?.readyState || 0) >= 1,
+      JSON.stringify(setelahMuatUlang?.audio || null)
+    );
     reporter.check(
       'metadata menyebut format dan provider',
       selesai.metadata.some((t) => /WAV|MP3/.test(t) && t.indexOf('via') !== -1),

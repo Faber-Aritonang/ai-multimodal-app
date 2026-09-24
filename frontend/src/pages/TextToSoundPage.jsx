@@ -126,6 +126,28 @@ const TextToSoundPage = ({ user, setUser }) => {
     }
   }
 
+  // Panel "Latest result" adalah CERMIN riwayat: audio terbaru yang berkasnya
+  // sudah ada selalu tampil di panel.
+  //
+  // Sebelumnya panel hanya diisi oleh respons POST dan oleh polling selama
+  // prosesnya masih berjalan. Begitu keduanya tidak sampai ke browser — respons
+  // putus di tengah jalan, koneksinya tersendat, atau halaman sempat dimuat
+  // ulang — audionya cuma muncul di daftar "Your generations" sementara panelnya
+  // kosong sampai user memuat ulang halaman; itulah yang dilaporkan sebagai
+  // "harus refresh dulu baru hasilnya keluar". Dengan satu sumber kebenaran ini,
+  // apa pun yang sudah terlihat di riwayat otomatis terlihat di panel, termasuk
+  // tepat setelah halaman dibuka, tanpa menekan generate lagi.
+  useEffect(() => {
+    const terbaru = history.find((item) => item.outputUrl)
+
+    // Dibandingkan lewat contentId supaya objek yang sama tidak dipasang ulang
+    // di setiap putaran. `terbaru` null berarti tidak ada audio yang bisa
+    // diputar (mis. hasilnya baru saja dihapus) — panelnya ikut dikosongkan.
+    setResult((sebelumnya) =>
+      sebelumnya?.contentId === terbaru?.contentId ? sebelumnya : terbaru || null
+    )
+  }, [history])
+
   // Riwayat diambil ulang berkala selama masih ada proses berjalan.
   //
   // Kasus yang ditangani sama dengan fitur gambar: respons sintesis bisa tidak
@@ -146,14 +168,9 @@ const TextToSoundPage = ({ user, setUser }) => {
         return
       }
 
-      const items = await fetchHistory()
-      // Hanya record TERBARU yang dipakai supaya hasil lama tidak terangkat ke
-      // panel "Latest result" selama permintaan baru masih diproses.
-      const terbaru = items?.[0]
-
-      if (terbaru?.outputUrl) {
-        setResult((sebelumnya) => (sebelumnya?.contentId === terbaru.contentId ? sebelumnya : terbaru))
-      }
+      // Panelnya tidak diisi di sini: `setHistory` di dalam fetchHistory sudah
+      // memicunya lewat efek cermin di atas, memakai satu aturan yang sama.
+      await fetchHistory()
 
       // Kuota dikurangi server setelah hasilnya tersimpan, jadi angkanya baru
       // benar kalau ikut diambil ulang.
@@ -192,8 +209,8 @@ const TextToSoundPage = ({ user, setUser }) => {
         format
       })
 
-      setResult(response.data.media)
       setQuota(response.data.quota)
+      // Hasilnya masuk daftar dulu; panel mengikutinya lewat efek cermin di atas.
       setHistory((items) => [
         response.data.media,
         ...items.filter((item) => item.contentId !== response.data.media.contentId)
@@ -204,16 +221,21 @@ const TextToSoundPage = ({ user, setUser }) => {
       // Respons yang gagal sampai ke browser TIDAK berarti audionya gagal:
       // server menyimpan hasilnya lebih dulu, dan permintaan bisa putus setelah
       // itu. Riwayat diambil ulang supaya audio yang benar-benar tersimpan tetap
-      // muncul, bukan hanya kotak error yang menyuruh menekan tombol lagi.
-      const items = await fetchHistory()
-      const tersimpan = items?.[0]
+      // muncul — di daftar maupun di panel (lihat efek cermin di atas) — bukan
+      // hanya kotak error yang menyuruh menekan tombol lagi.
+      await fetchHistory()
 
-      if (tersimpan?.outputUrl) setResult(tersimpan)
-
+      // Pesan dari server dipakai apa adanya: di situ ada penjelasan yang bisa
+      // ditindaklanjuti (mis. "Text-to-sound dimatikan di server"). Kalau
+      // permintaannya putus sebelum server menjawab, `err.message` hanya berisi
+      // kalimat teknis axios ("Network Error", "timeout of 180000ms exceeded")
+      // yang menyesatkan: hasilnya seringkali sudah tersimpan, jadi yang
+      // dijelaskan adalah apa yang sedang terjadi, bukan seolah sintesisnya gagal.
       setError(
         err.response?.data?.message ||
-          err.message ||
-          'Failed to generate sound. Please try again.'
+          'Koneksi ke server terputus sebelum jawabannya diterima. Halaman ini ' +
+            'memeriksa riwayat secara berkala, jadi audio yang sudah tersimpan ' +
+            'tetap muncul di bawah tanpa perlu memuat ulang.'
       )
     } finally {
       setGenerating(false)
@@ -225,8 +247,10 @@ const TextToSoundPage = ({ user, setUser }) => {
 
     try {
       await mediaAPI.deleteMedia(contentId)
+      // Panelnya tidak perlu dikosongkan sendiri: efek cermin mengikuti daftar
+      // ini, jadi panel otomatis menampilkan audio terbaru yang masih ada — atau
+      // kosong kalau memang tidak ada sisa audionya.
       setHistory((items) => items.filter((item) => item.contentId !== contentId))
-      if (result?.contentId === contentId) setResult(null)
     } catch (err) {
       console.error('Delete failed:', err)
       setError('Failed to delete audio.')
@@ -237,7 +261,7 @@ const TextToSoundPage = ({ user, setUser }) => {
     <Layout user={user} setUser={setUser}>
       <div className="space-y-5">
         <PageHeader
-          eyebrow="alat 05 · audio"
+          eyebrow="alat 07 · audio"
           title="Text to Sound"
           description="Tuliskan teks yang ingin diucapkan, pilih suaranya, lalu AI akan membacakannya."
           actions={
