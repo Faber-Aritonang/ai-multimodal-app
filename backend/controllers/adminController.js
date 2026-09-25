@@ -75,12 +75,15 @@ exports.approveMember = async (req, res) => {
         isApproved: true,
         role: 'member',
         updatedAt: new Date(),
+        // Kuota default untuk member baru. Angka yang sama juga ada di
+        // models/User.js (saat registrasi) dan payload tombol approve di
+        // frontend admin — ketiganya harus diubah bersama-sama.
         quota: quota || {
-          chat: 500,
-          imageGeneration: 50,
-          audioGeneration: 50,
-          videoGeneration: 20,
-          total: 5000
+          chat: 60,
+          imageGeneration: 30,
+          audioGeneration: 25,
+          videoGeneration: 25,
+          total: 140
         }
       },
       { new: true }

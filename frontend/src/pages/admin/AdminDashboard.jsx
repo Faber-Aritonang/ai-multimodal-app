@@ -44,11 +44,11 @@ const AdminDashboard = () => {
   const handleApprove = async (uid) => {
     try {
       await adminAPI.approveMember(uid, {
-        chat: 500,
-        imageGeneration: 50,
-        audioGeneration: 50,
-        videoGeneration: 20,
-        total: 5000
+        chat: 60,
+        imageGeneration: 30,
+        audioGeneration: 25,
+        videoGeneration: 25,
+        total: 140
       })
       fetchAdminData()
     } catch (error) {

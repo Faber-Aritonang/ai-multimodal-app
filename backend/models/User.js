@@ -59,12 +59,15 @@ const userSchema = new mongoose.Schema({
   // (text-to-video & image-to-video). Sebelumnya audio memakai `videoGeneration`
   // sehingga satu fitur bisa menghabiskan jatah fitur lain; akun lama yang belum
   // punya `audioGeneration` tetap dilayani lewat nilai cadangan di checkQuota.
+  // Aturan kuota berlaku sama dengan default persetujuan admin
+  // (controllers/adminController.js approveMember) dan payload tombol approve
+  // di halaman admin — ketiganya harus diubah bersama-sama.
   quota: {
-    chat: { type: Number, default: 100 },
-    imageGeneration: { type: Number, default: 10 },
-    audioGeneration: { type: Number, default: 10 },
-    videoGeneration: { type: Number, default: 5 },
-    total: { type: Number, default: 1000 }
+    chat: { type: Number, default: 60 },
+    imageGeneration: { type: Number, default: 30 },
+    audioGeneration: { type: Number, default: 25 },
+    videoGeneration: { type: Number, default: 25 },
+    total: { type: Number, default: 140 }
   },
   
   // Metadata

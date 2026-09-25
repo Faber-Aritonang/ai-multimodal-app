@@ -33,13 +33,13 @@ const AdminMembers = () => {
   const handleApprove = async (uid) => {
     try {
       await adminAPI.approveMember(uid, {
-        chat: 500,
-        imageGeneration: 50,
+        chat: 60,
+        imageGeneration: 30,
         // Kuota audio berdiri sendiri (dulu menumpang videoGeneration); tanpa
         // nilai di sini member baru hanya mewarisi nilai cadangan akun lama.
-        audioGeneration: 50,
-        videoGeneration: 20,
-        total: 5000
+        audioGeneration: 25,
+        videoGeneration: 25,
+        total: 140
       })
       fetchMembers()
     } catch (error) {
