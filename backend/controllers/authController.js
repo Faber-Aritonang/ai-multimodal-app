@@ -5,6 +5,7 @@
 
 const jwt = require('jsonwebtoken');
 const { getFirebaseAdmin } = require('../config/firebase');
+const { lookupIp } = require('../config/ipGeo');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 
@@ -18,6 +19,46 @@ const Admin = require('../models/Admin');
 const isDevLoginEnabled = () => process.env.NODE_ENV !== 'production';
 
 exports.isDevLoginEnabled = isDevLoginEnabled;
+
+/**
+ * Kumpulkan jejak pendaftaran: IP klien, lokasi (best-effort dari ipwho.is),
+ * id device browser, dan user-agent. Hasilnya disimpan di User.registrationMeta
+ * dan ditampilkan admin di Pending Members untuk mendeteksi 1 device yang
+ * mendaftar dengan banyak akun Google.
+ *
+ * Tidak pernah melempar: jejak hanya penanda, kegagalannya jangan sampai
+ * menggagalkan pendaftaran.
+ */
+const collectRegistrationTrace = async (req) => {
+  const kosong = { ip: '', location: '', deviceId: '', userAgent: '' };
+
+  try {
+    const body = req.body || {};
+    const headers = req.headers || {};
+
+    // Hanya id dengan pola wajar yang diterima supaya field ini tidak bisa
+    // dipakai menyuntikkan teks sembarangan ke database.
+    const deviceId =
+      typeof body.deviceId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.deviceId)
+        ? body.deviceId
+        : '';
+
+    // req.ip sudah IP asli klien (trust proxy diset di server.js); fallback ke
+    // header pertama bila req.ip kosong (mis. di belakang proxy lain).
+    const forwarded = String(headers['x-forwarded-for'] || '').split(',')[0].trim();
+    const ip = String(req.ip || forwarded || '').slice(0, 64);
+    const userAgent = String((req.get && req.get('user-agent')) || '').slice(0, 250);
+
+    const geo = await lookupIp(ip);
+    let location = geo ? [geo.city, geo.country].filter(Boolean).join(', ') : '';
+    if (geo?.isp) location = location ? `${location} — ${geo.isp}` : geo.isp;
+
+    return { ip, location, deviceId, userAgent };
+  } catch (error) {
+    console.warn('[register] jejak pendaftaran dilewati:', error?.message);
+    return kosong;
+  }
+};
 
 /**
  * @POST /api/v1/auth/register
@@ -34,6 +75,10 @@ exports.register = async (req, res) => {
         message: 'Email and displayName are required'
       });
     }
+
+    // Jejak pendaftaran dikumpulkan PARALEL dengan validasi referral supaya
+    // lookup geolokasi tidak menambah jeda pada alur pendaftaran.
+    const tracePromise = collectRegistrationTrace(req);
 
     // Validasi kode referral (opsional): harus milik member yang sudah disetujui
     let referredBy = null;
@@ -70,6 +115,31 @@ exports.register = async (req, res) => {
           });
         }
         
+        // Jejak pendaftaran + deteksi device/IP yang sudah dipakai pendaftar
+        // lain. Sifatnya PENANDA untuk review admin — pendaftaran tidak pernah
+        // diblokir di sini, karena IP bersama (CGNAT/kantor) bisa dimiliki
+        // banyak orang yang tidak saling kenal.
+        const trace = await tracePromise;
+        let sameDeviceUid = '';
+        let sameIpCount = 0;
+
+        try {
+          const [deviceTwin, ipTwins] = await Promise.all([
+            trace.deviceId
+              ? User.findOne({ 'registrationMeta.deviceId': trace.deviceId })
+              : Promise.resolve(null),
+            trace.ip
+              ? User.find({ 'registrationMeta.ip': trace.ip }).select('uid')
+              : Promise.resolve([])
+          ]);
+
+          if (deviceTwin) sameDeviceUid = deviceTwin.uid || '';
+          if (Array.isArray(ipTwins)) sameIpCount = ipTwins.length;
+        } catch (traceError) {
+          // Deteksi gagal bukan alasan menolak pendaftaran.
+          console.warn('[register] deteksi duplikat device/ip dilewati:', traceError?.message);
+        }
+
         // Buat user baru
         user = await User.create({
           uid: decoded.uid,
@@ -78,7 +148,15 @@ exports.register = async (req, res) => {
           photoURL: photoURL || decoded.picture || '',
           role: 'guest',
           isApproved: false, // Perlu approval admin
-          referredBy
+          referredBy,
+          registrationMeta: {
+            ip: trace.ip,
+            location: trace.location,
+            deviceId: trace.deviceId,
+            userAgent: trace.userAgent,
+            sameDeviceUid,
+            sameIpCount
+          }
         });
         
         // Generate JWT token

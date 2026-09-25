@@ -70,6 +70,25 @@ const userSchema = new mongoose.Schema({
     total: { type: Number, default: 140 }
   },
   
+  // Jejak pendaftaran — penanda untuk admin mendeteksi 1 device yang
+  // mendaftar ulang dengan akun Google berbeda. Sifatnya PENANDA, bukan
+  // blokir: yang menolak/menerima tetap admin di halaman Pending Members
+  // (nilai sameDeviceUid & sameIpCount dihitung saat register, lihat
+  // controllers/authController.js).
+  registrationMeta: {
+    // IP publik klien (trust proxy sudah diset di server.js)
+    ip: { type: String, default: '' },
+    // "Kota, Negara — ISP" dari ipwho.is; kosong bila lookup gagal
+    location: { type: String, default: '' },
+    // Id unik browser (localStorage) — sinyal utama "device yang sama"
+    deviceId: { type: String, default: '' },
+    userAgent: { type: String, default: '' },
+    // uid akun LAIN yang memakai deviceId sama (kosong = device baru)
+    sameDeviceUid: { type: String, default: '' },
+    // jumlah akun LAIN dari IP yang sama (0 = tidak ada yang tercatat)
+    sameIpCount: { type: Number, default: 0 }
+  },
+
   // Metadata
   createdAt: {
     type: Date,

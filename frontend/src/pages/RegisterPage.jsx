@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { signInWithGoogle } from '../config/firebase'
 import { authAPI } from '../config/api'
+import { getDeviceId } from '../utils/deviceId'
 import { GoogleIcon, UserIcon } from '../components/icons'
 import { GlassPanel, Alert } from '../components/ui'
 
@@ -80,7 +81,10 @@ const RegisterPage = ({ setUser }) => {
         displayName: formData.displayName || firebase.user?.displayName,
         photoURL: firebase.user?.photoURL,
         firebaseToken: firebase.token,
-        referralCode: formData.referralCode || undefined
+        referralCode: formData.referralCode || undefined,
+        // Jejak device: backend menandai bila pendaftar lain memakai browser
+        // atau IP yang sama (review admin, bukan blokir).
+        deviceId: getDeviceId()
       })
 
       if (registerResponse.data.success) {
@@ -257,6 +261,15 @@ const RegisterPage = ({ setUser }) => {
             Fitur chat bisa dipakai lebih dulu; alat gambar terbuka setelah disetujui.
           </p>
         </div>
+
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          <strong className="font-semibold text-slate-400">Privasi:</strong>{' '}
+          saat mendaftar kami menyimpan alamat IP dan perkiraan lokasi
+          (kota/negara/ISP) dari browser Anda, untuk menandai bila satu perangkat
+          dipakai mendaftar berkali-kali. Data ini hanya ditinjau admin saat
+          memeriksa pendaftaran, tidak ditampilkan publik, dan tidak dibagikan
+          ke pihak lain.
+        </p>
       </GlassPanel>
     </div>
   )

@@ -169,7 +169,35 @@ const AdminDashboard = () => {
                           <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-400">{member.email}</td>
+                      <td className="p-4 text-slate-400">
+                        {member.email}
+                        {member.registrationMeta?.ip && (
+                          <p
+                            className="mt-0.5 font-mono text-[11px] text-slate-600"
+                            title={member.registrationMeta.userAgent || ''}
+                          >
+                            {member.registrationMeta.ip}
+                            {member.registrationMeta.location
+                              ? ` · ${member.registrationMeta.location}`
+                              : ''}
+                          </p>
+                        )}
+                        {(member.registrationMeta?.sameDeviceUid ||
+                          member.registrationMeta?.sameIpCount > 0) && (
+                          <div className="mt-1 flex flex-col items-start gap-0.5">
+                            {member.registrationMeta.sameDeviceUid && (
+                              <span className="inline-flex rounded border border-rose-300/30 bg-rose-400/10 px-1.5 py-0.5 text-[10px] font-medium text-rose-200">
+                                ⚑ device sama dengan akun lain
+                              </span>
+                            )}
+                            {member.registrationMeta.sameIpCount > 0 && (
+                              <span className="inline-flex rounded border border-amber-300/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                                IP sama dengan {member.registrationMeta.sameIpCount} akun lain
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
                       </td>
@@ -246,7 +274,35 @@ const AdminDashboard = () => {
                           <span className="font-medium text-slate-200">{member.displayName}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-400">{member.email}</td>
+                      <td className="p-4 text-slate-400">
+                        {member.email}
+                        {member.registrationMeta?.ip && (
+                          <p
+                            className="mt-0.5 font-mono text-[11px] text-slate-600"
+                            title={member.registrationMeta.userAgent || ''}
+                          >
+                            {member.registrationMeta.ip}
+                            {member.registrationMeta.location
+                              ? ` · ${member.registrationMeta.location}`
+                              : ''}
+                          </p>
+                        )}
+                        {(member.registrationMeta?.sameDeviceUid ||
+                          member.registrationMeta?.sameIpCount > 0) && (
+                          <div className="mt-1 flex flex-col items-start gap-0.5">
+                            {member.registrationMeta.sameDeviceUid && (
+                              <span className="inline-flex rounded border border-rose-300/30 bg-rose-400/10 px-1.5 py-0.5 text-[10px] font-medium text-rose-200">
+                                ⚑ device sama dengan akun lain
+                              </span>
+                            )}
+                            {member.registrationMeta.sameIpCount > 0 && (
+                              <span className="inline-flex rounded border border-amber-300/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                                IP sama dengan {member.registrationMeta.sameIpCount} akun lain
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
                       </td>
