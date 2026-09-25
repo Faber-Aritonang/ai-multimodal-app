@@ -17,7 +17,6 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const { getAllowedOrigins } = require('./config/cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
@@ -26,6 +25,8 @@ const authRoutes = require('./routes/auth');
 const memberRoutes = require('./routes/member');
 const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
+const shareRoutes = require('./routes/share');
+const clientErrorRoutes = require('./routes/clientErrors');
 const { getProviderStatus } = require('./config/imageProviders');
 const {
   describeStorage,
@@ -41,6 +42,10 @@ const { getVideoProviderStatus } = require('./config/videoProviders');
 const { getSpeechToTextStatus } = require('./config/speechToTextProviders');
 const { preferEnvFile } = require('./config/envFile');
 const { getBuildInfo } = require('./config/buildInfo');
+const { logger } = require('./config/logger');
+const { requestContext } = require('./middleware/requestContext');
+const { requestLogger } = require('./middleware/requestLogger');
+const { errorHandler } = require('./middleware/errorHandler');
 
 // Di development, kredensial AI diambil dari .env walau variabel shell berisi
 // nilai lain (mis. sisa `export GROQ_API_KEY=...` yang rusak di ~/.bashrc).
@@ -48,13 +53,19 @@ const { getBuildInfo } = require('./config/buildInfo');
 if (process.env.NODE_ENV !== 'production') {
   const overridden = preferEnvFile({});
   if (overridden.length) {
-    console.log(
-      `Config: ${overridden.join(', ')} diambil dari .env (mengabaikan nilai shell yang berbeda)`
+    logger.info(
+      `Config: ${overridden.join(', ')} diambil dari .env (mengabaikan nilai shell yang berbeda)`,
+      { variables: overridden }
     );
   }
 }
 
 const app = express();
+
+// Paling awal, sebelum helmet/CORS: identitas request harus ada bahkan untuk
+// permintaan yang ditolak middleware berikutnya. Tanpa ini, penolakan CORS atau
+// permintaan yang terlalu besar tidak bisa dihubungkan ke satu request tertentu.
+app.use(requestContext);
 
 // Domain produksi utama dan domain custom aplikasi. Keduanya harus bisa
 // mengakses API karena Vercel memakai deployment yang sama untuk dua hostname.
@@ -121,9 +132,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Middleware
-// Morgan sengaja dipasang SEBELUM limiter: kalau limiter lebih dulu, request
-// yang ditolak tidak pernah tercatat dan 429 jadi tidak terlihat saat debugging.
-app.use(morgan('dev'));
+// Logger akses sengaja dipasang SEBELUM limiter: kalau limiter lebih dulu,
+// request yang ditolak tidak pernah tercatat dan 429 jadi tidak terlihat saat
+// debugging. Penggantinya `requestLogger` (lihat middleware/requestLogger.js)
+// yang mencatat level per status, bukan `morgan('dev')`.
+app.use(requestLogger);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -189,6 +202,12 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/member', memberRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/media', mediaRoutes);
+// Tautan baca-saja: publik (tanpa auth) karena memang untuk dibagikan ke orang
+// lain. Lihat catatan panjang di routes/share.js.
+app.use('/api/v1/share', shareRoutes);
+// Laporan galat dari frontend (publik, dibatasi ketat per IP). Lihat catatan
+// panjang di routes/clientErrors.js.
+app.use('/api/v1/client-errors', clientErrorRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -321,22 +340,22 @@ app.get('/health', (req, res) => {
   res.status(200).json(payload);
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error'
-  });
-});
+// Error handling middleware.
+// Terpusat di middleware/errorHandler.js: ia mencatat galatnya ke log + daftar
+// galat admin (dengan requestId), menerjemahkan galat bawaan body-parser, dan
+// tidak meneruskan pesan internal ke klien di produksi.
+app.use(errorHandler);
 
 // Database connection
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('MongoDB Connected');
+    logger.info('MongoDB Connected');
   } catch (error) {
-    console.error('Database connection error:', error.message);
+    // `error` dikirim utuh supaya stack trace-nya ikut tercatat — pesan saja
+    // tidak cukup untuk membedakan kredensial salah dari cluster tidak bisa
+    // dijangkau.
+    logger.error('Database connection error', { error });
     process.exit(1);
   }
 };
@@ -349,7 +368,7 @@ const startServer = async () => {
   // Bind explicitly to all interfaces. Railway's proxy cannot reach a server
     // bound only to the container loopback interface.
     app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    logger.info(`Server running on port ${PORT}`, { port: Number(PORT) });
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
     // platform (Railway), bukan harus ditebak dari perilaku aplikasi. Sumber
     // kredensialnya ikut dicatat karena "dibaca dari CLOUDINARY_URL" dan
@@ -365,7 +384,12 @@ const startServer = async () => {
               : 'tiga variabel CLOUDINARY_*'
           }`
         : '';
-    console.log(`Penyimpanan media: mode=${modePenyimpanan}${sumberKredensial}`);
+    logger.info(`Penyimpanan media: mode=${modePenyimpanan}${sumberKredensial}`, {
+      storageMode: modePenyimpanan,
+      // Hanya berlaku untuk Cloudinary; undefined dibuang oleh logger.
+      credentialSource:
+        modePenyimpanan === 'cloudinary' ? cloudinaryCredentialSource() : undefined
+    });
     // Dijalankan tanpa di-await: hasilnya menyusul di /health dan di log
     // ("Verifikasi penyimpanan: ..."). Server tidak boleh tertahan atau gagal
     // naik hanya karena penyimpanan sedang tidak bisa dihubungi.
@@ -380,7 +404,10 @@ const startServer = async () => {
     const chatStatus = Object.entries(chat.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
-    console.log(`Provider chat: ${chat.chain.join(' > ') || 'none'} (${chatStatus})`);
+    logger.info(`Provider chat: ${chat.chain.join(' > ') || 'none'} (${chatStatus})`, {
+      chain: chat.chain,
+      status: chat.status
+    });
 
     // Hal yang sama untuk provider gambar: tanpa baris ini, "text-to-image
     // gagal" tidak bisa dibedakan antara kredensial yang belum sampai ke
@@ -389,11 +416,15 @@ const startServer = async () => {
     const imageStatus = Object.entries(image.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
-    console.log(`Provider gambar: ${image.chain.join(' > ') || 'none'} (${imageStatus})`);
+    logger.info(`Provider gambar: ${image.chain.join(' > ') || 'none'} (${imageStatus})`, {
+      chain: image.chain,
+      status: image.status
+    });
     // Rantai image-to-image dipisah: providernya berbeda, dan inilah satu-satunya
     // tempat melihatnya di production.
-    console.log(
-      `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`
+    logger.info(
+      `Provider edit: ${image.editChain.join(' > ') || 'none'} (editReady=${image.editReady})`,
+      { chain: image.editChain, editReady: image.editReady }
     );
     // Text-to-sound: tanpa baris ini, "audio gagal" tidak bisa dibedakan antara
     // GEMINI_API_KEY yang belum sampai ke container dan provider yang memang
@@ -402,9 +433,10 @@ const startServer = async () => {
     const speechStatus = Object.entries(speech.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
-    console.log(
-      `Provider suara: ${speech.chain.join(' > ') || 'none'} (${speechStatus})`
-    );
+    logger.info(`Provider suara: ${speech.chain.join(' > ') || 'none'} (${speechStatus})`, {
+      chain: speech.chain,
+      status: speech.status
+    });
     // Sound-to-text: fitur ini BISA tidak siap sama sekali (tidak ada provider
     // transkripsi tanpa kredensial), jadi baris ini yang membedakan "kunci belum
     // sampai ke container" dari "providernya sedang bermasalah".
@@ -412,9 +444,10 @@ const startServer = async () => {
     const transcribeStatus = Object.entries(transcribe.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
-    console.log(
+    logger.info(
       `Provider transkripsi: ${transcribe.chain.join(' > ') || 'none'} ` +
-        `(ready=${transcribe.ready} ${transcribeStatus})`
+        `(ready=${transcribe.ready} ${transcribeStatus})`,
+      { chain: transcribe.chain, ready: transcribe.ready, status: transcribe.status }
     );
     // Video: fitur ini juga bisa tidak siap sama sekali (tidak ada provider
     // video tanpa kredensial), jadi baris ini yang membedakan "BYNARA_API_KEY
@@ -423,9 +456,10 @@ const startServer = async () => {
     const videoStatus = Object.entries(video.status)
       .map(([name, state]) => `${name}=${state}`)
       .join(' ');
-    console.log(
+    logger.info(
       `Provider video: ${video.chain.join(' > ') || 'none'} ` +
-        `(ready=${video.ready} ${videoStatus})`
+        `(ready=${video.ready} ${videoStatus})`,
+      { chain: video.chain, ready: video.ready, status: video.status }
     );
   });
 };

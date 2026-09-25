@@ -32,15 +32,27 @@
  *   3. minta transkrip dari provider STT (Groq/Gemini/OpenAI, lihat
  *      config/speechToTextProviders.js), lalu kurangi quota user
  *
- * Kuota: audio memakai `videoGeneration` yang sudah ada, bukan field baru. Fitur
- * suara masih satu keluarga dengan video (keduanya media non-gambar) dan jatah
- * video di akun ini belum pernah terpakai. Sound-to-text ikut memakai kuota yang
- * sama untuk alasan yang sama.
+ * Kuota: setiap jenis pekerjaan punya jatahnya sendiri — `imageGeneration` untuk
+ * gambar, `audioGeneration` untuk suara (text-to-sound & sound-to-text), dan
+ * `videoGeneration` untuk video. Sebelumnya audio memakai `videoGeneration`,
+ * dan akibatnya satu fitur bisa menghabiskan jatah fitur lain tanpa terlihat.
+ * Akun lama yang belum punya `audioGeneration` tetap dilayani lewat nilai
+ * cadangan di middleware/auth (lihat `remainingQuota`).
+ *
+ * Riwayat: `getMediaHistory` menerima pencarian (`q`), filter (`type`, `status`),
+ * dan paginasi (`page`, `limit`) — dipakai halaman Riwayat di frontend.
+ *
+ * Tautan baca-saja: hasil yang sudah selesai bisa dibagikan lewat token acak
+ * (`shareMedia`), dicabut kembali (`unshareMedia`), dan dibaca tanpa login
+ * (`getSharedMedia`). Yang dibaca dari luar hanya bidang tampilan — lihat
+ * `publicMediaView`, yang memuat daftar putih bidang yang boleh keluar.
  */
 
+const crypto = require('crypto');
 const MediaContent = require('../models/MediaContent');
 // Dipakai pekerjaan video di latar belakang: kuotanya dibaca ulang dari
-// database setelah request-nya selesai (lihat runVideoJob).
+// database setelah request-nya selesai (lihat runVideoJob), dan untuk nama
+// pemilik pada halaman tautan yang dibagikan (lihat getSharedMedia).
 const User = require('../models/User');
 const {
   putObject,
@@ -87,6 +99,32 @@ const DEFAULT_SIZE = '1024x1024';
 const ALLOWED_QUALITIES = ['standard', 'hd'];
 const MAX_PROMPT_LENGTH = 1000;
 
+// Jenis & status yang sah untuk filter riwayat. Daftarnya ditulis di sini
+// (bukan disalin dari schema) supaya nilai yang tidak dikenal bisa dijawab 400
+// dengan pesan yang jelas: tanpa ini, `type` yang salah menghasilkan error cast
+// Mongoose dan berakhir sebagai 500.
+const MEDIA_TYPES = [
+  'text-to-image',
+  'image-to-image',
+  'text-to-video',
+  'image-to-video',
+  'text-to-sound',
+  'sound-to-text'
+];
+const MEDIA_STATUSES = ['pending', 'processing', 'completed', 'failed'];
+
+// Batas panjang kata kunci pencarian. Prompt sendiri maksimal 2000 karakter,
+// tetapi pola regex sepanjang itu tidak ada gunanya dan hanya membebani query.
+const MAX_SEARCH_LENGTH = 100;
+
+/**
+ * Netralkan karakter khusus regex pada kata kunci pencarian.
+ *
+ * Tanpa ini, prompt seperti "kucing (oranye)" menjadi pola regex yang salah dan
+ * `C++` atau `[a-z]` bisa membuat query gagal atau mencocokkan hal lain.
+ */
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Kode galat provider gambar yang berarti masalah konfigurasi server, bukan
 // masalah sesaat. Kegagalan penyimpanan ditambahkan terpisah lewat
 // isStorageConfigError(), karena kredensial penyimpanan yang ditolak juga tidak
@@ -96,6 +134,21 @@ const EDIT_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
 // Sama seperti edit gambar: provider yang tidak sanggup mode yang diminta juga
 // masalah konfigurasi, bukan gangguan sesaat — mencoba lagi tidak menolong.
 const VIDEO_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
+
+/**
+ * Kurangi kuota audio satu langkah (text-to-sound & sound-to-text).
+ *
+ * Akun yang dibuat sebelum kuota audio dipisahkan belum punya field ini, dan
+ * `undefined - 1` menghasilkan NaN yang ikut tersimpan ke database. Karena itu
+ * nilainya diambil dari kuota media non-gambar yang dulu dipakai bersama
+ * (`videoGeneration`) — perlakuan yang sama dengan nilai cadangan di
+ * middleware/auth, supaya pemeriksaan kuota dan pengurangannya tidak berbeda
+ * pendapat soal berapa sisa jatah user.
+ */
+const consumeAudioQuota = (member) => {
+  const tersisa = member.quota.audioGeneration ?? member.quota.videoGeneration ?? 0;
+  member.quota.audioGeneration = Math.max(0, tersisa - 1);
+};
 
 /**
  * Pesan untuk kegagalan yang berasal dari konfigurasi penyimpanan server.
@@ -632,7 +685,7 @@ exports.textToSound = async (req, res) => {
     };
     await media.save();
 
-    req.member.quota.videoGeneration -= 1;
+    consumeAudioQuota(req.member);
     await req.member.save();
 
     return res.status(201).json({
@@ -831,7 +884,7 @@ exports.soundToText = async (req, res) => {
     };
     await media.save();
 
-    req.member.quota.videoGeneration -= 1;
+    consumeAudioQuota(req.member);
     await req.member.save();
 
     return res.status(201).json({
@@ -1222,22 +1275,67 @@ exports.imageToVideo = async (req, res) => {
 /**
  * @GET /api/v1/media/history
  * Riwayat media milik user yang sedang login.
+ *
+ * Query opsional:
+ *   type   - hanya satu jenis (text-to-image, image-to-video, dst)
+ *   status - pending | processing | completed | failed
+ *   q      - kata kunci pada prompt (tanpa membedakan huruf besar/kecil)
+ *   page   - halaman, mulai dari 1
+ *   limit  - jumlah per halaman (maks 100, bawaan 24)
+ *
+ * Paginasi dipakai halaman Riwayat; pemanggil lama yang hanya mengirim `type`
+ * dan `limit` tetap mendapat hasil yang sama seperti sebelumnya (page 1).
  */
 exports.getMediaHistory = async (req, res) => {
   try {
-    const filter = { userId: req.member.uid };
+    const { type, status } = req.query;
 
-    if (req.query.type) {
-      filter.type = req.query.type;
+    if (type && !MEDIA_TYPES.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid type. Allowed: ${MEDIA_TYPES.join(', ')}`
+      });
     }
 
-    const media = await MediaContent.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(Math.min(parseInt(req.query.limit, 10) || 24, 100));
+    if (status && !MEDIA_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Allowed: ${MEDIA_STATUSES.join(', ')}`
+      });
+    }
+
+    const filter = { userId: req.member.uid };
+
+    if (type) filter.type = type;
+    if (status) filter.status = status;
+
+    const keyword = String(req.query.q || '').trim().slice(0, MAX_SEARCH_LENGTH);
+
+    if (keyword) {
+      filter.prompt = { $regex: escapeRegExp(keyword), $options: 'i' };
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 100);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+
+    // `total` dihitung dari filter yang sama (bukan dari item yang sudah
+    // diambil) supaya jumlah halaman di UI tidak bergeser saat user menyaring.
+    const [media, total] = await Promise.all([
+      MediaContent.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      MediaContent.countDocuments(filter)
+    ]);
 
     res.json({
       success: true,
       count: media.length,
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      hasMore: page * limit < total,
       media
     });
   } catch (error) {
@@ -1291,3 +1389,263 @@ exports.deleteMedia = async (req, res) => {
     });
   }
 };
+
+/**
+ * @GET /api/v1/media/:contentId
+ * Satu hasil milik user yang sedang login.
+ *
+ * Dipakai frontend untuk memantau satu pekerjaan latar belakang (video)
+ * selesai atau gagal dari halaman mana pun, tanpa mengunduh seluruh riwayat.
+ * Riwayat bisa berisi puluhan item dengan URL gambar/video yang panjang, jadi
+ * mengambil semuanya setiap beberapa detik hanya untuk satu record jelas
+ * pemborosan — dan itu yang membuat halaman lain ikut terbebani saat video
+ * 1-5 menit sedang berjalan.
+ */
+exports.getMediaById = async (req, res) => {
+  try {
+    const media = await MediaContent.findOne({
+      contentId: req.params.contentId,
+      // Kepemilikan ikut jadi syarat pencarian, bukan diperiksa setelahnya:
+      // hasil milik user lain harus terlihat sama dengan hasil yang tidak ada.
+      userId: req.member.uid
+    });
+
+    if (!media) {
+      return res.status(404).json({ success: false, message: 'Media not found' });
+    }
+
+    res.json({ success: true, media });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch media',
+      error: error.message
+    });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Tautan baca-saja
+// ---------------------------------------------------------------------------
+
+// 24 byte acak -> 32 karakter base64url. Panjang ini jauh di luar jangkauan
+// tebak-tebakan (192 bit), sehingga tautannya hanya bisa dibuka oleh orang yang
+// memang diberi tautannya.
+const PANJANG_TOKEN_BAGIKAN = 24;
+const MAKS_PERCOBAAN_TOKEN = 3;
+
+// Bentuk token yang sah. Dipakai untuk menolak permintaan yang jelas bukan
+// token sebelum menyentuh database.
+const POLA_TOKEN_BAGIKAN = /^[A-Za-z0-9_-]{20,64}$/;
+
+const buatTokenBagikan = () => crypto.randomBytes(PANJANG_TOKEN_BAGIKAN).toString('base64url');
+
+/**
+ * Bidang yang boleh keluar lewat tautan baca-saja.
+ *
+ * Ditulis sebagai DAFTAR PUTIH, bukan dengan menghapus bidang sensitif dari
+ * objek utuh. Bedanya penting: bidang baru yang ditambahkan ke skema nanti
+ * otomatis tidak ikut terkirim, sedangkan dengan daftar hitam ia akan ikut
+ * tanpa ada yang sadar. Yang tidak boleh keluar, misalnya:
+ *   - `userId` (identitas pemilik),
+ *   - `outputFile` (referensi penyimpanan: nama bucket dan path internal),
+ *   - `error` (pesan penyebab kegagalan dari provider),
+ *   - `shareToken` itu sendiri (dikirim ke pemilik lewat jalur ber-auth, bukan
+ *     lewat halaman publik yang sudah memegang tokennya).
+ *
+ * @param {object} media dokumen MediaContent (atau objeknya)
+ * @param {string|null} namaPemilik nama tampilan pemilik, boleh null
+ */
+const publicMediaView = (media, namaPemilik = null) => {
+  const metadata = media.metadata || {};
+
+  return {
+    type: media.type,
+    prompt: media.prompt,
+    status: media.status,
+    outputUrl: media.outputUrl || null,
+    // Untuk image-to-video & image-to-image, `inputFile` adalah URL PUBLIK
+    // gambar sumbernya (bukan referensi penyimpanan), dan justru itu yang
+    // membuat hasilnya bisa dipahami: tanpa gambar asalnya, video hasilnya tidak
+    // bisa dinilai.
+    inputUrl: media.inputFile || null,
+    metadata: {
+      width: metadata.width,
+      height: metadata.height,
+      duration: metadata.duration,
+      resolution: metadata.resolution,
+      requestedResolution: metadata.requestedResolution,
+      inputResolution: metadata.inputResolution,
+      aspectRatio: metadata.aspectRatio,
+      mode: metadata.mode,
+      format: metadata.format,
+      mimeType: metadata.mimeType,
+      voice: metadata.voice,
+      style: metadata.style,
+      language: metadata.language,
+      model: metadata.model
+    },
+    createdAt: media.createdAt,
+    completedAt: media.completedAt || null,
+    sharedBy: namaPemilik || null
+  };
+};
+
+/**
+ * @POST /api/v1/media/:contentId/share
+ * Aktifkan tautan baca-saja untuk satu hasil milik user.
+ *
+ * Idempoten: menekan tombol dua kali tidak membuat tautan baru (tautan lama yang
+ * sudah disebar tidak boleh diam-diam mati, karena itu membingungkan penerimanya).
+ */
+exports.shareMedia = async (req, res) => {
+  try {
+    const media = await MediaContent.findOne({
+      contentId: req.params.contentId,
+      userId: req.member.uid
+    });
+
+    if (!media) {
+      return res.status(404).json({ success: false, message: 'Media not found' });
+    }
+
+    // Hasil yang masih diproses (video) atau gagal tidak punya berkas untuk
+    // dibagikan; tautannya akan menampilkan halaman kosong.
+    if (media.status !== 'completed' || !media.outputUrl) {
+      return res.status(409).json({
+        success: false,
+        message: 'Only a finished result can be shared.'
+      });
+    }
+
+    if (!media.shareToken) {
+      media.sharedAt = new Date();
+
+      // Tabrakan token praktis tidak mungkin, tetapi index uniknya bisa menolak
+      // simpanan kalau itu terjadi. Mengulang beberapa kali jauh lebih baik
+      // daripada melaporkan kegagalan yang tidak bisa ditindaklanjuti user.
+      for (let percobaan = 0; percobaan < MAKS_PERCOBAAN_TOKEN; percobaan += 1) {
+        media.shareToken = buatTokenBagikan();
+
+        try {
+          await media.save();
+          break;
+        } catch (error) {
+          const tabrakanToken = error.code === 11000;
+
+          if (!tabrakanToken || percobaan === MAKS_PERCOBAAN_TOKEN - 1) throw error;
+
+          media.shareToken = undefined;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Sharing enabled',
+      shareToken: media.shareToken,
+      // Hanya jalurnya, bukan URL absolut: frontend tahu origin-nya sendiri, dan
+      // itu membuat tautannya benar di lokal maupun di produksi tanpa backend
+      // perlu tahu domain mana yang sedang dipakai.
+      sharePath: `/share/${media.shareToken}`,
+      media
+    });
+  } catch (error) {
+    console.error('Share media error:', error.message);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to share this media',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @DELETE /api/v1/media/:contentId/share
+ * Cabut tautan baca-saja. Tokennya dihapus, sehingga tautan yang sudah tersebar
+ * tidak bisa dibuka lagi.
+ *
+ * Idempoten juga: mencabut yang belum pernah dibagikan bukan kesalahan.
+ */
+exports.unshareMedia = async (req, res) => {
+  try {
+    const media = await MediaContent.findOne({
+      contentId: req.params.contentId,
+      userId: req.member.uid
+    });
+
+    if (!media) {
+      return res.status(404).json({ success: false, message: 'Media not found' });
+    }
+
+    if (media.shareToken) {
+      // `set` dengan nilai undefined menghasilkan `$unset` di MongoDB. Ini satu-
+      // satunya bentuk pencabutan yang benar: index unik `sparse` mengabaikan
+      // field yang tidak ada, sedangkan `null` akan dianggap nilai.
+      media.set('shareToken', undefined);
+      media.sharedAt = null;
+      await media.save();
+    }
+
+    res.json({ success: true, message: 'Sharing revoked', media });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to revoke sharing',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @GET /api/v1/share/:token   (PUBLIK, tanpa auth)
+ * Isi satu hasil yang dibagikan, dalam bentuk baca-saja.
+ *
+ * Tanpa login karena tujuannya memang dibagikan ke orang lain; keamanannya
+ * bertumpu pada token yang tidak bisa ditebak dan tidak bisa dienumerasi
+ * (pencarian berdasarkan token, bukan daftar).
+ */
+exports.getSharedMedia = async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim();
+
+    if (!POLA_TOKEN_BAGIKAN.test(token)) {
+      return res.status(404).json({ success: false, message: 'Shared item not found' });
+    }
+
+    const media = await MediaContent.findOne({ shareToken: token });
+
+    if (!media) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shared item not found or no longer shared'
+      });
+    }
+
+    // Nama tampilan pemilik saja — bukan email maupun uid. Kalau akunnya sudah
+    // tidak ada, halamannya tetap tampil tanpa nama (bukan gagal).
+    let namaPemilik = null;
+
+    try {
+      const pemilik = await User.findOne({ uid: media.userId }).select('displayName');
+      namaPemilik = (pemilik && pemilik.displayName) || null;
+    } catch {
+      // Nama pemilik hanya pelengkap; kegagalan membacanya tidak boleh membuat
+      // tautan yang sah mendadak mati.
+    }
+
+    res.json({ success: true, media: publicMediaView(media, namaPemilik) });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load shared media',
+      error: error.message
+    });
+  }
+};
+
+// Diekspos untuk test: daftar putih ini adalah batas antara "bisa dibagikan"
+// dan "jangan sampai keluar", jadi perubahannya harus terlihat di test.
+exports.publicMediaView = publicMediaView;
+exports.POLA_TOKEN_BAGIKAN = POLA_TOKEN_BAGIKAN;

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { authAPI } from './config/api'
 import { getCurrentUser } from './config/firebase'
+import { reportError } from './utils/errorReporter'
 
 // Pages
 import LoginPage from './pages/LoginPage'
@@ -14,6 +15,8 @@ import TextToVideoPage from './pages/TextToVideoPage'
 import ImageToVideoPage from './pages/ImageToVideoPage'
 import TextToSoundPage from './pages/TextToSoundPage'
 import SoundToTextPage from './pages/SoundToTextPage'
+import HistoryPage from './pages/HistoryPage'
+import SharedMediaPage from './pages/SharedMediaPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminMembers from './pages/admin/AdminMembers'
@@ -49,7 +52,11 @@ function App() {
         }
       }
     } catch (error) {
-      console.error('Auth check failed:', error)
+      // Cek sesi gagal berarti aplikasi tidak tahu siapa user-nya; sebelumnya
+      // kejadian ini hanya berakhir di console dan user melihat halaman login
+      // seolah-olah sesinya habis. Laporannya sekarang sampai ke server (dengan
+      // id request yang sama seperti log backend-nya).
+      reportError(error, { kind: 'api', requestId: error.requestId })
       setUser(null)
     } finally {
       setLoading(false)
@@ -86,6 +93,11 @@ function App() {
           </GuestRoute>
         } />
         
+        {/* Tautan baca-saja. Ditaruh di antara rute publik: hasil yang dibagikan
+            memang harus bisa dibuka orang yang belum punya akun — itulah gunanya.
+            Isinya hanya bidang tampilan (lihat getSharedMedia di backend). */}
+        <Route path="/share/:token" element={<SharedMediaPage />} />
+
         {/* Protected Routes - Admin Only */}
         <Route path="/admin" element={
           <ProtectedRoute user={user} requiredRole="admin">
@@ -156,6 +168,12 @@ function App() {
         <Route path="/tools/sound-to-text" element={
           <ProtectedRoute user={user} requiredApproval={true}>
             <SoundToTextPage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/history" element={
+          <ProtectedRoute user={user} requiredApproval={true}>
+            <HistoryPage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
 

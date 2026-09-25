@@ -20,7 +20,15 @@
  * kredensial providernya sudah diisi (dan sound-to-text bisa berakhir sebagai
  * kegagalan yang jelas untuk audio sintetis, tanpa memakai kuota). Semuanya
  * menghapus kembali data yang dibuatnya lewat API, tapi kuota tidak bisa
- * dikembalikan dari sini — jalankan saat kuota dev tersedia.
+ * dikembalikan dari sini — jalankan saat kuota dev tersedia. Satu pengecualian:
+ * history.spec hanya MEMBACA riwayat yang sudah ada, jadi ia tidak memakai kuota
+ * dan tidak membuat data baru.
+ *
+ * share-link.spec juga tidak memakai kuota: ia memakai satu hasil selesai yang
+ * sudah ada di riwayat, membuat tautan baca-saja untuknya, membukanya tanpa
+ * login, lalu mencabutnya lagi. Kalau item itu ternyata SUDAH dibagikan sebelum
+ * spec berjalan (mis. sisa sesi sebelumnya), pencabutannya dilewati — jangan
+ * matikan tautan yang mungkin sudah disebar hanya untuk menyelesaikan test.
  *
  * PENGECUALIAN PENTING — video:
  * text-to-video.spec & image-to-video.spec TIDAK menghasilkan video sungguhan
@@ -50,6 +58,8 @@ const ALL_SPECS = [
   require('./specs/text-to-sound.spec.cjs'),
   require('./specs/sound-to-text.spec.cjs'),
   require('./specs/dashboard-profile.spec.cjs'),
+  require('./specs/history.spec.cjs'),
+  require('./specs/share-link.spec.cjs'),
   require('./specs/pending-approval.spec.cjs'),
   require('./specs/admin-logout.spec.cjs')
 ];

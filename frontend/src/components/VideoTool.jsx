@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
 import MediaVideo from '../components/MediaVideo'
+import HistoryLink from './HistoryLink'
+import { useNotifications } from './NotificationsProvider'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -89,8 +92,13 @@ const VideoTool = ({
   emptyHistory,
   requiresImage = false
 }) => {
+  const location = useLocation()
+  const notifikasi = useNotifications()
+
   const [options, setOptions] = useState(null)
-  const [prompt, setPrompt] = useState('')
+  // Prompt dari halaman Riwayat ("Generate ulang") menjadi nilai awal; generate
+  // tetap harus ditekan user karena memakai kuota video.
+  const [prompt, setPrompt] = useState(location.state?.prompt || '')
   const [resolution, setResolution] = useState('')
   const [duration, setDuration] = useState('')
   const [image, setImage] = useState(null)
@@ -294,6 +302,10 @@ const VideoTool = ({
       setHistory((items) => [record, ...items.filter((item) => item.contentId !== record.contentId)])
       // Pekerjaan berjalan di server; panel hasil menunggu record ini selesai.
       setPending(record.contentId)
+      // Sekaligus didaftarkan ke pemberi tahu aplikasi: halaman ini bisa ditinggal
+      // (video 1-5 menit), dan tanpa pendaftaran ini hasilnya selesai tanpa ada
+      // yang memberi tahu user — lihat NotificationsProvider.
+      notifikasi?.watchJob(record)
     } catch (err) {
       console.error('Video generation failed:', err)
 
@@ -303,7 +315,10 @@ const VideoTool = ({
       const items = await fetchHistory()
       const tersimpan = items?.[0]
 
-      if (tersimpan?.status === 'processing') setPending(tersimpan.contentId)
+      if (tersimpan?.status === 'processing') {
+        setPending(tersimpan.contentId)
+        notifikasi?.watchJob(tersimpan)
+      }
 
       const detail = err.response?.data?.message
       const reason = err.response?.data?.error
@@ -501,6 +516,15 @@ const VideoTool = ({
               </p>
             )}
 
+            {location.state?.prompt && requiresImage && (
+              <div data-testid="prefill-notice" className="alert alert-info mt-4">
+                <p>
+                  Prompt dari riwayat sudah terisi. Pilih ulang gambar pertamanya, lalu
+                  tekan Generate — berkas gambar tidak ikut tersimpan di riwayat.
+                </p>
+              </div>
+            )}
+
             {error && (
               <div data-testid="error-message" className="alert alert-danger mt-4" role="alert">
                 <p>{error}</p>
@@ -582,7 +606,14 @@ const VideoTool = ({
 
             {/* --------------------------------- Riwayat ------------------------------- */}
             <GlassPanel className="rise rise-2 p-5 sm:p-6">
-              <SectionTitle hint="12 video terakhir Anda.">Your videos</SectionTitle>
+              {/* Arsip lengkap: panel ini hanya 12 item terakhir. Lihat
+                  components/HistoryLink.jsx. */}
+              <SectionTitle
+                hint="12 video terakhir Anda."
+                action={<HistoryLink type={type} />}
+              >
+                Your videos
+              </SectionTitle>
 
               {historyLoading ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

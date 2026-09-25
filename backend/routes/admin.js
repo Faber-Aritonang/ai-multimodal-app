@@ -11,7 +11,8 @@ const {
   getApprovedMembers,
   approveMember,
   rejectMember,
-  getAnalytics
+  getAnalytics,
+  getErrors
 } = require('../controllers/adminController');
 
 // Semua route ini membutuhkan akses admin.
@@ -27,5 +28,9 @@ router.delete('/reject-member/:uid', rejectMember);
 
 // Analytics
 router.get('/analytics', getAnalytics);
+
+// Galat terakhir (server & frontend) yang tercatat proses ini. Lihat catatan di
+// config/errorLog.js dan controllers/adminController.js.
+router.get('/errors', getErrors);
 
 module.exports = router;

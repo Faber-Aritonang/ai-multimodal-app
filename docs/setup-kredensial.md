@@ -968,10 +968,14 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ### Kuota
 
-Audio memakai kuota **`videoGeneration`** yang sudah ada, bukan field kuota baru
-— jatah media non-gambar. Angkanya berkurang 1 hanya setelah audionya benar-benar
-berhasil dibuat dan tersimpan, dan kartu di dashboard menampilkannya sebagai
-`video & audio`.
+Audio memakai kuota **`audioGeneration`** — jatahnya sendiri, terpisah dari
+`videoGeneration`. Sebelumnya keduanya berbagi satu jatah sehingga membuat video
+menghabiskan kuota suara (dan sebaliknya) tanpa terlihat. Angkanya berkurang 1
+hanya setelah audionya benar-benar berhasil dibuat dan tersimpan, dan kartu
+`audio` di dashboard/profil menampilkannya. **Akun lama** yang belum punya field
+ini tetap dilayani: `checkQuota` memakai sisa `videoGeneration` sebagai nilai
+cadangan sampai kuota pertamanya terpakai, jadi tidak ada member yang tiba-tiba
+terkunci 403 setelah pembaruan ini.
 
 ### Penyimpanan berkasnya
 
@@ -1078,8 +1082,8 @@ lain yang sanggup membacanya (bukan gagal).
 
 ### Kuota
 
-Sama seperti text-to-sound: transkripsi memakai kuota **`videoGeneration`** yang
-sudah ada (jatah media non-gambar), dan angkanya berkurang 1 hanya setelah
+Sama seperti text-to-sound: transkripsi memakai kuota **`audioGeneration`**
+(jatah yang sama dengan text-to-sound), dan angkanya berkurang 1 hanya setelah
 transkripnya benar-benar berhasil. Audio yang diunggah tetap disimpan (di
 penyimpanan media yang sama) supaya riwayat bisa memutarnya kembali — termasuk
 rekaman yang transkripsinya gagal, sehingga user bisa mencoba ulang tanpa

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
 import MediaAudio from '../components/MediaAudio'
+import HistoryLink from '../components/HistoryLink'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 // Cadangan kalau GET /media/sound-voices tidak bisa dihubungi. Daftar yang
@@ -32,7 +34,11 @@ const MAX_TEXT_LENGTH = 2000
 const MAX_STYLE_LENGTH = 300
 
 const TextToSoundPage = ({ user, setUser }) => {
-  const [text, setText] = useState('')
+  const location = useLocation()
+
+  // Teks dari halaman Riwayat ("Generate ulang") dijadikan nilai AWAL state;
+  // sintesis tetap menunggu tombol ditekan user karena memakai kuota.
+  const [text, setText] = useState(location.state?.prompt || '')
   const [voices, setVoices] = useState(FALLBACK_VOICES)
   const [voice, setVoice] = useState(FALLBACK_VOICES[0].value)
   const [style, setStyle] = useState('')
@@ -46,7 +52,9 @@ const TextToSoundPage = ({ user, setUser }) => {
   const [quota, setQuota] = useState(null)
   const [elapsed, setElapsed] = useState(0)
 
-  const remainingAudio = quota?.videoGeneration ?? null
+  // Kuota audio punya jatahnya sendiri (dulu ikut memakai `videoGeneration`),
+  // jadi sisa suara tidak lagi berubah saat user membuat video.
+  const remainingAudio = quota?.audioGeneration ?? null
   const outOfQuota = remainingAudio !== null && remainingAudio <= 0
   const canGenerate = text.trim().length > 0 && !generating && !outOfQuota
 
@@ -438,7 +446,12 @@ const TextToSoundPage = ({ user, setUser }) => {
 
             {/* --------------------------------- Riwayat ------------------------------- */}
             <GlassPanel className="rise rise-2 p-5 sm:p-6">
-              <SectionTitle hint="12 audio terakhir yang Anda buat.">Your generations</SectionTitle>
+              <SectionTitle
+                hint="12 audio terakhir yang Anda buat."
+                action={<HistoryLink type="text-to-sound" />}
+              >
+                Your generations
+              </SectionTitle>
 
               {historyLoading ? (
                 <div className="space-y-3">

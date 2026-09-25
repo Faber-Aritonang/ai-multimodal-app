@@ -62,13 +62,17 @@ pesan yang jelas.
 4. Jalankan pemeriksaan di bawah sampai bersih
 5. Commit, push ke fork Anda, lalu buka Pull Request ke `main`
 
-> CI di repo ini hanya berjalan untuk push ke `main`, jadi Pull Request dari fork
-> **tidak** otomatis diuji. Pastikan pemeriksaan di bawah sudah Anda jalankan.
+> Sejak 24 September 2026, Pull Request yang menyasar `main` **ikut menjalankan
+> job `quality`** (test backend, ESLint, build, penjaga rahasia, penjaga registri
+> spec browser) — job deploy tetap hanya berjalan pada push ke `main`. PR dari
+> fork tetap perlu menjalankan pemeriksaan di bawah di komputernya sendiri, karena
+> hasilnya lebih cepat terlihat dan repo ini tetap publik untuk log-nya.
 
 ## Pemeriksaan sebelum membuka PR
 
 ```bash
-node scripts/check-no-secrets.js   # berkas/isi mirip kredensial (dari akar repo)
+node scripts/check-no-secrets.js     # berkas/isi mirip kredensial (dari akar repo)
+node scripts/check-browser-specs.js  # setiap spec browser terdaftar & bisa dimuat
 
 cd backend && npm test          # unit test, tanpa MongoDB/Firebase
 cd frontend && npm run lint     # ESLint (dijalankan dengan --fix)

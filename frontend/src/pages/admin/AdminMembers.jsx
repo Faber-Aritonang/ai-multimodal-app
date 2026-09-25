@@ -35,6 +35,9 @@ const AdminMembers = () => {
       await adminAPI.approveMember(uid, {
         chat: 500,
         imageGeneration: 50,
+        // Kuota audio berdiri sendiri (dulu menumpang videoGeneration); tanpa
+        // nilai di sini member baru hanya mewarisi nilai cadangan akun lama.
+        audioGeneration: 50,
         videoGeneration: 20,
         total: 5000
       })
@@ -201,7 +204,7 @@ const AdminMembers = () => {
                       </td>
                       <td className="p-4 font-mono text-xs text-slate-400">
                         Chat: {member.quota?.chat || 0} | Img: {member.quota?.imageGeneration || 0} |
-                        Vid: {member.quota?.videoGeneration || 0}
+                        Vid: {member.quota?.videoGeneration || 0} | Aud: {member.quota?.audioGeneration || 0}
                       </td>
                       <td className="p-4 text-center">
                         <button

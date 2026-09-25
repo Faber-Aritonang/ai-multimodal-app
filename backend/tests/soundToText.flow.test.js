@@ -39,12 +39,13 @@ const authHeader = () => ({
   Authorization: `Bearer ${jwt.sign({ uid: 'uid-stt' }, process.env.JWT_SECRET)}`
 });
 
-// Kuota audio memakai `videoGeneration` yang sudah ada (lihat mediaController).
-const approvedMember = (videoGeneration = 3) => ({
+// Kuota audio punya jatahnya sendiri: `audioGeneration` (dulu memakai
+// `videoGeneration` — lihat mediaController).
+const approvedMember = (audioGeneration = 3) => ({
   uid: 'uid-stt',
   role: 'member',
   isApproved: true,
-  quota: { chat: 10, imageGeneration: 5, videoGeneration },
+  quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 },
   save: jest.fn().mockResolvedValue(undefined)
 });
 
@@ -109,8 +110,9 @@ describe('POST /api/v1/media/sound-to-text', () => {
       model: 'whisper-large-v3'
     });
 
-    // Kuota yang berkurang adalah videoGeneration, bukan imageGeneration.
-    expect(response.body.quota.videoGeneration).toBe(2);
+    // Kuota yang berkurang adalah audioGeneration, bukan image/videoGeneration.
+    expect(response.body.quota.audioGeneration).toBe(2);
+    expect(response.body.quota.videoGeneration).toBe(5);
     expect(response.body.quota.imageGeneration).toBe(5);
     expect(member.save).toHaveBeenCalled();
 
@@ -189,7 +191,7 @@ describe('POST /api/v1/media/sound-to-text', () => {
       uid: 'uid-stt',
       role: 'guest',
       isApproved: false,
-      quota: { videoGeneration: 5 },
+      quota: { audioGeneration: 5 },
       save: jest.fn()
     });
 
@@ -289,7 +291,7 @@ describe('POST /api/v1/media/sound-to-text', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.success).toBe(false);
-    expect(member.quota.videoGeneration).toBe(3);
+    expect(member.quota.audioGeneration).toBe(3);
     expect(member.save).not.toHaveBeenCalled();
 
     expect(mediaRecord.status).toBe('failed');

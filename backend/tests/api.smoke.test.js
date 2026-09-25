@@ -633,9 +633,13 @@ describe('GET /api/v1/media/status', () => {
 describe('route yang dilindungi auth', () => {
   test.each([
     ['get', '/api/v1/member/profile'],
+    ['put', '/api/v1/member/profile'],
     ['get', '/api/v1/member/quota'],
     ['get', '/api/v1/member/referral-stats'],
     ['get', '/api/v1/admin/pending-members'],
+    // Daftar galat menyebut uid user dan pesan internal server, jadi hanya admin
+    // yang boleh membacanya — sama seperti endpoint admin yang lain.
+    ['get', '/api/v1/admin/errors'],
     ['post', '/api/v1/media/text-to-image'],
     ['post', '/api/v1/media/text-to-sound'],
     ['post', '/api/v1/media/sound-to-text'],
@@ -644,12 +648,29 @@ describe('route yang dilindungi auth', () => {
     ['post', '/api/v1/media/image-to-video'],
     ['get', '/api/v1/media/video-options'],
     ['get', '/api/v1/media/history'],
-    ['delete', '/api/v1/media/media_abc']
+    ['get', '/api/v1/media/media_abc'],
+    ['delete', '/api/v1/media/media_abc'],
+    // Tautan baca-saja dibuat & dicabut oleh PEMILIKNYA, jadi keduanya ber-auth.
+    // Yang publik hanyalah membuka tautannya (lihat test di bawah).
+    ['post', '/api/v1/media/media_abc/share'],
+    ['delete', '/api/v1/media/media_abc/share']
   ])('%s %s tanpa token ditolak 401', async (method, url) => {
     const response = await request(app)[method](url);
 
     expect(response.status).toBe(401);
     expect(response.body.success).toBe(false);
+  });
+});
+
+describe('tautan baca-saja', () => {
+  test('token yang bentuknya jelas bukan token dijawab 404 sebagai JSON', async () => {
+    // Dijawab tanpa menyentuh database, karena bentuknya sudah ditolak lebih
+    // dulu — itu juga yang membuat test ini berjalan tanpa MongoDB.
+    const response = await request(app).get('/api/v1/share/bukan-token');
+
+    expect(response.status).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(typeof response.body.message).toBe('string');
   });
 });
 

@@ -30,6 +30,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+
+  // Bio singkat yang boleh diedit sendiri oleh user (halaman profil).
+  // Panjangnya dibatasi di schema DAN di controller: schema menjaga data yang
+  // sudah ada, controller memberi pesan yang bisa dibaca user.
+  bio: {
+    type: String,
+    default: '',
+    maxlength: 200
+  },
   
   // Status keanggotaan
   role: {
@@ -44,10 +53,16 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   
-  // Jumlah request tersisa (quota)
+  // Jumlah request tersisa (quota).
+  // Satu kunci per jenis pekerjaan: `chat`, `imageGeneration` (gambar hasil),
+  // `audioGeneration` (text-to-sound & sound-to-text), dan `videoGeneration`
+  // (text-to-video & image-to-video). Sebelumnya audio memakai `videoGeneration`
+  // sehingga satu fitur bisa menghabiskan jatah fitur lain; akun lama yang belum
+  // punya `audioGeneration` tetap dilayani lewat nilai cadangan di checkQuota.
   quota: {
     chat: { type: Number, default: 100 },
     imageGeneration: { type: Number, default: 10 },
+    audioGeneration: { type: Number, default: 10 },
     videoGeneration: { type: Number, default: 5 },
     total: { type: Number, default: 1000 }
   },

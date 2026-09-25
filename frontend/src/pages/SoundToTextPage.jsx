@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
+import HistoryLink from '../components/HistoryLink'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -146,7 +147,9 @@ const SoundToTextPage = ({ user, setUser }) => {
   const recorderRef = useRef(null)
   const recorderStreamRef = useRef(null)
 
-  const remainingAudio = quota?.videoGeneration ?? null
+  // Kuota audio punya jatahnya sendiri (dulu ikut memakai `videoGeneration`),
+  // jadi sisa transkrip tidak lagi berubah saat user membuat video.
+  const remainingAudio = quota?.audioGeneration ?? null
   const outOfQuota = remainingAudio !== null && remainingAudio <= 0
   const canGenerate =
     Boolean(audio) && !transcribing && !recording && !loadingAudio && !outOfQuota
@@ -689,7 +692,12 @@ const SoundToTextPage = ({ user, setUser }) => {
 
             {/* --------------------------------- Riwayat ------------------------------- */}
             <GlassPanel className="rise rise-2 p-5 sm:p-6">
-              <SectionTitle hint="12 transkripsi terakhir Anda.">Your transcriptions</SectionTitle>
+              <SectionTitle
+                hint="12 transkripsi terakhir Anda."
+                action={<HistoryLink type="sound-to-text" />}
+              >
+                Your transcriptions
+              </SectionTitle>
 
               {historyLoading ? (
                 <div className="space-y-3">

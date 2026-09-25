@@ -55,12 +55,14 @@ const authHeader = () => ({
   Authorization: `Bearer ${jwt.sign({ uid: 'uid-sound' }, process.env.JWT_SECRET)}`
 });
 
-// Kuota audio memakai `videoGeneration` yang sudah ada (lihat mediaController).
-const approvedMember = (videoGeneration = 3) => ({
+// Kuota audio punya jatahnya sendiri: `audioGeneration`. Sebelumnya fitur suara
+// memakai `videoGeneration` sehingga satu fitur bisa menghabiskan jatah fitur
+// lain; pemisahan itu yang dijaga di sini.
+const approvedMember = (audioGeneration = 3) => ({
   uid: 'uid-sound',
   role: 'member',
   isApproved: true,
-  quota: { chat: 10, imageGeneration: 5, videoGeneration },
+  quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 },
   save: jest.fn().mockResolvedValue(undefined)
 });
 
@@ -109,8 +111,9 @@ describe('POST /api/v1/media/text-to-sound', () => {
       model: 'gemini-3.1-flash-tts-preview'
     });
 
-    // Kuota yang berkurang adalah videoGeneration, bukan imageGeneration.
-    expect(response.body.quota.videoGeneration).toBe(2);
+    // Kuota yang berkurang adalah audioGeneration, bukan image/videoGeneration.
+    expect(response.body.quota.audioGeneration).toBe(2);
+    expect(response.body.quota.videoGeneration).toBe(5);
     expect(response.body.quota.imageGeneration).toBe(5);
     expect(member.save).toHaveBeenCalled();
 
@@ -173,7 +176,7 @@ describe('POST /api/v1/media/text-to-sound', () => {
       uid: 'uid-sound',
       role: 'guest',
       isApproved: false,
-      quota: { videoGeneration: 5 },
+      quota: { audioGeneration: 5 },
       save: jest.fn()
     });
 
@@ -280,7 +283,7 @@ describe('POST /api/v1/media/text-to-sound', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.success).toBe(false);
-    expect(member.quota.videoGeneration).toBe(3);
+    expect(member.quota.audioGeneration).toBe(3);
     expect(member.save).not.toHaveBeenCalled();
 
     const record = await MediaContent.create.mock.results[0].value;

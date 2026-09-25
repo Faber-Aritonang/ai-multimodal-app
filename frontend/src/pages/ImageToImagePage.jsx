@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import MediaImage from '../components/MediaImage'
 import Layout from '../components/Layout'
+import HistoryLink from '../components/HistoryLink'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -89,7 +91,12 @@ const closestSize = (width, height) => {
 }
 
 const ImageToImagePage = ({ user, setUser }) => {
-  const [prompt, setPrompt] = useState('')
+  const location = useLocation()
+
+  // Prompt dari halaman Riwayat ("Generate ulang") sudah terisi, tetap gambar
+  // sumbernya harus dipilih ulang karena frontend tidak menyimpan berkasnya
+  // (lihat notis di formulir).
+  const [prompt, setPrompt] = useState(location.state?.prompt || '')
   const [size, setSize] = useState('1024x1024')
   const [image, setImage] = useState(null)
   const [imageError, setImageError] = useState('')
@@ -418,6 +425,15 @@ const ImageToImagePage = ({ user, setUser }) => {
             </p>
           )}
 
+          {location.state?.prompt && (
+            <div data-testid="prefill-notice" className="alert alert-info mt-4">
+              <p>
+                Prompt dari riwayat sudah terisi. Pilih ulang gambar sumbernya, lalu
+                tekan Generate — gambar tidak disimpan di riwayat sebagai berkas input.
+              </p>
+            </div>
+          )}
+
           {error && (
             <div data-testid="error-message" className="alert alert-danger mt-4" role="alert">
               <p>{error}</p>
@@ -503,7 +519,12 @@ const ImageToImagePage = ({ user, setUser }) => {
 
         {/* --------------------------------- Riwayat ------------------------------- */}
         <GlassPanel className="rise rise-2 p-5 sm:p-6">
-          <SectionTitle hint="12 transformasi terakhir Anda.">Your transformations</SectionTitle>
+          <SectionTitle
+            hint="12 transformasi terakhir Anda."
+            action={<HistoryLink type="image-to-image" />}
+          >
+            Your transformations
+          </SectionTitle>
 
           {historyLoading ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

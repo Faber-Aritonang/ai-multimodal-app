@@ -173,6 +173,31 @@ describe('checkQuota', () => {
     expect(next).toHaveBeenCalled();
     expect(req.quota).toEqual({ type: 'chat', remaining: 7 });
   });
+
+  // Akun yang dibuat sebelum kuota audio dipisahkan tidak punya
+  // `audioGeneration`. Tanpa cadangan ini, seluruh fitur suara akan terjawab 403
+  // untuk member yang jatahnya sebenarnya masih ada.
+  test('akun lama tanpa audioGeneration memakai sisa videoGeneration', async () => {
+    const req = { member: { quota: { chat: 10, videoGeneration: 3 } } };
+    const res = createRes();
+    const next = jest.fn();
+
+    await checkQuota('audioGeneration')(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(req.quota).toEqual({ type: 'audioGeneration', remaining: 3 });
+  });
+
+  test('audioGeneration 0 tetap menolak walau videoGeneration masih ada', async () => {
+    const req = { member: { quota: { videoGeneration: 9, audioGeneration: 0 } } };
+    const res = createRes();
+    const next = jest.fn();
+
+    await checkQuota('audioGeneration')(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
 });
 
 describe('optionalAuth', () => {

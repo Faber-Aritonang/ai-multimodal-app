@@ -46,6 +46,7 @@ const AdminDashboard = () => {
       await adminAPI.approveMember(uid, {
         chat: 500,
         imageGeneration: 50,
+        audioGeneration: 50,
         videoGeneration: 20,
         total: 5000
       })
@@ -251,7 +252,7 @@ const AdminDashboard = () => {
                       </td>
                       <td className="p-4 font-mono text-xs text-cyan-300">
                         {member.quota?.chat || 0}/{member.quota?.imageGeneration || 0}/
-                        {member.quota?.videoGeneration || 0}
+                        {member.quota?.videoGeneration || 0}/{member.quota?.audioGeneration || 0}
                       </td>
                     </tr>
                   ))}

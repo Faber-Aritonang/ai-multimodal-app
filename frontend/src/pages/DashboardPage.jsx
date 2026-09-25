@@ -83,13 +83,14 @@ const FEATURES = [
 // kelasnya ke CSS hasil build.
 const RISE_STEPS = ['rise-1', 'rise-2', 'rise-3', 'rise-4', 'rise-5', 'rise-6']
 
+// Satu kunci kuota per jenis pekerjaan. Sebelumnya video & audio digabung,
+// sehingga pemakaian salah satu menyembunyikan sisa jatah yang lain.
 const QUOTA_TILES = [
   { key: 'chat', label: 'chat', accent: 'cyan' },
   { key: 'imageGeneration', label: 'gambar', accent: 'violet' },
-  // Fitur suara (text-to-sound) memakai jatah ini — satu kuota untuk media
-  // non-gambar, supaya akun yang sudah ada tidak perlu field kuota baru.
-  { key: 'videoGeneration', label: 'video & audio', accent: 'teal' },
-  { key: 'total', label: 'total', accent: 'fuchsia' }
+  { key: 'videoGeneration', label: 'video', accent: 'teal' },
+  { key: 'audioGeneration', label: 'audio', accent: 'fuchsia' },
+  { key: 'total', label: 'total', accent: 'cyan' }
 ]
 
 const DashboardPage = ({ user, setUser }) => {
@@ -142,7 +143,7 @@ const DashboardPage = ({ user, setUser }) => {
         {!loading && quota && (
           <GlassPanel className="rise rise-1 p-5 sm:p-6">
             <SectionTitle hint="Sisa jatah pemakaian akun Anda saat ini.">Kuota Anda</SectionTitle>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               {QUOTA_TILES.map((tile) => (
                 <StatTile
                   key={tile.key}

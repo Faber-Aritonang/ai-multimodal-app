@@ -9,6 +9,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireMember, checkQuota } = require('../middleware/auth');
+const { featureRateLimit } = require('../middleware/featureRateLimit');
 const {
   textToImage,
   imageToImage,
@@ -20,7 +21,10 @@ const {
   textToVideo,
   imageToVideo,
   getMediaHistory,
-  deleteMedia
+  deleteMedia,
+  getMediaById,
+  shareMedia,
+  unshareMedia
 } = require('../controllers/mediaController');
 
 // Info endpoint yang tersedia (publik, tanpa auth)
@@ -38,7 +42,11 @@ router.get('/status', (req, res) => {
       'POST /api/v1/media/text-to-video',
       'POST /api/v1/media/image-to-video',
       'GET /api/v1/media/video-options',
-      'GET /api/v1/media/history',
+      'GET /api/v1/media/history?type=&status=&q=&page=&limit=',
+      'GET /api/v1/media/:contentId',
+      'POST /api/v1/media/:contentId/share',
+      'DELETE /api/v1/media/:contentId/share',
+      'GET /api/v1/share/:token',
       'DELETE /api/v1/media/:contentId'
     ],
     // Tidak ada fitur media yang tersisa sebagai rencana: seluruh kartu di
@@ -47,11 +55,20 @@ router.get('/status', (req, res) => {
   });
 });
 
+// Urutan middleware semua endpoint generate:
+//   authenticate -> requireMember -> featureRateLimit -> checkQuota -> handler
+//
+// `featureRateLimit` sengaja dipasang SEBELUM `checkQuota`: permintaan yang
+// ditolak karena terlalu sering tidak pernah sampai ke provider, jadi kuota user
+// tidak ikut terpakai. Batasnya dihitung per user (lihat middleware/featureRateLimit.js)
+// dan dilonggarkan lewat env FEATURE_RATE_LIMIT_* bila perlu.
+
 // text-to-image: butuh member terverifikasi + quota gambar
 router.post(
   '/text-to-image',
   authenticate,
   requireMember,
+  featureRateLimit('image'),
   checkQuota('imageGeneration'),
   textToImage
 );
@@ -61,37 +78,43 @@ router.post(
   '/image-to-image',
   authenticate,
   requireMember,
+  featureRateLimit('image'),
   checkQuota('imageGeneration'),
   imageToImage
 );
 
-// text-to-sound: memakai kuota videoGeneration (lihat catatan di mediaController).
+// text-to-sound: kuota audio. Sebelumnya audio & video berbagi satu jatah
+// (`videoGeneration`) sehingga suara bisa menghabiskan kuota video dan
+// sebaliknya; sekarang keduanya punya kuota sendiri.
 router.post(
   '/text-to-sound',
   authenticate,
   requireMember,
-  checkQuota('videoGeneration'),
+  featureRateLimit('audio'),
+  checkQuota('audioGeneration'),
   textToSound
 );
 
-// sound-to-text: memakai kuota yang sama dengan text-to-sound (audio & video
-// berbagi satu jatah media non-gambar — lihat catatan di mediaController).
+// sound-to-text: satu keluarga dengan text-to-sound, jadi kuota audionya sama
+// (satu kuota per berkas yang diproses).
 router.post(
   '/sound-to-text',
   authenticate,
   requireMember,
-  checkQuota('videoGeneration'),
+  featureRateLimit('audio'),
+  checkQuota('audioGeneration'),
   soundToText
 );
 
 // text-to-video & image-to-video: memakai kuota videoGeneration yang memang
-// diperuntukkan bagi video (aturan yang sama juga dipakai middleware).
+// diperuntukkan bagi video.
 // Keduanya membalas 202 dan menyelesaikan pekerjaannya di latar belakang —
 // lihat catatan panjang di mediaController.
 router.post(
   '/text-to-video',
   authenticate,
   requireMember,
+  featureRateLimit('video'),
   checkQuota('videoGeneration'),
   textToVideo
 );
@@ -100,6 +123,7 @@ router.post(
   '/image-to-video',
   authenticate,
   requireMember,
+  featureRateLimit('video'),
   checkQuota('videoGeneration'),
   imageToVideo
 );
@@ -115,6 +139,20 @@ router.get('/transcribe-options', authenticate, requireMember, getTranscribeOpti
 
 // Riwayat & hapus media milik user
 router.get('/history', authenticate, requireMember, getMediaHistory);
+
+// Satu hasil milik user. Dipakai frontend untuk memantau pekerjaan latar
+// belakang (video 1-5 menit) dari halaman mana pun tanpa mengunduh riwayat.
+//
+// Didaftarkan SETELAH endpoint statis di atas: Express mencocokkan rute sesuai
+// urutan pendaftaran, jadi kalau rute ini lebih dulu, permintaan
+// `GET /media/history` akan dijawab handler ini dengan `:contentId` = "history".
+router.get('/:contentId', authenticate, requireMember, getMediaById);
+
 router.delete('/:contentId', authenticate, requireMember, deleteMedia);
+
+// Tautan baca-saja: satu untuk membuat/mengaktifkan, satu untuk mencabut.
+// Yang membaca tautannya sendiri ada di routes/share.js (publik, tanpa auth).
+router.post('/:contentId/share', authenticate, requireMember, shareMedia);
+router.delete('/:contentId/share', authenticate, requireMember, unshareMedia);
 
 module.exports = router;

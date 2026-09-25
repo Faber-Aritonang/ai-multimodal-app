@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { authAPI } from '../config/api'
 import { signOutUser } from '../config/firebase'
+import { useNotifications } from './NotificationsProvider'
 import {
   MenuIcon,
   XIcon,
@@ -13,6 +14,7 @@ import {
   AnimateIcon,
   SoundIcon,
   TranscriptIcon,
+  HistoryIcon,
   UserIcon
 } from '../components/icons'
 
@@ -27,7 +29,12 @@ const NAVIGATION = [
   { name: 'Image to Video', href: '/tools/image-to-video', icon: AnimateIcon, code: '06', short: 'Animate' },
   { name: 'Text to Sound', href: '/tools/text-to-sound', icon: SoundIcon, code: '07', short: 'Sound' },
   { name: 'Sound to Text', href: '/tools/sound-to-text', icon: TranscriptIcon, code: '08', short: 'Transcribe' },
-  { name: 'Profile', href: '/profile', icon: UserIcon, code: '09', short: 'Profile' }
+  // Arsip semua hasil generate: pencarian, filter, paginasi, dan jalankan ulang.
+  // Tidak masuk bilah bawah di ponsel (lihat bottomNav di bawah) karena satu
+  // ikon lagi akan membuat seluruh label di sana terpotong; di ponsel halaman
+  // ini dibuka dari menu. Di sidebar (desktop) ia tetap tampil.
+  { name: 'History', href: '/history', icon: HistoryIcon, code: '09', short: 'History', bottomNav: false },
+  { name: 'Profile', href: '/profile', icon: UserIcon, code: '10', short: 'Profile' }
 ]
 
 /** Inisial huruf pertama nama, dipakai saat user tidak punya foto. */
@@ -81,10 +88,19 @@ const Layout = ({ user, setUser, children }) => {
     (href === '/chat' && location.pathname.startsWith('/chat/')) ||
     (href !== '/dashboard' && href !== '/chat' && location.pathname.startsWith(`${href}/`))
 
+  // Lencana "hasil selesai" di menu Riwayat. `useNotifications` boleh null (mis.
+  // komponen ini di-render tanpa provider saat test), jadi aksesnya opsional.
+  const notifikasi = useNotifications()
+  const unread = notifikasi?.unread || 0
+
   /** Tautan navigasi dengan penanda halaman aktif. */
   const NavLink = ({ item, onNavigate }) => {
     const Icon = item.icon
     const active = isActive(item.href)
+    // Lencana hanya di Riwayat: di situlah hasil yang selesai di latar belakang
+    // bisa dilihat, dan tanpa penanda ini user tidak punya alasan menduga ada
+    // sesuatu yang baru di sana.
+    const badge = item.href === '/history' ? unread : 0
 
     return (
       <Link
@@ -116,7 +132,18 @@ const Layout = ({ user, setUser, children }) => {
           <Icon className="h-4 w-4" />
         </span>
         <span className="truncate">{item.name}</span>
-        <span className="ml-auto font-mono text-[10px] text-slate-500">{item.code}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {badge > 0 && (
+            <span
+              data-testid="history-badge"
+              title={`${badge} hasil selesai`}
+              className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-cyan-300/20 px-1.5 font-mono text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/30"
+            >
+              {badge}
+            </span>
+          )}
+          <span className="font-mono text-[10px] text-slate-500">{item.code}</span>
+        </span>
       </Link>
     )
   }
@@ -282,7 +309,7 @@ const Layout = ({ user, setUser, children }) => {
         aria-label="Navigasi bawah"
       >
         <div className="flex items-stretch justify-around">
-          {NAVIGATION.map((item) => {
+          {NAVIGATION.filter((item) => item.bottomNav !== false).map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)
 

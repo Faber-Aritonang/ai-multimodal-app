@@ -1,6 +1,7 @@
 // API Service - Menyediakan fungsi-fungsi untuk berinteraksi dengan backend API
 
 import axios from 'axios';
+import { buatRequestId } from '../utils/requestId';
 
 // Base URL backend API.
 // - Development: dibiarkan kosong, request '/api/v1' di-forward oleh proxy Vite
@@ -33,6 +34,15 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Id request per pemanggilan. Backend memakai nilai ini apa adanya
+    // (backend/middleware/requestContext.js), sehingga baris log server untuk
+    // permintaan ini bisa dicari langsung dari browser — dan bila permintaan ini
+    // gagal, laporan galat frontend menunjuk ke id yang sama.
+    // Header kustom tidak menambah preflight baru: Authorization dan
+    // Content-Type sudah memicunya untuk permintaan lintas domain.
+    config.headers['X-Request-Id'] = buatRequestId();
+
     return config;
   },
   (error) => {
@@ -45,6 +55,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
+
+    // Id request yang dikirim untuk pemanggilan ini, supaya pelapor galat bisa
+    // menyambungkannya ke baris log server (lihat utils/errorReporter.js).
+    error.requestId = error.config?.headers?.['X-Request-Id'] || undefined;
 
     if (status === 401) {
       // Hapus token jika unauthorized
@@ -120,6 +134,9 @@ export const memberAPI = {
   
   // Profile
   getProfile: () => api.get('/member/profile'),
+  // Yang boleh diubah hanya data tampilan (nama, bio, foto); field wewenang
+  // admin diabaikan backend walau ikut terkirim.
+  updateProfile: (data) => api.put('/member/profile', data),
   getQuota: () => api.get('/member/quota'),
   
   // Member list & referral
@@ -181,11 +198,30 @@ export const mediaAPI = {
   imageToVideo: ({ prompt, image, resolution, duration }) =>
     api.post('/media/image-to-video', { prompt, image, resolution, duration }, { timeout: 60000 }),
 
-  // Riwayat media milik user
+  // Riwayat media milik user. `params` didukung: { type, status, q, page, limit }
+  // — dipakai halaman Riwayat untuk pencarian, filter, dan paginasi.
   getHistory: (params = {}) => api.get('/media/history', { params }),
+
+  // Satu hasil milik user. Dipakai pemantau pekerjaan latar belakang
+  // (components/NotificationsProvider.jsx): satu permintaan kecil per pekerjaan,
+  // jauh lebih murah daripada mengunduh seluruh riwayat setiap beberapa detik.
+  getMedia: (contentId) => api.get(`/media/${contentId}`),
+
+  // Tautan baca-saja. Keduanya hanya berlaku untuk hasil milik user sendiri, dan
+  // keduanya idempoten: menekan dua kali tidak membuat tautan baru, dan mencabut
+  // yang belum pernah dibagikan bukan kesalahan.
+  shareMedia: (contentId) => api.post(`/media/${contentId}/share`),
+  unshareMedia: (contentId) => api.delete(`/media/${contentId}/share`),
 
   // Hapus satu media
   deleteMedia: (contentId) => api.delete(`/media/${contentId}`),
+};
+
+// Share API (PUBLIK — dipakai halaman /share/:token yang dibuka tanpa login).
+// Tetap lewat instance yang sama supaya alamat backend, header id request, dan
+// penyeragaman pesan galat 429 berlaku sama seperti permintaan lain.
+export const shareAPI = {
+  getShared: (token) => api.get(`/share/${token}`)
 };
 
 // Admin API

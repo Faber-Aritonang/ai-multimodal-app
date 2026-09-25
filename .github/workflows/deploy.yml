@@ -17,6 +17,16 @@ name: Deploy to Railway & Vercel
 on:
   push:
     branches: [ main ]
+  # PR ikut menjalankan quality gate. Sebelum ini PR bisa MERAH pada
+  # test/lint/build dan tetap bisa di-merge, karena workflow-nya hanya berjalan
+  # pada push ke `main` — jadi masalahnya baru ketahuan setelah masuk ke main,
+  # saat keduanya sudah menyatu dan lebih mahal untuk dibatalkan.
+  #
+  # Job deploy TIDAK ikut berjalan di PR: keduanya dijaga oleh kondisi
+  # `github.event_name == 'push'` di bawah, sehingga PR hanya menjalankan job
+  # `quality` (test backend, lint & build frontend, penjaga registri spec).
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       deploy_backend:
@@ -31,9 +41,13 @@ on:
 # Deploy dijalankan satu per satu untuk ref yang sama: push baru menunggu
 # deploy yang sedang berjalan selesai (tidak dibatalkan di tengah jalan, karena
 # deploy yang terpotong bisa meninggalkan aplikasi dalam keadaan setengah jadi).
+#
+# Untuk PR aturannya berbeda: yang berjalan hanya quality gate, dan run yang
+# sudah tidak relevan (push ke-2, ke-3, … pada PR yang sama) justru lebih baik
+# dibatalkan — user sedang menunggu hasil commit TERAKHIR, bukan commit lama.
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -80,6 +94,13 @@ jobs:
       - name: Tidak ada berkas rahasia yang ter-commit
         run: node scripts/check-no-secrets.js
 
+      # Penjaga registri uji browser. Uji browser sendiri dijalankan manual
+      # (butuh Chrome + backend + frontend + database, lihat README), sehingga
+      # spec yang lupa didaftarkan di run.cjs TIDAK PERNAH dijalankan siapa pun.
+      # Pemeriksaan ini murah: hanya membaca daftar berkas dan isi run.cjs.
+      - name: Registri uji browser - setiap spec terdaftar
+        run: node scripts/check-browser-specs.js
+
       - name: Backend - install dependencies
         run: npm ci
         working-directory: backend
@@ -108,7 +129,11 @@ jobs:
   # dan gagal kalau build-nya gagal — itu yang membuat status job jujur.
   deploy-backend:
     needs: quality
-    if: github.event_name == 'push' || github.event.inputs.deploy_backend == 'true'
+    # Hanya pada push ke main, atau saat dijalankan manual dengan input-nya
+    # diaktifkan. Dinyatakan eksplisit (bukan hanya `inputs.deploy_backend ==
+    # 'true'`) supaya penambahan event baru di masa depan tidak tanpa sengaja
+    # ikut men-deploy.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_backend == 'true')
     name: Deploy Backend to Railway
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -444,7 +469,7 @@ jobs:
   # di sini berarti frontend benar-benar sudah ter-deploy.
   deploy-frontend:
     needs: quality
-    if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_frontend == 'true')
     name: Verify Frontend on Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 20

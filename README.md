@@ -4,17 +4,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Full-stack web application with AI-powered multimodal features: **chat**,
-**text-to-image**, **image-to-image**, **text-to-sound**, dan **sound-to-text**.
-Fitur video masih berstatus feature flag
-([lihat daftarnya](#feature-flags-pending-admin-approval)). Dibangun di atas
-layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
+**text-to-image**, **image-to-image**, **text-to-sound**, **sound-to-text**,
+**text-to-video**, dan **image-to-video**. Hampir semuanya dibangun di atas
+layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar; video adalah
+satu-satunya yang butuh kunci berbayar (lihat
+[keterangan biayanya](#generate-video-text-to-video)).
 
 | | |
 |---|---|
 | 🌐 **Demo (live)** | <https://www.maubuatapa.my.id> |
 | ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
 | 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
-| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [rotasi kredensial](docs/rotasi-kredensial.md) · [panduan kontribusi](CONTRIBUTING.md) |
+| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [backup & restore](docs/backup-restore.md) · [dependensi](docs/dependensi.md) · [rotasi kredensial](docs/rotasi-kredensial.md) · [panduan kontribusi](CONTRIBUTING.md) |
 
 > Demo berjalan di atas kuota gratis provider AI, jadi sesekali lambat atau
 > menunggu giliran. Masuk memakai Google Sign-In; member baru menunggu
@@ -49,6 +50,9 @@ layanan gratis dan dirancang mudah dinaikkan ke layanan berbayar.
 - **Sound-to-Text**: Transkripsi audio menjadi teks — unggah berkas atau rekam langsung dari mikrofon (rekaman dikonversi ke WAV di browser). Provider bisa ditukar (**Groq Whisper gratis**, 1.000 request/hari; **Gemini** sebagai cadangan; OpenAI Whisper bila diminta), bahasa bisa dipilih atau dideteksi otomatis, lengkap dengan riwayat, salin teks, dan unduh `.txt`
 - **Text-to-Video**: Hasilkan video pendek (3-15 detik, 720p/1080p) dari deskripsi teks lewat **NaraRouter** (model `agnes-video-v2.0`). Pekerjaannya berjalan di latar belakang — halaman membalas segera dan hasilnya muncul sendiri di riwayat saat selesai (1-5 menit), lengkap dengan pemutar video & unduh MP4
 - **Image-to-Video**: Hidupkan satu gambar menjadi video — gambar yang diunggah menjadi frame **pertama** (diperkecil otomatis di browser ke maks 1280px), lalu diberi gerakan sesuai prompt. Memakai provider & pekerjaan latar belakang yang sama dengan Text-to-Video
+- **History**: Halaman `/history` berisi seluruh hasil generate — pencarian kata kunci prompt, filter jenis & status, paginasi, hapus, unduh, dan tombol **Generate ulang** yang membuka alat terkait dengan prompt lama sudah terisi
+- **Profile editing**: Nama tampilan, bio, dan foto bisa diubah sendiri di `/profile`; email, peran, dan kuota tetap wewenang admin
+- **Quota per fitur**: Jatah terpisah untuk chat, gambar, audio, dan video — memakai satu fitur tidak mengurangi jatah fitur lain
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -314,8 +318,13 @@ Yang diuji:
 | `text-to-image.spec.cjs` | generate gambar sungguhan, gambar termuat di browser, gambar juga dimuat dari origin backend secara absolut (kondisi produksi), berkas di object storage memakai URL absolut, berkas yang hilang dijelaskan ke user, metadata resolusi+provider (hasil & riwayat), kuota, tombol hapus benar-benar menghapus data di server |
 | `image-to-image.spec.cjs` | unggah lewat drag & drop, gambar diperkecil ke ≤512px, preset ukuran ikut bentuk gambar, hasil transformasi, dan — kalau kredensial provider belum ada — pastikan gagal dengan pesan jelas tanpa memakai kuota atau memberi hasil palsu |
 | `text-to-sound.spec.cjs` | daftar voice terisi, audio hasil benar-benar termuat di browser (`readyState`), metadata format+provider, kuota, riwayat, dan — kalau provider suara belum siap sama sekali — pastikan gagal dengan pesan yang menyebut cara mengaktifkannya tanpa memakai kuota. Karena Edge tidak butuh kunci, jalur "alur lengkap" inilah yang berjalan di mesin kosong |
+| `text-to-video.spec.cjs` | opsi (resolusi, durasi, bentuk gambar) cocok dengan yang divalidasi server, tombol generate terkunci tanpa prompt, validasi server menolak nilai yang tidak didukung provider, dan pesan kegagalannya jelas. **Generate sungguhan tidak jalan** (provider berbayar per pekerjaan) kecuali diminta lewat `TEST_VIDEO_GENERATE=1` |
+| `image-to-video.spec.cjs` | hal yang sama untuk gambar pertama: unggahan lewat drop zone, pengecilan di browser ke ≤1280px, validasi server, dan pesan kegagalan yang jelas. Alur lengkapnya juga hanya dengan `TEST_VIDEO_GENERATE=1` |
+| `history.spec.cjs` | jumlah hasil sama dengan yang dilaporkan API, pencarian benar-benar menyaring (bukan hanya mengubah tampilan kolom), filter jenis & status, dan tombol **Generate ulang** mengantar ke alat yang benar dengan prompt yang sudah terisi |
+| `share-link.spec.cjs` | tautan baca-saja: bentuk tokennya (acak, 32 karakter), menekan Bagikan dua kali tidak mengganti tautan, tautannya bisa dibuka **tanpa login**, yang terkirim tidak memuat identitas pemilik maupun referensi penyimpanan, dan tautan yang dicabut benar-benar mati (404) |
 | `dashboard-profile.spec.cjs` | dashboard (kartu tool, kuota) & profil (nama, referral, QR, Member Since) dibandingkan dengan data API |
 | `pending-approval.spec.cjs` | member yang disetujui admin **saat tab-nya masih terbuka** benar-benar masuk tanpa refresh manual (dulu tertahan di halaman Pending Approval) |
+| `admin-logout.spec.cjs` | logout admin satu klik benar-benar keluar (dulu `navigate('/login')` dipantulkan balik ke `/admin` karena state user belum dibersihkan) |
 
 Prasyarat: backend (`cd backend && npm start`) dan frontend
 (`cd frontend && npm run dev`) sudah jalan, serta Chrome/Chromium terpasang.
@@ -331,11 +340,19 @@ CHROME_BIN=/path/ke/chrome            # bila Chrome tidak terdeteksi otomatis
 TEST_SPECS=pending-approval npm run test:browser
 ```
 
-Uji browser **tidak** jalan di CI karena butuh backend + frontend hidup, jadi ia
-dijalankan manual di lokal. Yang dijaga CI: backend unit test, ESLint, build
-frontend, serta job `Verify Frontend on Vercel` (menunggu deployment untuk commit
-yang dipush, memeriksa tautan langsung `/`, `/login`, `/tools/text-to-image`, dan
-memeriksa CORS dari origin produksi).
+Uji browser **tidak** jalan di CI karena butuh backend + frontend hidup, Chrome,
+dan database, jadi ia dijalankan manual di lokal. Yang dijaga CI: backend unit
+test, ESLint, build frontend, penjaga registri spec (di bawah), serta job
+`Verify Frontend on Vercel` (menunggu deployment untuk commit yang dipush,
+memeriksa tautan langsung `/`, `/login`, `/tools/text-to-image`, dan memeriksa
+CORS dari origin produksi).
+
+Karena suite-nya manual, ada satu celah yang khas: spec yang lupa didaftarkan di
+`run.cjs` tidak akan pernah dijalankan siapa pun — berkasnya ada dan tampak
+seperti pengujian, padahal tidak. `node scripts/check-browser-specs.js` menutup
+celah itu dengan biaya mendekati nol (tanpa Chrome/server/database): setiap
+`*.spec.cjs` harus terdaftar, setiap `require` di `run.cjs` harus menunjuk berkas
+yang ada, setiap spec harus mengekspor `{ name, run }`, dan namanya harus unik.
 
 Catatan: spec memakai akun dev member, jadi setiap eksekusi memakai
 **1 kuota chat**, **1 kuota gambar**, dan **1 kuota video/audio** untuk
@@ -361,6 +378,7 @@ dikembalikan dari sini.
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | GET | `/api/v1/member/profile` | Get user profile | ✅ Member |
+| PUT | `/api/v1/member/profile` | Ubah profil sendiri (`displayName`, `bio`, `photoURL`; field admin diabaikan) | ✅ Member |
 | GET | `/api/v1/member/quota` | Get user quotas | ✅ Member |
 | GET | `/api/v1/member/chat/sessions` | List chat sessions | ✅ Member |
 | POST | `/api/v1/member/chat/sessions` | Create new chat session | ✅ Member |
@@ -374,9 +392,19 @@ dikembalikan dari sini.
 | POST | `/api/v1/media/image-to-image` | Transformasi gambar sesuai prompt | ✅ Member |
 | POST | `/api/v1/media/text-to-sound` | Ubah teks menjadi audio (Edge TTS tanpa kunci, atau Gemini/ElevenLabs/OpenAI) | ✅ Member |
 | GET | `/api/v1/media/sound-voices` | Voice & format yang sah untuk provider TTS yang aktif | ✅ Member |
-| GET | `/api/v1/media/history` | Riwayat media user | ✅ Member |
+| POST | `/api/v1/media/sound-to-text` | Ubah audio menjadi teks / transkripsi (Groq Whisper **gratis**, Gemini/OpenAI sebagai cadangan) | ✅ Member |
+| GET | `/api/v1/media/transcribe-options` | Bahasa, format & batas ukuran yang diterima sound-to-text | ✅ Member |
+| POST | `/api/v1/media/text-to-video` | Buat video pendek dari deskripsi teks — membalas **202**, hasilnya menyusul di riwayat | ✅ Member |
+| POST | `/api/v1/media/image-to-video` | Jadikan satu gambar sebagai frame pertama video — juga membalas **202** | ✅ Member |
+| GET | `/api/v1/media/video-options` | Mode, resolusi, durasi & batas yang diterima endpoint video | ✅ Member |
+| GET | `/api/v1/media/history` | Riwayat media user — `?type=&status=&q=&page=&limit=` (pencarian prompt, filter, paginasi) | ✅ Member |
+| GET | `/api/v1/media/:contentId` | Satu hasil milik user (dipakai memantau pekerjaan latar belakang dari halaman mana pun) | ✅ Member |
+| POST | `/api/v1/media/:contentId/share` | Aktifkan tautan baca-saja untuk satu hasil — idempoten, tidak mengganti tautan lama | ✅ Member |
+| DELETE | `/api/v1/media/:contentId/share` | Cabut tautan baca-saja (tautan yang sudah disebar langsung mati) | ✅ Member |
 | DELETE | `/api/v1/media/:contentId` | Hapus media (record + file) | ✅ Member |
 | GET | `/api/v1/media/status` | Daftar endpoint media | ❌ No |
+| GET | `/api/v1/share/:token` | Isi hasil yang dibagikan — **baca-saja**, hanya bidang tampilan (tanpa identitas pemilik & referensi penyimpanan) | ❌ No |
+| POST | `/api/v1/client-errors` | Laporan galat dari browser (masuk ke log terstruktur + daftar galat admin), dibatasi 30/menit per IP | ❌ No |
 | GET | `/api/v1/auth/referral/:referralCode` | Info pemilik kode referral (halaman undangan) | ❌ No |
 
 ### Admin Endpoints
@@ -388,6 +416,7 @@ dikembalikan dari sini.
 | PUT | `/api/v1/admin/approve-member/:uid` | Approve member | ✅ Admin |
 | DELETE | `/api/v1/admin/reject-member/:uid` | Reject member | ✅ Admin |
 | GET | `/api/v1/admin/analytics` | Get analytics | ✅ Admin |
+| GET | `/api/v1/admin/errors` | Galat terakhir (server & frontend) yang tercatat proses ini, lengkap dengan `requestId`-nya | ✅ Admin |
 
 ## Example API Usage
 
@@ -462,9 +491,10 @@ bicara. Pada Gemini gaya itu dikirim sebagai arahan bahasa alami di depan teks,
 pada OpenAI lewat parameter `instructions`, dan pada Edge/ElevenLabs diabaikan
 (dengan peringatan di log). Voice yang dipilih user selalu tetap dipakai.
 Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>` di
-`/tools/text-to-sound`. Kuota yang berkurang adalah `videoGeneration` (satu jatah
-untuk media non-gambar), dan berkurang hanya bila audionya benar-benar berhasil
-dibuat.
+`/tools/text-to-sound`. Kuota yang berkurang adalah `audioGeneration` — jatah
+khusus suara, terpisah dari `videoGeneration` supaya membuat video tidak
+menghabiskan jatah suara (dan sebaliknya) — dan berkurang hanya bila audionya
+benar-benar berhasil dibuat.
 
 > Biaya: **nol untuk menyiapkan** — Edge TTS melayani suara Indonesia tanpa kunci
 > API sama sekali. Gemini TTS gratis juga (kuotanya tidak butuh billing) dan
@@ -500,9 +530,8 @@ boleh diisi kode 2-3 huruf (`id`, `en`, …) atau `auto`.
 Daftar bahasa, format, dan batas ukurannya dilayani
 `GET /api/v1/media/transcribe-options`, jadi halaman
 `/tools/sound-to-text` tidak menyimpan salinan aturan yang bisa menyimpang dari
-validasi server. Kuota yang berkurang adalah `videoGeneration` (satu jatah yang
-sama dengan text-to-sound untuk media non-gambar), dan hanya bila transkripnya
-benar-benar berhasil.
+validasi server. Kuota yang berkurang adalah `audioGeneration` (jatah yang sama
+dengan text-to-sound), dan hanya bila transkripnya benar-benar berhasil.
 
 > Biaya: **gratis** memakai Groq Whisper (1.000 request/hari, kunci yang sama
 dengan chat) dengan Gemini sebagai cadangan. Berbeda dari text-to-sound, fitur
@@ -568,6 +597,41 @@ maks 1280px di browser sebelum mengirim.
 > dijawab `503` dengan pesan yang menyebut variabelnya, bukan `502` "coba lagi".
 > Rincian penyiapannya ada di
 > [`docs/setup-kredensial.md`](docs/setup-kredensial.md) bagian 3g.
+
+### Riwayat & Profil
+
+Riwayat seluruh hasil generate ada di satu endpoint, dengan pencarian kata
+kunci, filter, dan paginasi. Pemanggil lama yang hanya mengirim `type` dan
+`limit` tetap mendapat hasil yang sama (halaman pertama):
+
+```bash
+# Cari video yang gagal, 12 per halaman
+curl "http://localhost:3000/api/v1/media/history?type=text-to-video&status=failed&q=boat&page=1&limit=12" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Responsnya memuat `total`, `page`, `limit`, `pages`, dan `hasMore` di samping
+`media`, jadi UI tidak perlu menghitung jumlah halaman sendiri. Nilai `type` dan
+`status` yang tidak dikenal dijawab `400` beserta daftar nilainya, bukan `500`
+hasil error cast Mongoose. Halaman `/history` memakai endpoint ini sekaligus
+menyediakan tombol **Generate ulang**: prompt lama dikirim ke alat terkait
+sebagai nilai awal, dan user tetap menekan Generate sendiri (kuota tidak
+terpakai tanpa persetujuannya).
+
+Profil sendiri diubah lewat `PUT /api/v1/member/profile`:
+
+```bash
+curl -X PUT http://localhost:3000/api/v1/member/profile \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "displayName": "Nama Baru", "bio": "Suka bikin video pendek.", "photoURL": "" }'
+```
+
+Hanya ketiga field itu yang diterapkan; `email`, `role`, `isApproved`, dan
+`quota` sengaja **diabaikan** (bukan ditolak) supaya permintaan dari frontend
+versi lama tidak gagal — tetapi tidak ada jalan bagi user untuk menyetujui
+akunnya sendiri atau menambah kuotanya. `photoURL` kosong berarti kembali memakai
+inisial nama; hanya `http(s)` dan data URL gambar yang diterima.
 
 ## Deployment
 
@@ -860,7 +924,7 @@ Run workflow** (lihat input `deploy_backend` / `deploy_frontend`).
 │  │   Admin     │───▶│ admin.js     │───▶│ adminCtrl    │  │
 │  └─────────────┘    └──────────────┘    └──────────────┘  │
 │                                                  │        │
-│  Middleware: auth.js, rateLimit, helmet           │        │
+│  Middleware: auth, rateLimit ×2, helmet           │        │
 │                                                  ▼        │
 │                                            MongoDB Atlas   │
 └─────────────────────────────────────────────────────────────┘
@@ -916,8 +980,8 @@ ai-multimodal-app/
 - [x] Image-to-Image — FLUX.2 [klein] (Cloudflare, gambar input diperkecil di browser), riwayat menyimpan sebelum/sesudah
 - [x] Text-to-Sound — provider bisa ditukar (Gemini TTS **gratis** untuk suara Indonesia dengan ElevenLabs free tier dan Edge TTS tanpa kunci sebagai cadangan); voice bawaan atau deskripsi gaya, format WAV/MP3, riwayat & hapus
 - [x] Sound-to-Text — unggah berkas atau rekam dari mikrofon (rekaman dikonversi ke WAV di browser); provider bisa ditukar (Groq Whisper **gratis** dengan Gemini sebagai cadangan), bahasa bisa dipilih/dideteksi, riwayat, salin teks & unduh `.txt`
-- [ ] Text-to-Video (RunwayML, Pika Labs)
-- [ ] Image-to-Video
+- [x] Text-to-Video — video pendek 3-15 detik (720p/1080p) dari deskripsi teks lewat NaraRouter (`agnes-video-v2.0`); pekerjaannya berjalan di latar belakang (202 + polling) dengan riwayat, pemutar, unduh, & hapus
+- [x] Image-to-Video — gambar yang diunggah menjadi frame **pertama** (diperkecil otomatis di browser ke maks 1280px), memakai provider & alur latar belakang yang sama dengan text-to-video; gambar sumbernya disimpan sebagai `inputFile` dan ikut terhapus bersama record-nya
 
 ### Phase 3: Enhancements
 - [x] Penyimpanan hasil generate di Cloudinary / S3-compatible — bukan lagi disk
@@ -925,12 +989,68 @@ ai-multimodal-app/
   diverifikasi ke provider saat boot dan hasilnya dilaporkan di `/health`
   (`storageCheck`), sehingga rilis dengan kredensial tidak berlaku ditolak job
   deploy, bukan ditemukan user
-- [ ] Real-time chat (Socket.io)
-- [ ] User profile management — halaman profil yang ada sekarang **hanya baca**
-  (`GET /api/v1/member/profile`); belum ada penyuntingan data
-- [ ] Subscription plans
-- [ ] Rate limiting per feature
-- [ ] Caching (Redis)
+- [x] Manajemen profil — `PUT /api/v1/member/profile` menyunting nama tampilan,
+  bio, dan foto dari halaman `/profile`. Field wewenang admin (`email`, `role`,
+  `isApproved`, `quota`) diabaikan controller, dan tesnya mengunci itu supaya
+  siapa pun tidak bisa menyetujui akunnya sendiri atau menambah kuotanya
+- [x] Kuota terpisah per fitur — `audioGeneration` berdiri sendiri (dulu suara
+  menumpang `videoGeneration`), dan akun lama tetap dilayani lewat nilai
+  cadangan di `checkQuota`
+- [x] Rate limiting per fitur — `middleware/featureRateLimit.js` membatasi
+  endpoint mahal (chat, gambar, audio, video) per **user**, dijalankan sebelum
+  `checkQuota` supaya permintaan yang ditolak tidak memakai kuota; batasnya bisa
+  diatur lewat `FEATURE_RATE_LIMIT_*`
+- [x] Riwayat dengan pencarian, filter & paginasi — `GET /media/history`
+  menerima `q`, `type`, `status`, `page`, `limit`, dan halaman `/history`
+  menambahkan tombol **Generate ulang** (prompt lama dibuka di alat terkait)
+- [x] Keandalan operasional — log terstruktur (JSON di produksi) dengan
+  **`requestId` di setiap baris**, log akses berlevel (`5xx` → error, `4xx` →
+  warn), daftar galat terakhir yang bisa dibaca admin (`GET /api/v1/admin/errors`),
+  endpoint penerima laporan galat dari browser (`POST /api/v1/client-errors`),
+  dan Error Boundary + pelapor galat di frontend. Sebelum ini jejaknya hanya
+  `morgan('dev')` dan `console.error` tanpa cara menghubungkan sebuah galat ke
+  request yang memicunya. Pengaturannya lewat `LOG_LEVEL` / `LOG_FORMAT` /
+  `ERROR_LOG_SIZE`
+- [x] Backup & restore database — Atlas free tier tidak punya point-in-time
+  recovery, jadi datanya kini bisa disalin ke berkas NDJSON + manifest berisi
+  checksum (`npm run backup:db`, `npm run restore:db`). Restore memverifikasi
+  ukuran & checksum **sebelum** menulis apa pun, hanya melihat tanpa `--yes`, dan
+  menuntut `--allow-production` untuk database produksi. Prosedur lengkapnya di
+  [`docs/backup-restore.md`](docs/backup-restore.md)
+- [x] Pemberitahuan pekerjaan selesai — video dibuat di latar belakang (1-5
+  menit), dan sebelumnya hasilnya "muncul tanpa pemberitahuan" begitu user
+  berpindah halaman. Pekerjaannya kini didaftarkan ke pemantau aplikasi
+  (`components/NotificationsProvider.jsx`), diperiksa per-record lewat
+  `GET /api/v1/media/:contentId`, lalu dilaporkan sebagai toast + lencana di menu
+  Riwayat — termasuk setelah halaman dimuat ulang atau dibuka di tab lain
+- [x] Tautan ke arsip lengkap dari tiap halaman alat — panel riwayat di halaman
+  alat hanya 12 item terakhir, dan satu-satunya jalan ke arsip adalah menu
+  samping. Setiap panel kini punya tautan **lihat semua riwayat** yang membawa
+  filternya ke `/history?type=…`
+- [x] Berbagi hasil lewat tautan baca-saja — hasil yang sudah selesai bisa
+  dibagikan (`/share/:token`) dengan token acak 192 bit yang bisa dicabut kapan
+  saja. Endpoint publiknya hanya mengirim bidang tampilan (daftar putih): tanpa
+  identitas pemilik, tanpa referensi penyimpanan, tanpa pesan galat internal
+- [ ] Real-time chat (Socket.io) — **dicatat, belum dikerjakan, dengan alasan**:
+  chat sekarang request/response dan UI-nya sudah tidak memerlukan refresh,
+  sedangkan Socket.io menambah lapisan ber-state (sesi lengket, adapter
+  Redis untuk lebih dari satu instance). Pemicunya jelas: begitu backend jalan di
+  lebih dari satu instance, atau ada ruang obrolan multi-user. Sebelum itu, ia
+  menambah komponen yang harus dijaga tanpa menyelesaikan masalah nyata
+- [ ] Subscription plans — **dicatat, belum dikerjakan**: ini keputusan produk
+  sekaligus integrasi pembayaran (provider + webhook + hak akses per paket) yang
+  tidak bisa diselesaikan dari sisi teknis saja. Yang setara dengannya sudah ada
+  sekarang: kuota per fitur yang diatur admin per akun (`chat`,
+  `imageGeneration`, `audioGeneration`, `videoGeneration`). Pemicunya: ada
+  permintaan paket berbayar, bukan sebelumnya
+- [ ] Caching (Redis) — **dicatat, belum dikerjakan, sekarang bisa DIPUTUSKAN
+  DENGAN DATA**: yang paling masuk akal di-cache adalah pembacaan kuota & profil
+  per request dan status provider, sedangkan risikonya adalah data basi (kuota
+  yang terlihat masih penuh padahal sudah habis). Sejak log akses memuat
+  `durationMs`, keputusan ini bisa didasarkan pada request mana yang benar-benar
+  lambat — bukan dugaan. Pemicunya: p95 `durationMs` yang menunjukkan query
+  berulang sebagai penyebab, atau traffic yang membuat Atlas free tier jadi
+  penghambat
 
 ### Phase 4: Kesehatan Dependency
 
@@ -954,10 +1074,19 @@ ai-multimodal-app/
   `verifyIdToken`); Firestore dan Storage Admin tidak pernah diinstansiasi, dan
   advisory "arbitrary code execution"-nya menyangkut pembuatan kode lewat CLI
   `pbjs`, bukan runtime.
-- [ ] **Frontend: `undici` (high) + 12 moderate** lewat `firebase` dan
-  `@firebase/*`. `npm audit fix --force` akan memasang `vite@8` (dari 4) dan
-  `react-router-dom@7` (dari 6) — itu migrasi konfigurasi Vite dan API router,
-  bukan pembaruan dependensi, jadi perlu dikerjakan sebagai perubahan tersendiri.
+- [ ] **Frontend: `undici` & `vite` (high) + 12 moderate** lewat `firebase`,
+  `@firebase/*`, `esbuild`, dan `react-router`. `npm audit fix --force` akan
+  memasang `vite@8` (dari 4) dan `react-router-dom@7` (dari 6) — itu migrasi
+  konfigurasi Vite dan API router, bukan pembaruan dependensi, jadi perlu
+  dikerjakan sebagai perubahan tersendiri. Keduanya masih kompatibel dengan Node
+  20 milik CI (`vite@8`: `^20.19.0 || >=22.12.0`, `react-router-dom@7`:
+  `>=20`), jadi Node baru hanya diperlukan untuk `firebase-admin` di atas
+
+> Rincian angkanya (hasil `npm audit` dan `npm outdated` tanggal 24 September
+> 2026), urutan pengerjaan, serta apa yang harus diverifikasi tiap kenaikan versi
+> ada di [`docs/dependensi.md`](docs/dependensi.md). Aturannya satu: **satu
+> paket per perubahan**, dan tidak ada kenaikan major tanpa test backend + lint +
+> build frontend dijalankan.
 
 ## Contributing
 
@@ -973,8 +1102,11 @@ Ringkasnya:
 5. Open a Pull Request
 
 Sebelum membuka PR, jalankan `cd backend && npm test` dan `cd frontend && npm run lint`.
-Keduanya juga dijalankan otomatis oleh CI pada setiap push ke `main` — Pull
-Request dari fork tidak ikut diuji, jadi jalankan manual.
+Keduanya juga dijalankan otomatis oleh CI: **setiap push ke `main` dan setiap
+Pull Request yang menyasar `main`** (job `quality`: test backend, lint, build,
+penjaga rahasia, penjaga registri spec browser). Job deploy sengaja tidak ikut
+berjalan di PR. Menjalankannya sendiri sebelum push tetap disarankan supaya
+umpan baliknya lebih cepat.
 
 ## Contributors
 
@@ -996,5 +1128,7 @@ Dirilis di bawah [MIT License](LICENSE) — Copyright (c) 2026 Jimmy Faber.
 ---
 
 **Note**: Proyek ini masih dikembangkan. Fitur inti (chat, text-to-image,
-image-to-image, text-to-sound, sound-to-text) sudah berjalan di demo; fitur video
-masih berstatus feature flag dan baru aktif setelah disetujui admin.
+image-to-image, text-to-sound, sound-to-text, text-to-video, image-to-video)
+sudah berjalan di demo. Fitur video butuh `BYNARA_API_KEY` karena tidak ada
+provider video yang punya jalur gratis; tanpa kunci itu permintaannya dijawab
+`503` dengan pesan yang menyebut variabelnya.

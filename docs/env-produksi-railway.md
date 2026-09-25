@@ -97,7 +97,16 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `VIDEO_REQUEST_TIMEOUT_MS` | `120000` | batas waktu satu permintaan HTTP ke provider video |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` | model OpenAI TTS (berbayar, tidak dipakai otomatis). Hanya model `gpt-4o-*` yang menerima `instructions`, jadi pada `tts-1`/`tts-1-hd` deskripsi gaya diabaikan |
 | `PUBLIC_BASE_URL` | — | hanya untuk menyusun tautan berkas di penyimpanan lokal; provider gambar tidak memakainya |
-| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman terhadap penyalahgunaan |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 15 menit / 1000 | jaring pengaman global terhadap penyalahgunaan |
+| `FEATURE_RATE_LIMIT_WINDOW_MS` | 60 detik | jendela batas per fitur di endpoint generate |
+| `FEATURE_RATE_LIMIT_CHAT_MAX` | 60 | batas pesan chat per user per jendela |
+| `FEATURE_RATE_LIMIT_IMAGE_MAX` | 30 | batas permintaan gambar per user per jendela |
+| `FEATURE_RATE_LIMIT_AUDIO_MAX` | 30 | batas permintaan audio (text-to-sound/sound-to-text) per user per jendela |
+| `FEATURE_RATE_LIMIT_VIDEO_MAX` | 20 | batas permintaan video per user per jendela. Tetap jauh lebih longgar daripada yang bisa diselesaikan provider (1-5 menit/video); fungsinya menahan skrip, bukan mengatur pemakaian wajar |
+| `LOG_FORMAT` | `json` di production | `json` (satu objek per baris — dipilih panel log platform) atau `text` (dibaca manusia). Jangan diubah ke `text` di produksi: kolomnya hilang dan pencarian berdasarkan `requestId` jadi tidak bisa dilakukan |
+| `LOG_LEVEL` | `info` di production | `debug` \| `info` \| `warn` \| `error`. `debug` sebaiknya hanya dinyalakan sementara saat mendiagnosis — log berbayar per volume |
+| `ERROR_LOG_SIZE` | `50` | berapa banyak galat terakhir yang disimpan di memori proses untuk `GET /api/v1/admin/errors`. Restart/deploy mengosongkannya, dan itu memang yang diinginkan |
+| `CLIENT_ERROR_WINDOW_MS` / `CLIENT_ERROR_LIMIT_MAX` | 60 detik / 30 | batas laporan galat dari browser (`POST /api/v1/client-errors`, publik) per alamat IP |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |
 | `PORT` | diisi Railway | jangan diubah manual |
 | Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `CLOUDFLARE_EDIT_MODEL`, `POLLINATIONS_MODEL`, `BYNARA_IMAGE_MODEL`, `OPENAI_*` |

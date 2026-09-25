@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { signInWithGoogle } from '../config/firebase'
 import { authAPI } from '../config/api'
 import { GoogleIcon, UserIcon } from '../components/icons'
@@ -7,16 +7,26 @@ import { GlassPanel, Alert } from '../components/ui'
 
 const RegisterPage = ({ setUser }) => {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const inviteCode = (searchParams.get('ref') || '').trim().toUpperCase()
+
+  // Sesi Google yang dibawa dari halaman login (login 404 -> navigate('/register', { state })).
+  // Selama konteks ini ada, tombol Google tidak perlu diklik lagi.
+  const [pendingFirebase, setPendingFirebase] = useState(() => {
+    const state = location.state
+    return state?.firebaseToken && state?.firebaseUser
+      ? { user: state.firebaseUser, token: state.firebaseToken }
+      : null
+  })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [referrer, setReferrer] = useState(null)
   const [referrerError, setReferrerError] = useState('')
   const [formData, setFormData] = useState({
-    displayName: '',
-    email: '',
+    displayName: pendingFirebase?.user?.displayName || '',
+    email: pendingFirebase?.user?.email || '',
     referralCode: inviteCode
   })
 
@@ -50,19 +60,26 @@ const RegisterPage = ({ setUser }) => {
     setError('')
 
     try {
-      // 1. Sign in with Firebase
-      const result = await signInWithGoogle()
+      // 1. Pakai sesi Google yang sudah dibawa dari halaman login; kalau tidak ada
+      //    (mis. halaman di-refresh), sign in dengan Google seperti biasa.
+      let firebase = pendingFirebase
 
-      if (!result.success) {
-        throw new Error(result.error)
+      if (!firebase) {
+        const result = await signInWithGoogle()
+
+        if (!result.success) {
+          throw new Error(result.error)
+        }
+
+        firebase = { user: result.user, token: result.token }
       }
 
       // 2. Register ke backend
       const registerResponse = await authAPI.register({
-        email: result.user.email,
-        displayName: formData.displayName || result.user.displayName,
-        photoURL: result.user.photoURL,
-        firebaseToken: result.token,
+        email: firebase.user?.email || formData.email,
+        displayName: formData.displayName || firebase.user?.displayName,
+        photoURL: firebase.user?.photoURL,
+        firebaseToken: firebase.token,
         referralCode: formData.referralCode || undefined
       })
 
@@ -78,6 +95,12 @@ const RegisterPage = ({ setUser }) => {
 
     } catch (err) {
       console.error('Register error:', err)
+
+      // Token yang dibawa dari halaman login kedaluwarsa (401): buang konteks lama
+      // supaya klik tombol berikutnya menjalankan sign-in Google yang baru.
+      if (pendingFirebase && err.response?.status === 401) {
+        setPendingFirebase(null)
+      }
 
       if (err.response?.data?.message?.includes('already registered')) {
         navigate('/login')
@@ -112,7 +135,9 @@ const RegisterPage = ({ setUser }) => {
         <p className="hud mb-2">langkah 1 dari 2</p>
         <h1 className="text-grad mb-1 text-2xl font-bold tracking-tight">Buat akun Anda</h1>
         <p className="mb-6 text-sm text-slate-400">
-          Lengkapi data di bawah, lalu lanjutkan dengan Google.
+          {pendingFirebase
+            ? 'Sesi Google Anda sudah dibawa dari halaman masuk. Lengkapi data di bawah, lalu selesaikan pendaftaran.'
+            : 'Lengkapi data di bawah, lalu lanjutkan dengan Google.'}
         </p>
 
         {referrer && (
@@ -206,7 +231,13 @@ const RegisterPage = ({ setUser }) => {
           ) : (
             <GoogleIcon className="h-5 w-5" />
           )}
-          <span>{loading ? 'Registering...' : 'Sign up with Google'}</span>
+          <span>
+            {loading
+              ? 'Registering...'
+              : pendingFirebase
+                ? 'Selesaikan pendaftaran'
+                : 'Sign up with Google'}
+          </span>
         </button>
 
         <div className="mt-4 text-center">

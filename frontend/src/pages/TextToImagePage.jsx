@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import Layout from '../components/Layout'
 import MediaImage from '../components/MediaImage'
+import HistoryLink from '../components/HistoryLink'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 const SIZES = [
@@ -13,7 +15,12 @@ const SIZES = [
 const MAX_PROMPT_LENGTH = 1000
 
 const TextToImagePage = ({ user, setUser }) => {
-  const [prompt, setPrompt] = useState('')
+  const location = useLocation()
+
+  // Prompt dari halaman Riwayat ("Generate ulang") dijadikan nilai AWAL state,
+  // bukan langsung dijalankan: generate memakai kuota, jadi keputusannya tetap
+  // milik user.
+  const [prompt, setPrompt] = useState(location.state?.prompt || '')
   const [size, setSize] = useState('1024x1024')
   const [quality, setQuality] = useState('standard')
   const [generating, setGenerating] = useState(false)
@@ -333,7 +340,12 @@ const TextToImagePage = ({ user, setUser }) => {
 
             {/* --------------------------------- Riwayat ------------------------------- */}
             <GlassPanel className="rise rise-2 p-5 sm:p-6">
-              <SectionTitle hint="12 gambar terakhir yang Anda buat.">Your generations</SectionTitle>
+              <SectionTitle
+                hint="12 gambar terakhir yang Anda buat."
+                action={<HistoryLink type="text-to-image" />}
+              >
+                Your generations
+              </SectionTitle>
 
               {historyLoading ? (
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

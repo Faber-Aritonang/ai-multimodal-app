@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireMember, checkQuota } = require('../middleware/auth');
+const { featureRateLimit } = require('../middleware/featureRateLimit');
 const {
   getChatSessions,
   createChatSession,
@@ -23,7 +24,14 @@ router.use(requireMember);
 // Chat routes
 router.get('/chat/sessions', getChatSessions);
 router.post('/chat/sessions', createChatSession);
-router.post('/chat/sessions/:sessionId/message', checkQuota('chat'), sendMessage);
+// Limiter lebih dulu daripada kuota: pesan yang ditolak karena terlalu sering
+// tidak pernah sampai ke provider LLM dan tidak memakai kuota user.
+router.post(
+  '/chat/sessions/:sessionId/message',
+  featureRateLimit('chat'),
+  checkQuota('chat'),
+  sendMessage
+);
 router.get('/chat/sessions/:sessionId', getChatSession);
 router.delete('/chat/sessions/:sessionId', deleteChatSession);
 
@@ -39,6 +47,10 @@ router.get('/profile', (req, res) => {
     user: req.member
   });
 });
+
+// Update profil sendiri (nama tampilan, bio, foto). Field wewenang admin
+// (email/role/quota/isApproved) diabaikan controller — lihat updateProfile.
+router.put('/profile', MemberController.updateProfile);
 
 // Get quota info
 router.get('/quota', (req, res) => {

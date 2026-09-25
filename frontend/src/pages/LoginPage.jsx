@@ -49,9 +49,13 @@ const LoginPage = ({ setUser }) => {
     setLoading(true)
     setError('')
 
+    // Disimpan di luar try supaya hasil sign-in Google bisa dibawa ke /register
+    // ketika backend menjawab 404 (user belum terdaftar).
+    let result = null
+
     try {
       // 1. Sign in with Firebase
-      const result = await signInWithGoogle()
+      result = await signInWithGoogle()
 
       if (!result.success) {
         throw new Error(result.error)
@@ -72,9 +76,16 @@ const LoginPage = ({ setUser }) => {
     } catch (err) {
       console.error('Login error:', err)
 
-      // Jika user belum ada di backend, arahkan ke register
+      // Jika user belum ada di backend, arahkan ke register — bawa serta sesi
+      // Firebase-nya supaya user tidak perlu klik tombol Google dua kali.
       if (err.response?.status === 404 || err.message?.includes('not registered')) {
-        navigate('/register')
+        const hasFirebaseSession = Boolean(result?.token && result?.user)
+
+        navigate('/register', {
+          state: hasFirebaseSession
+            ? { firebaseUser: result.user, firebaseToken: result.token }
+            : undefined
+        })
       } else {
         setError(err.response?.data?.message || err.message || 'Login failed. Please try again.')
       }

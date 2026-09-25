@@ -54,6 +54,12 @@ backend/config/firebase-service-account.json
 # Hasil generate media (image/video/audio)
 backend/uploads/
 
+# Hasil backup database (scripts/backupDb.js).
+# ISI DATABASE MEMUAT DATA USER (email, prompt, riwayat percakapan), jadi tidak
+# pernah boleh masuk repo: repo ini publik. Simpan salinannya di luar working
+# tree; folder ini hanya untuk keperluan pemulihan jangka pendek di mesin sendiri.
+backend/backups/
+
 # Cache
 .cache/
 .temp/

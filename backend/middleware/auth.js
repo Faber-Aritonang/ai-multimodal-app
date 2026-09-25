@@ -179,6 +179,28 @@ exports.requireGuest = async (req, res, next) => {
 };
 
 /**
+ * Kunci kuota audio untuk akun lama.
+ *
+ * Akun yang dibuat sebelum kuota audio dipisahkan hanya punya `videoGeneration`
+ * (audio dahulu memakai jatah itu). Tanpa cadangan ini seluruh fitur suara akan
+ * terjawab 403 "Quota exhausted" untuk member yang sudah ada — padahal sisa
+ * jatahnya masih ada, hanya namanya berbeda. Nilai `undefined` (bukan 0) yang
+ * membedakan akun lama dari akun yang kuotanya benar-benar habis.
+ */
+const AUDIO_QUOTA_FALLBACK = 'videoGeneration';
+
+/** Sisa kuota untuk satu jenis pekerjaan, termasuk cadangan untuk akun lama. */
+const remainingQuota = (quota, type) => {
+  const value = quota?.[type];
+
+  if (value === undefined && type === 'audioGeneration') {
+    return quota?.[AUDIO_QUOTA_FALLBACK];
+  }
+
+  return value;
+};
+
+/**
  * Optional: Check quota
  */
 exports.checkQuota = (type) => {
@@ -190,16 +212,16 @@ exports.checkQuota = (type) => {
           message: 'Authentication required'
         });
       }
-      
-      const remaining = req.member.quota?.[type];
-      
+
+      const remaining = remainingQuota(req.member.quota, type);
+
       if (remaining === undefined || remaining <= 0) {
         return res.status(403).json({
           success: false,
           message: `Quota for ${type} exhausted. Please upgrade your plan.`
         });
       }
-      
+
       req.quota = { type, remaining };
       next();
     } catch (error) {

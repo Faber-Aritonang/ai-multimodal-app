@@ -5,6 +5,10 @@
 
 const User = require('../models/User');
 const MediaContent = require('../models/MediaContent');
+const {
+  getRecentErrors: daftarGalatTerakhir,
+  getErrorStats
+} = require('../config/errorLog');
 
 /**
  * @GET /api/v1/admin/pending-members
@@ -74,6 +78,7 @@ exports.approveMember = async (req, res) => {
         quota: quota || {
           chat: 500,
           imageGeneration: 50,
+          audioGeneration: 50,
           videoGeneration: 20,
           total: 5000
         }
@@ -133,6 +138,26 @@ exports.rejectMember = async (req, res) => {
       error: error.message
     });
   }
+};
+
+/**
+ * @GET /api/v1/admin/errors
+ * Galat terakhir yang tercatat proses ini (baca catatan di config/errorLog.js).
+ *
+ * Ada sebagai endpoint, bukan hanya sebagai baris log, karena pertanyaan yang
+ * paling sering muncul setelah deploy — "ada yang rusak tidak sejak deploy
+ * terakhir?" — tidak bisa dijawab dengan menelusuri log satu per satu. Isinya
+ * hanya pesan galat, stack, dan metadata request; tidak ada kredensial.
+ *
+ * Hanya admin (lihat routes/admin.js): daftar ini menyebut uid user dan pesan
+ * internal server, jadi tidak boleh bisa dibaca anggota biasa.
+ */
+exports.getErrors = (req, res) => {
+  res.json({
+    success: true,
+    ...getErrorStats(),
+    errors: daftarGalatTerakhir()
+  });
 };
 
 /**

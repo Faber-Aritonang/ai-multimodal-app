@@ -94,6 +94,30 @@ const mediaContentSchema = new mongoose.Schema({
     message: String,
     code: String
   },
+
+  // Tautan baca-saja untuk dibagikan ke luar aplikasi (lihat shareMedia di
+  // mediaController).
+  //
+  // Nilainya token acak, BUKAN contentId: contentId muncul di URL dan bisa
+  // ditebak dari daftar riwayat siapa pun, sedangkan token ini 192 bit acak,
+  // sehingga satu-satunya cara membukanya adalah memegang tautannya. Token yang
+  // sama juga tidak pernah dipakai untuk mengakses endpoint ber-auth.
+  //
+  // Dibiarkan TIDAK diisi (bukan `default: null`) supaya dokumen yang belum
+  // dibagikan tidak punya field ini sama sekali; index unik `sparse` melewatkan
+  // dokumen tanpa field, sedangkan `null` dianggap nilai dan akan saling
+  // bertabrakan pada dokumen kedua.
+  shareToken: {
+    type: String,
+    index: { unique: true, sparse: true }
+  },
+
+  // Kapan tautannya dibuat. Tautan yang dipertanyakan keamanannya bisa dicari
+  // dari tanggal ini; `null` berarti tautan sudah dicabut (tokennya dihapus).
+  sharedAt: {
+    type: Date,
+    default: null
+  },
   
   createdAt: {
     type: Date,
