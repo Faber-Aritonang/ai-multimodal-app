@@ -4,6 +4,7 @@ import { memberAPI, mediaAPI, resolveMediaUrl } from '../config/api'
 import MediaImage from '../components/MediaImage'
 import Layout from '../components/Layout'
 import HistoryLink from '../components/HistoryLink'
+import ImagePreviewModal from '../components/ImagePreviewModal'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -106,6 +107,7 @@ const ImageToImagePage = ({ user, setUser }) => {
   const [result, setResult] = useState(null)
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
+  const [selectedImage, setSelectedImage] = useState(null)
   const [quota, setQuota] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -543,12 +545,20 @@ const ImageToImagePage = ({ user, setUser }) => {
                 <figure key={item.contentId} data-testid="history-item" className="group">
                   <div className="relative">
                     {item.outputUrl ? (
-                      <MediaImage
-                        url={item.outputUrl}
-                        alt={item.prompt}
-                        compact
-                        className="aspect-square w-full rounded-xl border border-white/10 object-cover"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setSelectedImage(item)}
+                        className="block w-full cursor-zoom-in rounded-xl text-left"
+                        aria-label={`Tampilkan gambar: ${item.prompt}`}
+                        title="Klik untuk melihat gambar penuh"
+                      >
+                        <MediaImage
+                          url={item.outputUrl}
+                          alt={item.prompt}
+                          compact
+                          className="aspect-square w-full rounded-xl border border-white/10 object-cover"
+                        />
+                      </button>
                     ) : (
                       <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 p-2 text-center text-xs text-rose-200">
                         {item.status === 'failed' ? 'Transformation failed' : 'No preview'}
@@ -579,6 +589,14 @@ const ImageToImagePage = ({ user, setUser }) => {
           )}
         </GlassPanel>
       </div>
+
+      <ImagePreviewModal
+        url={selectedImage?.outputUrl}
+        alt={selectedImage?.prompt}
+        prompt={selectedImage?.prompt}
+        resolution={selectedImage?.metadata?.resolution}
+        onClose={() => setSelectedImage(null)}
+      />
     </Layout>
   )
 }

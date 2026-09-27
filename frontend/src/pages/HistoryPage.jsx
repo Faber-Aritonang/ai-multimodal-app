@@ -5,6 +5,7 @@ import Layout from '../components/Layout'
 import MediaImage from '../components/MediaImage'
 import MediaAudio from '../components/MediaAudio'
 import MediaVideo from '../components/MediaVideo'
+import ImagePreviewModal from '../components/ImagePreviewModal'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 import { RefreshIcon } from '../components/icons'
 
@@ -101,6 +102,7 @@ const HistoryPage = ({ user, setUser }) => {
   // Disimpan di halaman (bukan di dalam tiap kartu) supaya kartu tetap komponen
   // murni yang hanya membaca state terbaru.
   const [share, setShare] = useState({})
+  const [selectedImage, setSelectedImage] = useState(null)
   // Filter yang benar-benar dikirim ke server. Dipisah dari `keyword` supaya
   // pengetikan tidak menjadi satu permintaan per huruf (lihat debounce di bawah).
   const [applied, setApplied] = useState({ q: '', type: tipeSah, status: '' })
@@ -301,11 +303,19 @@ const HistoryPage = ({ user, setUser }) => {
   const renderPreview = (item) => {
     if (IMAGE_TYPES.includes(item.type) && item.outputUrl) {
       return (
-        <MediaImage
-          url={item.outputUrl}
-          alt={item.prompt}
-          className="h-40 w-full rounded-xl border border-white/10 object-cover"
-        />
+        <button
+          type="button"
+          onClick={() => setSelectedImage(item)}
+          className="block w-full cursor-zoom-in rounded-xl text-left"
+          aria-label={`Tampilkan gambar: ${item.prompt}`}
+          title="Klik untuk melihat gambar penuh"
+        >
+          <MediaImage
+            url={item.outputUrl}
+            alt={item.prompt}
+            className="h-40 w-full rounded-xl border border-white/10 object-cover"
+          />
+        </button>
       )
     }
 
@@ -601,6 +611,14 @@ const HistoryPage = ({ user, setUser }) => {
           )}
         </GlassPanel>
       </div>
+
+      <ImagePreviewModal
+        url={selectedImage?.outputUrl}
+        alt={selectedImage?.prompt}
+        prompt={selectedImage?.prompt}
+        resolution={selectedImage?.metadata?.resolution}
+        onClose={() => setSelectedImage(null)}
+      />
     </Layout>
   )
 }
