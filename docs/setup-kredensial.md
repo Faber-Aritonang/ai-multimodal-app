@@ -367,6 +367,23 @@ bergantung pada URL apa pun.
 
 ## 3c. Chat gratis (Groq + Gemini + OpenRouter)
 
+### Pencarian web opsional (Exa)
+
+Chat bisa mencari informasi web terbaru per pesan. Isi `EXA_API_KEY` di backend
+(environment lokal `backend/.env`, atau secret Railway); key tidak pernah dikirim
+ke browser. Ambil key melalui [Exa dashboard](https://dashboard.exa.ai) — akun
+baru mendapat kredit awal dan kuota gratis bulanan menurut paket Exa saat ini.
+Di halaman Chat, aktifkan **Search the web** sebelum mengirim pertanyaan. Balasan
+akan memakai cuplikan hasil pencarian dan menampilkan tautan sumber; bila Exa
+belum dikonfigurasi atau tidak menemukan sumber, chat akan menampilkan error
+alih-alih memberi jawaban yang seolah-olah sudah diverifikasi. Pencarian tidak
+mengubah pengetahuan bawaan model dan tetap dapat keliru, jadi periksa sumbernya.
+
+```env
+EXA_API_KEY=your-exa-api-key
+# WEB_SEARCH_TIMEOUT_MS=10000
+```
+
 Fitur chat (LLM) juga tidak wajib memakai OpenAI. Provider dipilih lewat
 `CHAT_PROVIDER`; semuanya memakai endpoint yang **kompatibel dengan OpenAI**,
 jadi tidak ada dependency baru.

@@ -31,6 +31,17 @@ const messageSchema = new mongoose.Schema({
   model: {
     type: String,
     default: null
+  },
+
+  // Sumber web yang dipakai untuk balasan ini; disimpan agar sitasi tetap
+  // tersedia saat sesi dibuka kembali.
+  sources: {
+    type: [{
+      title: { type: String, maxlength: 300 },
+      url: { type: String, maxlength: 2048 },
+      publishedDate: { type: String, maxlength: 40, default: null }
+    }],
+    default: undefined
   }
 });
 

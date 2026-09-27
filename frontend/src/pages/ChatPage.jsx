@@ -16,6 +16,7 @@ const ChatPage = ({ user, setUser }) => {
   const [sessions, setSessions] = useState([])
   const [quota, setQuota] = useState(null)
   const [inputValue, setInputValue] = useState('')
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const messagesEndRef = useRef(null)
@@ -132,7 +133,8 @@ const ChatPage = ({ user, setUser }) => {
     try {
       const response = await memberAPI.sendMessage(
         currentSession.sessionId,
-        inputValue
+        inputValue,
+        webSearchEnabled ? { webSearch: true } : {}
       )
 
       if (response.data.success) {
@@ -372,6 +374,32 @@ const ChatPage = ({ user, setUser }) => {
                     </p>
                     {/* Label per balasan: provider bisa berganti di tengah
                         percakapan, jadi ditampilkan dari data pesan itu sendiri */}
+                    {message.role === 'assistant' && Array.isArray(message.sources) && message.sources.length > 0 && (
+                      <div className="mt-3 border-t border-white/10 pt-2" data-testid="chat-sources">
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-cyan-200/80">
+                          Sumber web
+                        </p>
+                        <ul className="space-y-1">
+                          {message.sources.map((source, sourceIndex) => (
+                            <li key={`${source.url}-${sourceIndex}`} className="text-xs">
+                              <a
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="link-accent break-all"
+                              >
+                                {source.title || source.url}
+                              </a>
+                              {source.publishedDate && (
+                                <span className="ml-1 text-[10px] text-slate-500">
+                                  ({source.publishedDate.slice(0, 10)})
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {message.role === 'assistant' && message.provider && (
                       <p className="mt-1 font-mono text-[10px] text-slate-500">
                         via {message.provider}
@@ -418,6 +446,19 @@ const ChatPage = ({ user, setUser }) => {
               </p>
             )}
 
+            <div className="mb-2 flex items-center gap-2 text-xs text-slate-400">
+              <input
+                id="chat-web-search"
+                type="checkbox"
+                checked={webSearchEnabled}
+                onChange={(event) => setWebSearchEnabled(event.target.checked)}
+                disabled={loading || outOfQuota}
+                className="h-4 w-4 rounded border-white/20 bg-ink-950 accent-cyan-400"
+              />
+              <label htmlFor="chat-web-search" className="cursor-pointer">
+                Search the web <span className="text-slate-500">(sumber terbaru, opsional)</span>
+              </label>
+            </div>
             <div className="flex items-end gap-2">
               <textarea
                 value={inputValue}

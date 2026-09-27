@@ -7,6 +7,7 @@
  */
 
 const mockReply = jest.fn();
+const mockSearchWeb = jest.fn();
 
 process.env.JWT_SECRET = 'chat-flow-secret';
 
@@ -19,6 +20,9 @@ jest.mock('../models/ChatSession', () => ({
   findOne: jest.fn(),
   create: jest.fn(),
   findOneAndDelete: jest.fn()
+}));
+jest.mock('../config/webSearch', () => ({
+  searchWeb: (...args) => mockSearchWeb(...args)
 }));
 jest.mock('../config/chatProviders', () => ({
   generateChatReply: (...args) => mockReply(...args),
@@ -68,6 +72,7 @@ const postMessage = (body = { message: 'halo' }) =>
 
 beforeEach(() => {
   mockReply.mockReset();
+  mockSearchWeb.mockReset();
   mockReply.mockResolvedValue({
     content: 'Halo! Ada yang bisa saya bantu?',
     provider: 'groq',
@@ -166,6 +171,63 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
       provider: 'gemini',
       model: 'gemini-3.8-flash'
     });
+  });
+
+  test('pencarian web menambahkan sumber ke prompt, balasan, dan riwayat sesi', async () => {
+    User.findOne.mockResolvedValue(approvedMember(5));
+    const session = createSession();
+    ChatSession.findOne.mockResolvedValue(session);
+    mockSearchWeb.mockResolvedValue({
+      searchedAt: '2026-09-27T00:00:00.000Z',
+      sources: [{
+        title: 'Pengumuman terbaru',
+        url: 'https://example.com/berita',
+        publishedDate: '2026-09-26T00:00:00.000Z',
+        highlights: ['Fakta terbaru dari sumber.']
+      }]
+    });
+
+    const response = await postMessage({ message: 'apa kabar terbaru?', webSearch: true });
+
+    expect(response.status).toBe(200);
+    expect(mockSearchWeb).toHaveBeenCalledWith('apa kabar terbaru?');
+    const systemMessage = mockReply.mock.calls[0][0].messages[0].content;
+    expect(systemMessage).toContain('Konteks hasil pencarian web');
+    expect(systemMessage).toContain('Fakta terbaru dari sumber.');
+    expect(systemMessage).toContain('https://example.com/berita');
+    expect(response.body.sources).toEqual([{
+      title: 'Pengumuman terbaru',
+      url: 'https://example.com/berita',
+      publishedDate: '2026-09-26T00:00:00.000Z'
+    }]);
+    expect(session.messages[1].sources).toEqual(response.body.sources);
+  });
+
+  test('pencarian web tidak dilakukan bila opsi tidak diaktifkan', async () => {
+    User.findOne.mockResolvedValue(approvedMember(5));
+    ChatSession.findOne.mockResolvedValue(createSession());
+
+    const response = await postMessage();
+
+    expect(response.status).toBe(200);
+    expect(mockSearchWeb).not.toHaveBeenCalled();
+  });
+
+  test('kegagalan pencarian web tidak memberikan balasan tanpa sumber', async () => {
+    const member = approvedMember(5);
+    User.findOne.mockResolvedValue(member);
+    const session = createSession();
+    ChatSession.findOne.mockResolvedValue(session);
+    const error = new Error('Exa web search found no usable sources for this question.');
+    error.code = 'WEB_SEARCH_NO_RESULTS';
+    mockSearchWeb.mockRejectedValue(error);
+
+    const response = await postMessage({ message: 'kabar hari ini?', webSearch: true });
+
+    expect(response.status).toBe(502);
+    expect(response.body.message).toMatch(/no usable sources/i);
+    expect(mockReply).not.toHaveBeenCalled();
+    expect(member.save).not.toHaveBeenCalled();
   });
 
   test('system prompt menyebut kuota user yang sebenarnya', async () => {

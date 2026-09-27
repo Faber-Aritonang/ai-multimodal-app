@@ -37,6 +37,7 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Fitur | Variabel | Cara verifikasi |
 |---|---|---|
 | Chat | minimal **satu** dari `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` | kirim satu pesan di UI; setiap balasan menampilkan provider yang benar-benar menjawab (mis. `via groq`, `via openrouter`) |
+| Chat — pencarian web opsional | `EXA_API_KEY` | aktifkan **Search the web** di chat; balasan menampilkan tautan sumber Exa. Key tidak dikirim ke frontend. |
 | Chat — cadangan OpenRouter | `OPENROUTER_API_KEY` | badge `via openrouter` muncul saat Groq/Gemini kehabisan kuota. Tanpa key ini provider hanya dilewati, bukan error. |
 | Text-to-Image | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (fallback `pollinations` tidak butuh key) | generate 1 gambar; metadata hasil menampilkan provider yang dipakai |
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |

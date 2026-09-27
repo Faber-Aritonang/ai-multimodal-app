@@ -127,8 +127,12 @@ export const memberAPI = {
   createChatSession: () => api.post('/member/chat/sessions'),
   // Timeout lebih panjang dari default (30 detik): provider chat punya fallback
   // berantai, dan free tier Gemini bisa butuh sampai ~60 detik untuk menjawab.
-  sendMessage: (sessionId, message) =>
-    api.post(`/member/chat/sessions/${sessionId}/message`, { message }, { timeout: 150000 }),
+  sendMessage: (sessionId, message, options = {}) =>
+    api.post(
+      `/member/chat/sessions/${sessionId}/message`,
+      { message, ...options },
+      { timeout: 180000 }
+    ),
   getChatSession: (sessionId) => api.get(`/member/chat/sessions/${sessionId}`),
   deleteChatSession: (sessionId) => api.delete(`/member/chat/sessions/${sessionId}`),
   

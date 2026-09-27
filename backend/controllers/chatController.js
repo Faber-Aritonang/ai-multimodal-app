@@ -11,6 +11,7 @@
 const ChatSession = require('../models/ChatSession');
 const { generateChatReply } = require('../config/chatProviders');
 const { withSystemPrompt } = require('../config/chatPersona');
+const { searchWeb } = require('../config/webSearch');
 
 /**
  * @GET /api/v1/member/chat/sessions
@@ -75,7 +76,7 @@ exports.sendMessage = async (req, res) => {
     }
     
     const sessionId = req.params.sessionId;
-    const { message } = req.body;
+    const { message, webSearch: useWebSearch } = req.body;
 
     if (!message) {
       return res.status(400).json({
@@ -105,6 +106,15 @@ exports.sendMessage = async (req, res) => {
     
     // Panggil provider LLM yang aktif
     try {
+      // Pencarian web opt-in per pesan. Jika diminta, kegagalan pencarian
+      // menghentikan balasan agar jawaban tidak terlihat seolah sudah diverifikasi.
+      const webContext = useWebSearch === true ? await searchWeb(message) : null;
+      const sources = webContext?.sources.map(({ title, url, publishedDate }) => ({
+        title,
+        url,
+        publishedDate
+      })) || [];
+
       // System prompt dikirim ke provider tapi tidak disimpan ke sesi, jadi
       // riwayat user tetap bersih dan persona/kuota selalu memakai nilai terbaru.
       const reply = await generateChatReply({
@@ -113,7 +123,7 @@ exports.sendMessage = async (req, res) => {
             role: m.role,
             content: m.content
           })),
-          { member: req.member }
+          { member: req.member, webContext }
         )
       });
 
@@ -123,7 +133,8 @@ exports.sendMessage = async (req, res) => {
         role: 'assistant',
         content: reply.content,
         provider: reply.provider,
-        model: reply.model
+        model: reply.model,
+        ...(sources.length ? { sources } : {})
       });
 
       // Update title saat pertukaran pertama (user + assistant = 2 pesan).
@@ -150,6 +161,7 @@ exports.sendMessage = async (req, res) => {
         response: reply.content,
         provider: reply.provider,
         model: reply.model,
+        ...(sources.length ? { sources } : {}),
         session,
         quota: req.member.quota
       });
@@ -158,16 +170,20 @@ exports.sendMessage = async (req, res) => {
       console.error('Chat provider error:', apiError.message);
 
       // Bedakan masalah konfigurasi server (503) dengan kegagalan provider (502)
-      const isConfigError = ['MISSING_CREDENTIALS', 'INVALID_PROVIDER_CONFIG'].includes(
-        apiError.code
-      );
+      const isConfigError = [
+        'MISSING_CREDENTIALS',
+        'INVALID_PROVIDER_CONFIG',
+        'WEB_SEARCH_NOT_CONFIGURED'
+      ].includes(apiError.code);
+      const isWebSearchError = String(apiError.code || '').startsWith('WEB_SEARCH_');
+      const statusCode = isConfigError ? 503 : 502;
 
       // Pesan user tetap disimpan supaya tidak hilang saat provider bermasalah
       await session.save();
 
-      res.status(isConfigError ? 503 : 502).json({
+      res.status(statusCode).json({
         success: false,
-        message: isConfigError
+        message: isConfigError || isWebSearchError
           ? apiError.message
           : 'AI service temporarily unavailable',
         error: apiError.message,
