@@ -21,6 +21,7 @@ const ChatPage = ({ user, setUser }) => {
   const [connectorStatus, setConnectorStatus] = useState([])
   const [connectorNotice, setConnectorNotice] = useState('')
   const [connectorWarning, setConnectorWarning] = useState('')
+  const [connectorLoading, setConnectorLoading] = useState(true)
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const messagesEndRef = useRef(null)
@@ -84,6 +85,7 @@ const ChatPage = ({ user, setUser }) => {
   }
 
   const fetchConnectors = async () => {
+    setConnectorLoading(true)
     try {
       const response = await memberAPI.getConnectors()
       setConnectorStatus(response.data.connectors || [])
@@ -91,6 +93,8 @@ const ChatPage = ({ user, setUser }) => {
     } catch (error) {
       console.error('Failed to fetch Google connectors:', error)
       setConnectorWarning('Google connectors are unavailable right now. Try again later.')
+    } finally {
+      setConnectorLoading(false)
     }
   }
 
@@ -559,14 +563,18 @@ const ChatPage = ({ user, setUser }) => {
                 {connectorNotice}
               </p>
             )}
-            {(connectorStatus.length > 0 || connectorWarning) && (
-              <details className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="chat-connectors">
+            <details className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="chat-connectors">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-200">
                   Google connectors
                 </summary>
                 <p className="mt-2 text-[11px] text-slate-400">
                   Reads and searches are available when selected. Email sending and document edits always require your confirmation.
                 </p>
+                {connectorLoading && connectorStatus.length === 0 && !connectorWarning && (
+                  <p className="mt-2 text-[11px] text-slate-400" data-testid="connector-loading">
+                    Checking Google connector status…
+                  </p>
+                )}
                 {connectorWarning && (
                   <p role="status" className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.08] px-2.5 py-2 text-[11px] text-amber-200" data-testid="connector-warning">
                     {connectorWarning}
@@ -603,7 +611,6 @@ const ChatPage = ({ user, setUser }) => {
                   ))}
                 </div>
               </details>
-            )}
             {outOfQuota && (
               <p className="mb-2 text-xs text-rose-300">
                 Chat quota exhausted. Ask an admin to increase it before sending new messages.
