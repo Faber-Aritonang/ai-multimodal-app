@@ -42,6 +42,20 @@ const messageSchema = new mongoose.Schema({
       publishedDate: { type: String, maxlength: 40, default: null }
     }],
     default: undefined
+  },
+
+  // Connector writes are stored as approval requests, never executed while
+  // producing an assistant response. The client only receives safe action args.
+  connectorActions: {
+    type: [{
+      actionId: { type: String, required: true },
+      toolkit: { type: String, required: true },
+      toolSlug: { type: String, required: true },
+      arguments: { type: mongoose.Schema.Types.Mixed, required: true },
+      expiresAt: { type: Date, required: true },
+      status: { type: String, enum: ['pending', 'executed', 'failed', 'cancelled'], default: 'pending' }
+    }],
+    default: undefined
   }
 });
 

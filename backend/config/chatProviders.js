@@ -240,7 +240,8 @@ const requestCompletion = async ({
   messages,
   maxTokens,
   maxTokensParam,
-  reasoning
+  reasoning,
+  tools
 }) => {
   const params = { model, messages };
 
@@ -253,21 +254,30 @@ const requestCompletion = async ({
   // penalaran bisa menghabiskan seluruh jatah token sehingga jawaban tidak
   // pernah muncul di `content`.
   if (reasoning) params.reasoning = reasoning;
+  if (tools?.length) {
+    params.tools = tools;
+    params.tool_choice = 'auto';
+  }
 
   const response = await client.chat.completions.create(params);
-  const content = response?.choices?.[0]?.message?.content;
+  const assistantMessage = response?.choices?.[0]?.message;
+  const content = assistantMessage?.content;
+  const toolCalls = assistantMessage?.tool_calls || [];
 
-  // Model reasoning (mis. gpt-oss) bisa mengembalikan content kosong kalau
-  // jatah tokennya habis untuk berpikir — ini bukan error jaringan, tapi user
-  // perlu pesan yang jelas, bukan bubble kosong.
-  if (!content || !String(content).trim()) {
+  // Model dapat memilih memanggil tool sebagai balasan sah tanpa teks.
+  if ((!content || !String(content).trim()) && !toolCalls.length) {
     throw createError(
       'The model returned an empty reply (its token budget may be too small)',
       'PROVIDER_ERROR'
     );
   }
 
-  return { content, model, usage: response.usage || null };
+  return {
+    content: content || '',
+    ...(toolCalls.length ? { toolCalls } : {}),
+    model,
+    usage: response.usage || null
+  };
 };
 
 /**
@@ -284,7 +294,7 @@ const groq = {
 
   getModel: () => process.env.GROQ_CHAT_MODEL || DEFAULT_GROQ_MODEL,
 
-  generate({ messages, maxTokens }) {
+  generate({ messages, maxTokens, tools }) {
     return requestCompletion({
       client: getClient({
         apiKey: sanitizeSecret(process.env.GROQ_API_KEY),
@@ -295,7 +305,8 @@ const groq = {
       model: this.getModel(),
       messages,
       maxTokens,
-      maxTokensParam: this.maxTokensParam
+      maxTokensParam: this.maxTokensParam,
+      tools
     });
   }
 };
@@ -314,7 +325,7 @@ const gemini = {
 
   getModel: () => process.env.GEMINI_CHAT_MODEL || DEFAULT_GEMINI_MODEL,
 
-  generate({ messages, maxTokens }) {
+  generate({ messages, maxTokens, tools }) {
     return requestCompletion({
       client: getClient({
         apiKey: sanitizeSecret(process.env.GEMINI_API_KEY),
@@ -325,7 +336,8 @@ const gemini = {
       model: this.getModel(),
       messages,
       maxTokens,
-      maxTokensParam: this.maxTokensParam
+      maxTokensParam: this.maxTokensParam,
+      tools
     });
   }
 };
@@ -343,7 +355,7 @@ const openai = {
 
   getModel: () => getChatModel(),
 
-  generate({ messages, maxTokens }) {
+  generate({ messages, maxTokens, tools }) {
     return requestCompletion({
       client: getClient({
         apiKey: sanitizeSecret(process.env.OPENAI_API_KEY),
@@ -353,7 +365,8 @@ const openai = {
       model: this.getModel(),
       messages,
       maxTokens,
-      maxTokensParam: this.maxTokensParam
+      maxTokensParam: this.maxTokensParam,
+      tools
     });
   }
 };
@@ -395,7 +408,7 @@ const openrouter = {
     return this.getModels()[0];
   },
 
-  async generate({ messages, maxTokens }) {
+  async generate({ messages, maxTokens, tools }) {
     const models = this.getModels();
     const now = Date.now();
     const cooling = models
@@ -431,7 +444,8 @@ const openrouter = {
           messages,
           maxTokens,
           maxTokensParam: this.maxTokensParam,
-          reasoning: getOpenRouterReasoning()
+          reasoning: getOpenRouterReasoning(),
+          tools
         });
 
         // Model ini sehat lagi: hapus catatan kegagalannya supaya request
@@ -534,7 +548,7 @@ const getChatChain = () => {
  * @param {{messages: Array<{role: string, content: string}>, maxTokens?: number}} params
  * @returns {Promise<{content: string, model: string, usage: object|null, provider: string, attempts: Array}>}
  */
-const generateChatReply = async ({ messages, maxTokens }) => {
+const generateChatReply = async ({ messages, maxTokens, tools }) => {
   const limit = Number(maxTokens || process.env.CHAT_MAX_TOKENS) || DEFAULT_MAX_TOKENS;
   const chain = getChatChain();
   const attempts = [];
@@ -548,7 +562,7 @@ const generateChatReply = async ({ messages, maxTokens }) => {
     }
 
     try {
-      const result = await provider.generate({ messages, maxTokens: limit });
+      const result = await provider.generate({ messages, maxTokens: limit, tools });
       return { ...result, provider: name, attempts };
     } catch (error) {
       attempts.push({ provider: name, reason: describeError(error) });

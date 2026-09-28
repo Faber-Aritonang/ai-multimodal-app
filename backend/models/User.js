@@ -4,6 +4,11 @@
  */
 
 const mongoose = require('mongoose');
+const { quotaForPlan } = require('../config/membershipPlans');
+
+// Kuota default member biasa (free). Angkanya berasal dari satu sumber:
+// config/membershipPlans.js — ubah di sana bila jatah berubah.
+const DEFAULT_QUOTA = quotaForPlan('free');
 
 const userSchema = new mongoose.Schema({
   // Firebase Auth UID
@@ -46,6 +51,31 @@ const userSchema = new mongoose.Schema({
     enum: ['guest', 'member'],
     default: 'guest'
   },
+
+  // Paket AKTIF: 'free' = member biasa, 'paid' = member berbayar (kuota 5x).
+  // Nilai 'paid' hanya dipasang setelah pembayaran diterima gateway
+  // (controllers/paymentController.js activatePaidMember) — bukan saat
+  // mendaftar, supaya tidak ada yang mendapat kuota berbayar tanpa membayar.
+  plan: {
+    type: String,
+    enum: ['free', 'paid'],
+    default: 'free'
+  },
+
+  // Paket yang DIPILIH saat mendaftar (bukan paket aktif). Pendaftar yang
+  // memilih 'paid' diarahkan menyelesaikan pembayaran; sampai itu terjadi ia
+  // belum disetujui dan tombol bayarnya muncul di halaman Pending Approval.
+  selectedPlan: {
+    type: String,
+    enum: ['free', 'paid'],
+    default: 'free'
+  },
+
+  // Saat paket berbayar diaktifkan (pembayaran diterima).
+  planActivatedAt: {
+    type: Date,
+    default: null
+  },
   
   // Approval status untuk admin
   isApproved: {
@@ -59,15 +89,15 @@ const userSchema = new mongoose.Schema({
   // (text-to-video & image-to-video). Sebelumnya audio memakai `videoGeneration`
   // sehingga satu fitur bisa menghabiskan jatah fitur lain; akun lama yang belum
   // punya `audioGeneration` tetap dilayani lewat nilai cadangan di checkQuota.
-  // Aturan kuota berlaku sama dengan default persetujuan admin
-  // (controllers/adminController.js approveMember) dan payload tombol approve
-  // di halaman admin — ketiganya harus diubah bersama-sama.
+  // Angka defaultnya dari config/membershipPlans.js (paket free). Paket paid
+  // mendapat jatah 5x lipat yang dipasang saat pembayaran diterima — lihat
+  // controllers/paymentController.js activatePaidMember.
   quota: {
-    chat: { type: Number, default: 60 },
-    imageGeneration: { type: Number, default: 30 },
-    audioGeneration: { type: Number, default: 25 },
-    videoGeneration: { type: Number, default: 25 },
-    total: { type: Number, default: 140 }
+    chat: { type: Number, default: DEFAULT_QUOTA.chat },
+    imageGeneration: { type: Number, default: DEFAULT_QUOTA.imageGeneration },
+    audioGeneration: { type: Number, default: DEFAULT_QUOTA.audioGeneration },
+    videoGeneration: { type: Number, default: DEFAULT_QUOTA.videoGeneration },
+    total: { type: Number, default: DEFAULT_QUOTA.total }
   },
   
   // Jejak pendaftaran — penanda untuk admin mendeteksi 1 device yang

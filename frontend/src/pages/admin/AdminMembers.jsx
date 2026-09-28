@@ -32,15 +32,10 @@ const AdminMembers = () => {
 
   const handleApprove = async (uid) => {
     try {
-      await adminAPI.approveMember(uid, {
-        chat: 60,
-        imageGeneration: 30,
-        // Kuota audio berdiri sendiri (dulu menumpang videoGeneration); tanpa
-        // nilai di sini member baru hanya mewarisi nilai cadangan akun lama.
-        audioGeneration: 25,
-        videoGeneration: 25,
-        total: 140
-      })
+      // Tanpa payload kuota: backend memakai jatah default paket free
+      // (backend/config/membershipPlans.js). Angka kuota tidak lagi disalin di
+      // frontend supaya tidak bisa menyimpang dari aturan server.
+      await adminAPI.approveMember(uid)
       fetchMembers()
     } catch (error) {
       console.error('Approval failed:', error)
@@ -153,6 +148,13 @@ const AdminMembers = () => {
                       </td>
                       <td className="p-4 font-mono text-xs text-slate-500">
                         {new Date(member.createdAt).toLocaleDateString()}
+                        {member.selectedPlan === 'paid' && (
+                          <span className="mt-1 block">
+                            <span className="inline-flex rounded border border-cyan-300/30 bg-cyan-400/10 px-1.5 py-0.5 text-[10px] font-medium text-cyan-200">
+                              memilih Member Paid — menunggu pembayaran
+                            </span>
+                          </span>
+                        )}
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -231,6 +233,14 @@ const AdminMembers = () => {
                         </code>
                       </td>
                       <td className="p-4 font-mono text-xs text-slate-400">
+                        <span className={`mb-1 inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                          member.plan === 'paid'
+                            ? 'border-cyan-300/30 bg-cyan-400/10 text-cyan-200'
+                            : 'border-white/15 bg-white/[0.05] text-slate-400'
+                        }`}>
+                          {member.plan === 'paid' ? 'paid · kuota 5x' : 'free'}
+                        </span>
+                        <br />
                         Chat: {member.quota?.chat || 0} | Img: {member.quota?.imageGeneration || 0} |
                         Vid: {member.quota?.videoGeneration || 0} | Aud: {member.quota?.audioGeneration || 0}
                       </td>

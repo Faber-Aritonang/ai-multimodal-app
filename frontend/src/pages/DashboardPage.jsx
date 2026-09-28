@@ -157,6 +157,30 @@ const DashboardPage = ({ user, setUser }) => {
           </GlassPanel>
         )}
 
+        {/* --------------------------- Upgrade member paid -------------------------- */}
+        {!loading && user?.plan !== 'paid' && (
+          <GlassPanel className="rise rise-1 flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div className="min-w-0">
+              <p className="hud mb-1">keanggotaan</p>
+              <h2 className="text-base font-semibold text-slate-100">
+                Butuh kuota lebih besar?{' '}
+                <span className="text-grad">Upgrade ke Member Paid</span>
+              </h2>
+              <p className="mt-1 max-w-xl text-sm text-slate-400">
+                Kuota 5x lipat untuk chat, gambar, audio, dan video. Aktif langsung setelah
+                pembayaran diterima — tanpa antre persetujuan admin.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/upgrade')}
+              className="btn btn-primary flex-shrink-0"
+            >
+              Lihat paket & upgrade
+            </button>
+          </GlassPanel>
+        )}
+
         {/* ---------------------------------- Alat -------------------------------- */}
         <div>
           <SectionTitle hint="Klik kartu untuk membuka alatnya.">AI Tools</SectionTitle>

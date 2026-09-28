@@ -66,7 +66,7 @@ const collectRegistrationTrace = async (req) => {
  */
 exports.register = async (req, res) => {
   try {
-    const { email, displayName, photoURL, firebaseToken, referralCode } = req.body;
+    const { email, displayName, photoURL, firebaseToken, referralCode, plan } = req.body;
     
     // Validasi input
     if (!email || !displayName) {
@@ -75,6 +75,12 @@ exports.register = async (req, res) => {
         message: 'Email and displayName are required'
       });
     }
+
+    // Paket yang dipilih saat mendaftar: 'free' (member biasa, menunggu
+    // approval admin) atau 'paid' (member berbayar, langsung diarahkan ke
+    // pembayaran setelah daftar dan aktif tanpa approval begitu lunas).
+    // Nilai selain 'paid' dianggap 'free' — tidak ada jalur lain.
+    const selectedPlan = plan === 'paid' ? 'paid' : 'free';
 
     // Jejak pendaftaran dikumpulkan PARALEL dengan validasi referral supaya
     // lookup geolokasi tidak menambah jeda pada alur pendaftaran.
@@ -147,7 +153,8 @@ exports.register = async (req, res) => {
           displayName,
           photoURL: photoURL || decoded.picture || '',
           role: 'guest',
-          isApproved: false, // Perlu approval admin
+          isApproved: false, // Perlu approval admin (atau pembayaran, untuk paket paid)
+          selectedPlan,
           referredBy,
           registrationMeta: {
             ip: trace.ip,
@@ -173,7 +180,10 @@ exports.register = async (req, res) => {
         
         return res.status(201).json({
           success: true,
-          message: 'Registration successful. Your account is pending admin approval.',
+          message:
+            selectedPlan === 'paid'
+              ? 'Registration successful. Complete your payment to activate your paid membership.'
+              : 'Registration successful. Your account is pending admin approval.',
           token,
           user: {
             uid: user.uid,
@@ -181,7 +191,9 @@ exports.register = async (req, res) => {
             displayName: user.displayName,
             photoURL: user.photoURL,
             role: user.role,
-            isApproved: user.isApproved
+            isApproved: user.isApproved,
+            plan: user.plan,
+            selectedPlan: user.selectedPlan
           }
         });
         
@@ -202,6 +214,7 @@ exports.register = async (req, res) => {
       photoURL: photoURL || '',
       role: 'guest',
       isApproved: false,
+      selectedPlan,
       referredBy
     });
     
@@ -213,14 +226,19 @@ exports.register = async (req, res) => {
     
     return res.status(201).json({
       success: true,
-      message: 'Registration successful (manual mode). Admin approval pending.',
+      message:
+        selectedPlan === 'paid'
+          ? 'Registration successful (manual mode). Complete your payment to activate your paid membership.'
+          : 'Registration successful (manual mode). Admin approval pending.',
       token,
       user: {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
         role: user.role,
-        isApproved: user.isApproved
+        isApproved: user.isApproved,
+        plan: user.plan,
+        selectedPlan: user.selectedPlan
       }
     });
     
@@ -324,6 +342,8 @@ exports.login = async (req, res) => {
         photoURL: user.photoURL,
         role: user.role,
         isApproved: user.isApproved,
+        plan: user.plan,
+        selectedPlan: user.selectedPlan,
         quota: user.quota
       }
     });
@@ -449,6 +469,8 @@ exports.devLogin = async (req, res) => {
         photoURL: user.photoURL || '',
         role: user.role,
         isApproved: user.isApproved,
+        plan: user.plan,
+        selectedPlan: user.selectedPlan,
         quota: user.quota
       }
     });
@@ -520,6 +542,8 @@ exports.getAuthStatus = async (req, res) => {
         photoURL: user.photoURL,
         role: user.role,
         isApproved: user.isApproved,
+        plan: user.plan,
+        selectedPlan: user.selectedPlan,
         quota: user.quota
       },
       role: user.role,

@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate, requireMember, checkQuota } = require('../middleware/auth');
 const { featureRateLimit } = require('../middleware/featureRateLimit');
+const { connectorActionRateLimit } = require('../middleware/connectorActionRateLimit');
 const {
   getChatSessions,
   createChatSession,
@@ -15,6 +16,7 @@ const {
   deleteChatSession
 } = require('../controllers/chatController');
 const MemberController = require('../controllers/memberController');
+const connectorController = require('../controllers/connectorController');
 
 // Semua route member butuh akun yang sudah disetujui admin.
 // authenticate wajib lebih dulu: requireMember membaca req.user yang diisi di sana.
@@ -34,6 +36,14 @@ router.post(
 );
 router.get('/chat/sessions/:sessionId', getChatSession);
 router.delete('/chat/sessions/:sessionId', deleteChatSession);
+
+// Google Workspace connectors (Composio)
+router.get('/connectors', connectorController.getStatus);
+router.post('/connectors/:toolkit/connect', connectorActionRateLimit, connectorController.connect);
+router.get('/chat/sessions/:sessionId/connector-actions', connectorController.getPendingActions);
+router.post('/chat/sessions/:sessionId/connector-actions', connectorActionRateLimit, connectorController.createPendingAction);
+router.post('/connector-actions/:actionId/confirm', connectorActionRateLimit, connectorController.confirmPendingAction);
+router.delete('/connector-actions/:actionId', connectorActionRateLimit, connectorController.cancelPendingAction);
 
 // Member & referral routes
 router.get('/members', MemberController.getApprovedMembers);

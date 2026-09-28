@@ -27,6 +27,7 @@ const adminRoutes = require('./routes/admin');
 const mediaRoutes = require('./routes/media');
 const shareRoutes = require('./routes/share');
 const clientErrorRoutes = require('./routes/clientErrors');
+const paymentRoutes = require('./routes/payment');
 const { getProviderStatus } = require('./config/imageProviders');
 const {
   describeStorage,
@@ -208,6 +209,9 @@ app.use('/api/v1/share', shareRoutes);
 // Laporan galat dari frontend (publik, dibatasi ketat per IP). Lihat catatan
 // panjang di routes/clientErrors.js.
 app.use('/api/v1/client-errors', clientErrorRoutes);
+// Pembayaran upgrade member paid (Duitku/Tripay). Callback-nya
+// publik tapi tervalidasi signature; sisanya butuh login. Lihat routes/payment.js.
+app.use('/api/v1/payment', paymentRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

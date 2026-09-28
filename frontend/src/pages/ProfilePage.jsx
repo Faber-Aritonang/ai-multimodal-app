@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { memberAPI } from '../config/api'
 import Layout from '../components/Layout'
 import QRCode from '../components/QRCode'
@@ -414,7 +415,7 @@ const ProfilePage = ({ user, setUser }) => {
         {/* ------------------------------ Informasi akun ---------------------------- */}
         <GlassPanel className="rise rise-3 p-6 sm:p-7">
           <SectionTitle>Account Info</SectionTitle>
-          <dl className="grid gap-4 sm:grid-cols-3">
+          <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="glass-inset p-4">
               <dt className="hud mb-1">role</dt>
               <dd className="text-sm font-medium text-slate-100">{account?.role || 'Guest'}</dd>
@@ -431,6 +432,23 @@ const ProfilePage = ({ user, setUser }) => {
               <dt className="hud mb-1">status</dt>
               <dd className="text-sm font-medium text-slate-100">
                 {approved ? 'Approved' : 'Pending Approval by Admin'}
+              </dd>
+            </div>
+            <div className="glass-inset p-4">
+              <dt className="hud mb-1">paket</dt>
+              <dd className="text-sm font-medium text-slate-100">
+                {(account?.plan || user?.plan) === 'paid' ? (
+                  <span className="chip chip-accent" data-testid="plan-badge">
+                    Member Paid · kuota 5x
+                  </span>
+                ) : (
+                  <>
+                    <span className="chip" data-testid="plan-badge">Free</span>
+                    <Link to="/upgrade" className="link-accent ml-2 text-xs font-medium">
+                      Upgrade ke Paid →
+                    </Link>
+                  </>
+                )}
               </dd>
             </div>
           </dl>

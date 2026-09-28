@@ -1,10 +1,32 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { signInWithGoogle } from '../config/firebase'
-import { authAPI } from '../config/api'
+import { authAPI, paymentAPI } from '../config/api'
 import { getDeviceId } from '../utils/deviceId'
 import { GoogleIcon, UserIcon } from '../components/icons'
 import { GlassPanel, Alert } from '../components/ui'
+
+// Angka cadangan bila GET /payment/plans gagal dimuat. Nilai sebenarnya tetap
+// dihitung backend (config/membershipPlans.js) — ini hanya untuk tampilan.
+const FALLBACK_PLANS = [
+  {
+    id: 'free',
+    name: 'Free — Member Biasa',
+    priceIdr: 0,
+    quota: { chat: 60, imageGeneration: 30, audioGeneration: 25, videoGeneration: 25 },
+    features: ['Kuota standar member biasa', 'Menunggu persetujuan admin']
+  },
+  {
+    id: 'paid',
+    name: 'Member Paid',
+    priceIdr: 49000,
+    quota: { chat: 300, imageGeneration: 150, audioGeneration: 125, videoGeneration: 125 },
+    features: ['Kuota 5x lipat member biasa', 'Langsung aktif setelah pembayaran']
+  }
+]
+
+const formatRupiah = (amount) =>
+  amount > 0 ? `Rp ${amount.toLocaleString('id-ID')}` : 'Gratis'
 
 const RegisterPage = ({ setUser }) => {
   const navigate = useNavigate()
@@ -25,11 +47,36 @@ const RegisterPage = ({ setUser }) => {
   const [error, setError] = useState('')
   const [referrer, setReferrer] = useState(null)
   const [referrerError, setReferrerError] = useState('')
+  // Paket keanggotaan yang dipilih saat mendaftar: 'free' (member biasa) atau
+  // 'paid' (member berbayar, kuota 5x). Pilihan ini yang menentukan setelah
+  // daftar: free menunggu approval admin, paid diarahkan ke pembayaran.
+  const [plan, setPlan] = useState('free')
+  const [plans, setPlans] = useState(FALLBACK_PLANS)
   const [formData, setFormData] = useState({
     displayName: pendingFirebase?.user?.displayName || '',
     email: pendingFirebase?.user?.email || '',
     referralCode: inviteCode
   })
+
+  // Ambil harga & kuota resmi dari backend supaya tampilan tidak menyimpang.
+  useEffect(() => {
+    let cancelled = false
+
+    paymentAPI
+      .getPlans()
+      .then((response) => {
+        if (!cancelled && Array.isArray(response.data.plans) && response.data.plans.length) {
+          setPlans(response.data.plans)
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to fetch plans:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Tampilkan siapa yang mengundang (dari link /register?ref=CODE)
   useEffect(() => {
@@ -82,6 +129,7 @@ const RegisterPage = ({ setUser }) => {
         photoURL: firebase.user?.photoURL,
         firebaseToken: firebase.token,
         referralCode: formData.referralCode || undefined,
+        plan,
         // Jejak device: backend menandai bila pendaftar lain memakai browser
         // atau IP yang sama (review admin, bukan blokir).
         deviceId: getDeviceId()
@@ -93,8 +141,9 @@ const RegisterPage = ({ setUser }) => {
         localStorage.setItem('user', JSON.stringify(user))
         setUser(user)
 
-        // Redirect ke pending approval
-        navigate('/pending-approval')
+        // Paket paid diarahkan menyelesaikan pembayaran (halaman /upgrade
+        // membuatkan transaksi Duitku); paket free menunggu approval admin.
+        navigate(user?.selectedPlan === 'paid' ? '/upgrade' : '/pending-approval')
       }
 
     } catch (err) {
@@ -216,6 +265,54 @@ const RegisterPage = ({ setUser }) => {
               placeholder="MASUKKAN KODE"
             />
           </div>
+
+          {/* ------------------------------ Pilihan paket ----------------------------- */}
+          <div>
+            <p className="hud mb-1.5">pilih paket</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Paket keanggotaan">
+              {plans.map((item) => {
+                const isSelected = plan === item.id
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setPlan(item.id)}
+                    className={`rounded-xl border p-4 text-left transition-colors ${
+                      isSelected
+                        ? 'border-cyan-300/50 bg-cyan-300/[0.08]'
+                        : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-100">{item.name}</span>
+                      <span className={`chip ${item.id === 'paid' ? 'chip-accent' : ''}`}>
+                        {formatRupiah(item.priceIdr)}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 font-mono text-[11px] text-slate-400">
+                      chat {item.quota?.chat ?? '—'} · gambar {item.quota?.imageGeneration ?? '—'} ·
+                      audio {item.quota?.audioGeneration ?? '—'} · video {item.quota?.videoGeneration ?? '—'}
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {(item.features || []).map((feature) => (
+                        <li key={feature} className="text-xs text-slate-400">
+                          · {feature}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              Paket <strong className="font-semibold text-slate-400">Free</strong> tetap menunggu
+              persetujuan admin. Paket <strong className="font-semibold text-slate-400">Member Paid</strong>{' '}
+              langsung aktif setelah pembayaran selesai (tanpa antre approval).
+            </p>
+          </div>
         </div>
 
         {error && (
@@ -257,8 +354,10 @@ const RegisterPage = ({ setUser }) => {
         <div className="alert alert-info mt-6 flex items-start gap-3">
           <UserIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <p>
-            <strong className="font-semibold">Catatan:</strong> akun Anda menunggu persetujuan admin.
-            Fitur chat bisa dipakai lebih dulu; alat gambar terbuka setelah disetujui.
+            <strong className="font-semibold">Catatan:</strong>{' '}
+            {plan === 'paid'
+              ? 'Anda memilih Member Paid — setelah mendaftar Anda diarahkan ke halaman pembayaran, dan akun langsung aktif begitu pembayaran diterima.'
+              : 'akun Anda menunggu persetujuan admin. Fitur chat bisa dipakai lebih dulu; alat gambar terbuka setelah disetujui.'}
           </p>
         </div>
 

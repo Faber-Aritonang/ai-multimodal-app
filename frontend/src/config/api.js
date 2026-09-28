@@ -134,6 +134,12 @@ export const memberAPI = {
       { timeout: 180000 }
     ),
   getChatSession: (sessionId) => api.get(`/member/chat/sessions/${sessionId}`),
+  getConnectors: () => api.get('/member/connectors'),
+  connectConnector: (toolkit) => api.post(`/member/connectors/${toolkit}/connect`),
+  getPendingConnectorActions: (sessionId) =>
+    api.get(`/member/chat/sessions/${sessionId}/connector-actions`),
+  confirmConnectorAction: (actionId) => api.post(`/member/connector-actions/${actionId}/confirm`, {}, { timeout: 90000 }),
+  cancelConnectorAction: (actionId) => api.delete(`/member/connector-actions/${actionId}`),
   deleteChatSession: (sessionId) => api.delete(`/member/chat/sessions/${sessionId}`),
   
   // Profile
@@ -221,6 +227,18 @@ export const mediaAPI = {
   deleteMedia: (contentId) => api.delete(`/media/${contentId}`),
 };
 
+// Payment API (upgrade ke member paid lewat gateway pembayaran Duitku).
+// getPlans publik (dipakai halaman registrasi); sisanya butuh login — termasuk
+// pendaftar yang memilih paket paid tapi belum disetujui (belum 'member').
+export const paymentAPI = {
+  // Daftar paket + harga + kuota (angka resmi dari backend, bukan hardcode)
+  getPlans: () => api.get('/payment/plans'),
+  // Buat transaksi pembayaran; balasannya berisi redirectUrl halaman pembayaran
+  createUpgrade: () => api.post('/payment/create'),
+  // Status paket & pembayaran terakhir milik user yang login
+  getStatus: () => api.get('/payment/status'),
+};
+
 // Share API (PUBLIK — dipakai halaman /share/:token yang dibuka tanpa login).
 // Tetap lewat instance yang sama supaya alamat backend, header id request, dan
 // penyeragaman pesan galat 429 berlaku sama seperti permintaan lain.
@@ -232,7 +250,9 @@ export const shareAPI = {
 export const adminAPI = {
   getPendingMembers: () => api.get('/admin/pending-members'),
   getApprovedMembers: () => api.get('/admin/approved-members'),
-  approveMember: (uid, quota) => api.put(`/admin/approve-member/${uid}`, { quota }),
+  // `quota` opsional: tanpa argumen ini backend memakai kuota default paket
+  // free (config/membershipPlans.js) — angkanya tidak lagi disalin di frontend.
+  approveMember: (uid, quota) => api.put(`/admin/approve-member/${uid}`, quota ? { quota } : {}),
   rejectMember: (uid) => api.delete(`/admin/reject-member/${uid}`),
   getAnalytics: () => api.get('/admin/analytics'),
 };

@@ -18,6 +18,7 @@ import SoundToTextPage from './pages/SoundToTextPage'
 import HistoryPage from './pages/HistoryPage'
 import SharedMediaPage from './pages/SharedMediaPage'
 import ProfilePage from './pages/ProfilePage'
+import UpgradePage from './pages/UpgradePage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminMembers from './pages/admin/AdminMembers'
 import PendingApproval from './pages/PendingApproval'
@@ -180,6 +181,14 @@ function App() {
         <Route path="/profile" element={
           <ProtectedRoute user={user} requiredApproval={true}>
             <ProfilePage user={user} setUser={setUser} />
+          </ProtectedRoute>
+        } />
+
+        {/* Upgrade ke member paid. Sengaja TANPA requiredApproval: pendaftar
+            yang memilih paket paid harus bisa membayar sebelum akunnya aktif. */}
+        <Route path="/upgrade" element={
+          <ProtectedRoute user={user}>
+            <UpgradePage user={user} setUser={setUser} />
           </ProtectedRoute>
         } />
         

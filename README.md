@@ -53,6 +53,7 @@ satu-satunya yang butuh kunci berbayar (lihat
 - **History**: Halaman `/history` berisi seluruh hasil generate — pencarian kata kunci prompt, filter jenis & status, paginasi, hapus, unduh, dan tombol **Generate ulang** yang membuka alat terkait dengan prompt lama sudah terisi
 - **Profile editing**: Nama tampilan, bio, dan foto bisa diubah sendiri di `/profile`; email, peran, dan kuota tetap wewenang admin
 - **Quota per fitur**: Jatah terpisah untuk chat, gambar, audio, dan video — memakai satu fitur tidak mengurangi jatah fitur lain
+- **Member Paid (berbayar)**: Dua pilihan paket saat mendaftar — **Free** (member biasa, menunggu approval admin) atau **Member Paid** (kuota **5x lipat**, aktif otomatis setelah pembayaran **Duitku** diterima, tanpa antre approval). Link upgrade `/upgrade` tersedia di dashboard & profil untuk member biasa; konfirmasi pembayaran hanya lewat webhook Duitku yang tervalidasi signature (TriPay tersedia sebagai alternatif lewat `PAYMENT_PROVIDER`)
 - **Referral**: Kode undangan, link `/register?ref=CODE`, dan QR code
 - **User Authentication**: Google Sign-In via Firebase
 - **Member Registration**: Full registration with admin approval workflow
@@ -367,7 +368,7 @@ dikembalikan dari sini.
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| POST | `/api/v1/auth/register` | Register new user (creates pending member) | ❌ No |
+| POST | `/api/v1/auth/register` | Register new user — `plan: 'free' \| 'paid'` memilih paket saat daftar (default `free`) | ❌ No |
 | POST | `/api/v1/auth/login` | Login with Firebase token | ❌ No |
 | POST | `/api/v1/auth/dev-login` | Login tanpa Firebase — **development only** (404 saat `NODE_ENV=production`) | ❌ No |
 | GET | `/api/v1/auth/status` | Check authentication status | ✅ Optional |
@@ -406,6 +407,16 @@ dikembalikan dari sini.
 | GET | `/api/v1/share/:token` | Isi hasil yang dibagikan — **baca-saja**, hanya bidang tampilan (tanpa identitas pemilik & referensi penyimpanan) | ❌ No |
 | POST | `/api/v1/client-errors` | Laporan galat dari browser (masuk ke log terstruktur + daftar galat admin), dibatasi 30/menit per IP | ❌ No |
 | GET | `/api/v1/auth/referral/:referralCode` | Info pemilik kode referral (halaman undangan) | ❌ No |
+
+### Payment Endpoints (Member Paid)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/v1/payment/plans` | Daftar paket + harga + kuota (angka resmi dari `backend/config/membershipPlans.js`) | ❌ No |
+| POST | `/api/v1/payment/create` | Buat transaksi Duitku untuk upgrade ke member paid (mengembalikan `redirectUrl` halaman pembayaran) | ✅ Login |
+| GET | `/api/v1/payment/status` | Status paket & pembayaran terakhir milik user yang login | ✅ Login |
+| POST | `/api/v1/payment/check` | Verifikasi status pembayaran pending langsung ke gateway (tombol manual di `/upgrade`) | ✅ Login |
+| POST | `/api/v1/payment/callback` | Webhook Duitku — tervalidasi `signature` (HMAC-SHA256); `resultCode` `00` mengaktifkan `plan='paid'` + kuota 5x | ❌ No (signature) |
 
 ### Admin Endpoints
 

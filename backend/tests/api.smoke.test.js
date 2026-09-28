@@ -636,6 +636,10 @@ describe('route yang dilindungi auth', () => {
     ['put', '/api/v1/member/profile'],
     ['get', '/api/v1/member/quota'],
     ['get', '/api/v1/member/referral-stats'],
+    // Pembayaran member paid: membuat transaksi & membaca status harus dengan
+    // login. Yang publik hanya /payment/plans dan webhook gateway (signature).
+    ['post', '/api/v1/payment/create'],
+    ['get', '/api/v1/payment/status'],
     ['get', '/api/v1/admin/pending-members'],
     // Daftar galat menyebut uid user dan pesan internal server, jadi hanya admin
     // yang boleh membacanya — sama seperti endpoint admin yang lain.

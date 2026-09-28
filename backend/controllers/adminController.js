@@ -5,6 +5,7 @@
 
 const User = require('../models/User');
 const MediaContent = require('../models/MediaContent');
+const { quotaForPlan } = require('../config/membershipPlans');
 const {
   getRecentErrors: daftarGalatTerakhir,
   getErrorStats
@@ -75,16 +76,12 @@ exports.approveMember = async (req, res) => {
         isApproved: true,
         role: 'member',
         updatedAt: new Date(),
-        // Kuota default untuk member baru. Angka yang sama juga ada di
-        // models/User.js (saat registrasi) dan payload tombol approve di
-        // frontend admin — ketiganya harus diubah bersama-sama.
-        quota: quota || {
-          chat: 60,
-          imageGeneration: 30,
-          audioGeneration: 25,
-          videoGeneration: 25,
-          total: 140
-        }
+        // Kuota default member baru = paket free (config/membershipPlans.js).
+        // Pendaftar paket paid TIDAK lewat jalur ini: mereka aktif otomatis
+        // dengan kuota 5x setelah pembayaran diterima gateway
+        // (paymentController.activatePaidMember). Admin tetap boleh mengirim
+        // `quota` kustom lewat payload bila ingin menyetujui dengan jatah lain.
+        quota: quota || quotaForPlan('free')
       },
       { new: true }
     );

@@ -6,12 +6,21 @@ import { CheckIcon, SignOutButton } from '../components/icons'
 import { GlassPanel } from '../components/ui'
 
 // Tiga langkah yang ditampilkan sebagai garis waktu, supaya jelas di mana
-// posisi user sekarang dan apa yang masih menunggu.
-const STEPS = [
-  { key: 'created', label: 'Akun dibuat', done: true },
-  { key: 'review', label: 'Menunggu persetujuan admin', done: false, active: true },
-  { key: 'access', label: 'Semua alat terbuka', done: false }
-]
+// posisi user sekarang dan apa yang masih menunggu. Isinya beda untuk pendaftar
+// paket paid: yang ditunggu adalah pembayaran (Duitku), bukan approval admin —
+// begitu lunas akun langsung aktif.
+const stepsFor = (user) =>
+  user?.selectedPlan === 'paid'
+    ? [
+        { key: 'created', label: 'Akun dibuat', done: true },
+        { key: 'payment', label: 'Menyelesaikan pembayaran', done: false, active: true },
+        { key: 'access', label: 'Member Paid aktif — semua alat terbuka', done: false }
+      ]
+    : [
+        { key: 'created', label: 'Akun dibuat', done: true },
+        { key: 'review', label: 'Menunggu persetujuan admin', done: false, active: true },
+        { key: 'access', label: 'Semua alat terbuka', done: false }
+      ]
 
 const PendingApproval = ({ user, setUser }) => {
   const navigate = useNavigate()
@@ -82,12 +91,14 @@ const PendingApproval = ({ user, setUser }) => {
         <p className="hud mb-2">status akun</p>
         <h1 className="text-grad mb-2 text-2xl font-bold tracking-tight">Pending Approval</h1>
         <p className="text-sm text-slate-400">
-          Akun Anda sedang menunggu persetujuan admin.
+          {user?.selectedPlan === 'paid'
+            ? 'Anda memilih paket Member Paid. Selesaikan pembayaran untuk mengaktifkan akun — langsung aktif tanpa persetujuan admin.'
+            : 'Akun Anda sedang menunggu persetujuan admin.'}
         </p>
 
         {/* Garis waktu langkah akun */}
         <ol className="mt-7 space-y-3 text-left">
-          {STEPS.map((step) => (
+          {stepsFor(user).map((step) => (
             <li
               key={step.key}
               className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 ${
@@ -114,6 +125,16 @@ const PendingApproval = ({ user, setUser }) => {
             </li>
           ))}
         </ol>
+
+        {user?.selectedPlan === 'paid' && (
+          <button
+            type="button"
+            onClick={() => navigate('/upgrade')}
+            className="btn btn-primary mt-6 w-full py-3"
+          >
+            Selesaikan pembayaran
+          </button>
+        )}
 
         <div className="glass-inset mt-5 flex items-center gap-3 p-3 text-left">
           {user?.photoURL ? (

@@ -17,6 +17,9 @@ const ChatPage = ({ user, setUser }) => {
   const [quota, setQuota] = useState(null)
   const [inputValue, setInputValue] = useState('')
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [connectors, setConnectors] = useState([])
+  const [connectorStatus, setConnectorStatus] = useState([])
+  const [connectorNotice, setConnectorNotice] = useState('')
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const messagesEndRef = useRef(null)
@@ -46,7 +49,12 @@ const ChatPage = ({ user, setUser }) => {
 
   useEffect(() => {
     fetchQuota()
+    fetchConnectors()
   }, [])
+
+  useEffect(() => {
+    if (sessionId) fetchPendingConnectorActions(sessionId)
+  }, [sessionId])
 
   useEffect(() => {
     scrollToBottom()
@@ -71,6 +79,78 @@ const ChatPage = ({ user, setUser }) => {
       setQuota(response.data.quota)
     } catch (error) {
       console.error('Failed to fetch quota:', error)
+    }
+  }
+
+  const fetchConnectors = async () => {
+    try {
+      const response = await memberAPI.getConnectors()
+      setConnectorStatus(response.data.connectors || [])
+    } catch (error) {
+      console.error('Failed to fetch Google connectors:', error)
+    }
+  }
+
+  const fetchPendingConnectorActions = async (sid) => {
+    try {
+      const response = await memberAPI.getPendingConnectorActions(sid)
+      const actions = response.data.actions || []
+      if (actions.length) {
+        setCurrentSession((current) => {
+          if (!current || current.sessionId !== sid) return current
+          const messages = [...(current.messages || [])]
+          const last = messages[messages.length - 1]
+          if (last?.role === 'assistant') {
+            messages[messages.length - 1] = { ...last, connectorActions: actions }
+          }
+          return { ...current, messages }
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch pending connector actions:', error)
+    }
+  }
+
+  const handleConnectConnector = async (toolkit) => {
+    setConnectorNotice('')
+    try {
+      const response = await memberAPI.connectConnector(toolkit)
+      window.location.assign(response.data.redirectUrl)
+    } catch (error) {
+      setConnectorNotice(error.response?.data?.message || 'Unable to connect this Google account.')
+    }
+  }
+
+  const handleConfirmConnectorAction = async (action) => {
+    setConnectorNotice('')
+    try {
+      const response = await memberAPI.confirmConnectorAction(action.actionId)
+      setConnectorNotice(`${action.toolkit} action completed.`)
+      setCurrentSession((current) => current && ({
+        ...current,
+        messages: current.messages.map((message) => message.connectorActions
+          ? { ...message, connectorActions: message.connectorActions.filter((item) => item.actionId !== action.actionId) }
+          : message)
+      }))
+      if (response.data.result) {
+        setConnectorNotice(`${action.toolkit} action completed successfully.`)
+      }
+    } catch (error) {
+      setConnectorNotice(error.response?.data?.message || 'The connector action failed or expired.')
+    }
+  }
+
+  const handleCancelConnectorAction = async (action) => {
+    try {
+      await memberAPI.cancelConnectorAction(action.actionId)
+      setCurrentSession((current) => current && ({
+        ...current,
+        messages: current.messages.map((message) => message.connectorActions
+          ? { ...message, connectorActions: message.connectorActions.filter((item) => item.actionId !== action.actionId) }
+          : message)
+      }))
+    } catch (error) {
+      setConnectorNotice(error.response?.data?.message || 'Unable to cancel this connector action.')
     }
   }
 
@@ -134,7 +214,10 @@ const ChatPage = ({ user, setUser }) => {
       const response = await memberAPI.sendMessage(
         currentSession.sessionId,
         inputValue,
-        webSearchEnabled ? { webSearch: true } : {}
+        {
+          ...(webSearchEnabled ? { webSearch: true } : {}),
+          ...(connectors.length ? { connectors } : {})
+        }
       )
 
       if (response.data.success) {
@@ -400,7 +483,35 @@ const ChatPage = ({ user, setUser }) => {
                         </ul>
                       </div>
                     )}
-                    {message.role === 'assistant' && message.provider && (
+                    {message.role === 'assistant' && Array.isArray(message.connectorActions) && message.connectorActions.length > 0 && (
+                <div className="mt-3 space-y-3 border-t border-amber-300/20 pt-3" data-testid="connector-approval">
+                  <p className="text-xs font-semibold text-amber-200">
+                    Review before the app runs this action
+                  </p>
+                  {message.connectorActions.map((action) => (
+                    <div key={action.actionId} className="rounded-xl border border-amber-200/20 bg-amber-300/[0.06] p-3">
+                      <p className="text-xs font-semibold text-slate-100">
+                        {action.toolSlug === 'GMAIL_SEND_EMAIL' ? 'Send Gmail message' : `${action.toolkit} change`}
+                      </p>
+                      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-300">
+                        {JSON.stringify(action.arguments, null, 2)}
+                      </pre>
+                      <p className="mt-2 text-[10px] text-amber-100/70">
+                        This action expires at {new Date(action.expiresAt).toLocaleTimeString()}.
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <button type="button" onClick={() => handleConfirmConnectorAction(action)} className="btn btn-primary px-3 py-1.5 text-xs">
+                          Confirm and run
+                        </button>
+                        <button type="button" onClick={() => handleCancelConnectorAction(action)} className="btn btn-ghost px-3 py-1.5 text-xs">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {message.role === 'assistant' && message.provider && (
                       <p className="mt-1 font-mono text-[10px] text-slate-500">
                         via {message.provider}
                         {message.model ? ` · ${message.model}` : ''}
@@ -440,6 +551,51 @@ const ChatPage = ({ user, setUser }) => {
 
           {/* Kolom kirim */}
           <div className="border-t border-white/[0.06] p-4">
+            {connectorNotice && (
+              <p role="status" className="mb-2 text-xs text-cyan-200" data-testid="connector-notice">
+                {connectorNotice}
+              </p>
+            )}
+            {connectorStatus.length > 0 && (
+              <details className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="chat-connectors">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-200">
+                  Google connectors
+                </summary>
+                <p className="mt-2 text-[11px] text-slate-400">
+                  Reads and searches are available when selected. Email sending and document edits always require your confirmation.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {connectorStatus.map((connector) => (
+                    <div key={connector.slug} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] px-2.5 py-2">
+                      <label className="flex min-w-0 items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={connectors.includes(connector.slug)}
+                          onChange={(event) => setConnectors((current) => event.target.checked
+                            ? [...current, connector.slug]
+                            : current.filter((slug) => slug !== connector.slug))}
+                          disabled={loading || outOfQuota}
+                          className="h-4 w-4 rounded border-white/20 bg-ink-950 accent-cyan-400"
+                        />
+                        <span className="truncate">{connector.name}</span>
+                      </label>
+                      {connector.connected ? (
+                        <span className="text-[10px] text-emerald-300">Connected</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleConnectConnector(connector.slug)}
+                          disabled={!connectorStatus.length || loading}
+                          className="btn btn-ghost px-2 py-1 text-[10px]"
+                        >
+                          Connect
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
             {outOfQuota && (
               <p className="mb-2 text-xs text-rose-300">
                 Chat quota exhausted. Ask an admin to increase it before sending new messages.
