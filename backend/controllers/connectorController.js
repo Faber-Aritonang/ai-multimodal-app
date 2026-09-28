@@ -21,7 +21,22 @@ exports.getStatus = async (req, res) => {
     const connectors = await composio.getConnectorStatus(req.member.uid);
     res.json({ success: true, configured: composio.isConfigured(), connectors });
   } catch (error) {
-    res.status(error.status || 502).json({ success: false, message: error.message });
+    // Jangan biarkan gangguan Composio (kunci salah, API sedang tumbang) membuat
+    // panel connector hilang diam-diam dari UI. Kembalikan daftar toolkit dengan
+    // status terputus + pesan peringatan supaya menu tetap terlihat dan tombol
+    // Connect bisa menampilkan pesan galat yang jelas saat dicoba.
+    const connectors = Object.entries(composio.TOOLKITS).map(([slug, toolkit]) => ({
+      slug,
+      name: toolkit.name,
+      connected: false,
+      accounts: []
+    }));
+    res.json({
+      success: true,
+      configured: false,
+      warning: error.message || 'Google connectors are temporarily unavailable.',
+      connectors
+    });
   }
 };
 

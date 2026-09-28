@@ -20,6 +20,7 @@ const ChatPage = ({ user, setUser }) => {
   const [connectors, setConnectors] = useState([])
   const [connectorStatus, setConnectorStatus] = useState([])
   const [connectorNotice, setConnectorNotice] = useState('')
+  const [connectorWarning, setConnectorWarning] = useState('')
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const messagesEndRef = useRef(null)
@@ -86,8 +87,10 @@ const ChatPage = ({ user, setUser }) => {
     try {
       const response = await memberAPI.getConnectors()
       setConnectorStatus(response.data.connectors || [])
+      setConnectorWarning(response.data.warning || '')
     } catch (error) {
       console.error('Failed to fetch Google connectors:', error)
+      setConnectorWarning('Google connectors are unavailable right now. Try again later.')
     }
   }
 
@@ -556,7 +559,7 @@ const ChatPage = ({ user, setUser }) => {
                 {connectorNotice}
               </p>
             )}
-            {connectorStatus.length > 0 && (
+            {(connectorStatus.length > 0 || connectorWarning) && (
               <details className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-testid="chat-connectors">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-200">
                   Google connectors
@@ -564,6 +567,11 @@ const ChatPage = ({ user, setUser }) => {
                 <p className="mt-2 text-[11px] text-slate-400">
                   Reads and searches are available when selected. Email sending and document edits always require your confirmation.
                 </p>
+                {connectorWarning && (
+                  <p role="status" className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.08] px-2.5 py-2 text-[11px] text-amber-200" data-testid="connector-warning">
+                    {connectorWarning}
+                  </p>
+                )}
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {connectorStatus.map((connector) => (
                     <div key={connector.slug} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] px-2.5 py-2">
