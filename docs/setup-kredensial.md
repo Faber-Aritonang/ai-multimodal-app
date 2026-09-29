@@ -1223,6 +1223,162 @@ gambar ke maks 1280px di browser; server menolak di atas 1920px atau 8 MB.
 
 ---
 
+## 3h. Connector Google (Composio)
+
+Panel **Google connectors** di halaman chat (Gmail, Drive, Sheets, Docs, Slides)
+digerakkan oleh Composio. Bedanya dari fitur lain: kunci di sini **wajib**
+sebelum satu pun tombol *Connect* bisa berfungsi, dan kegagalannya sampai ke
+browser sebagai `503` dengan pesan umum — bukan galat yang menyebut variabelnya.
+Fitur lain (chat, gambar, suara) tetap berjalan tanpa kunci ini; hanya panel
+connector yang menjawab `503`.
+
+### 1. Ambil project API key (mode PLATFORM)
+
+Masuk ke [dashboard.composio.dev](https://dashboard.composio.dev), lalu
+**pastikan toggle di kiri atas ada di mode PLATFORM** — bukan **"FOR YOU"**.
+Setelah itu **Settings → API Keys → salin kuncinya**; bentuknya `ak_...`.
+
+```bash
+# backend/.env
+COMPOSIO_API_KEY=ak_...
+```
+
+> **Kuncinya juga butuh izin WRITE, bukan hanya read.** Saat membuat/mengedit
+> kunci di **Settings → API Keys**, beri akses:
+>
+> | Resource | Akses | Untuk apa |
+> |---|---|---|
+> | `auth_configs` | READ + WRITE | tombol *Connect* membuat auth config `AI Multimodal - <toolkit>` |
+> | `connected_accounts` | READ + WRITE | tombol *Connect* memulai OAuth Google (`/connected_accounts/link`) |
+> | `tools` | EXECUTE | chat mengeksekusi tool Gmail/Drive/Sheets/Docs/Slides |
+>
+> Kunci dengan akses **read-only** tetap lolos pemeriksaan dasar (panel status
+> terisi), tetapi **setiap tombol Connect menjawab `503`** dengan slug Composio
+> `APIKey_InsufficientPermissions` — tidak ada kode yang bisa menggantikan izin
+> ini. `npm run check:composio` kini memeriksa izin ini juga.
+
+> **Kesalahan yang paling sering terjadi di sini.** Dashboard Composio punya dua
+> mode, dan keduanya menyebut kuncinya "API key":
+>
+> | Mode | Kegunaan | Bentuk kunci | Diterima backend ini? |
+> |---|---|---|---|
+> | **PLATFORM** | membangun aplikasi dengan SDK/REST API | `ak_...` | ✅ ya |
+> | **FOR YOU** | menyambungkan apps ke Claude/Cursor/ChatGPT (Composio Connect) | `ck_...` | ❌ **selalu 401** |
+>
+> Kunci `ck_...` dikirim lewat header `x-consumer-api-key` ke
+> `connect.composio.dev`, bukan ke REST API kita. Karena pesan galatnya sama
+> dengan kunci yang dicabut, orang biasanya membuat kunci baru **di tempat yang
+> sama** dan gagal lagi — padahal yang salah adalah menunya, bukan kuncinya.
+>
+> Cara memastikan sudah di surface yang benar: di **FOR YOU** halaman kuncinya
+> bernama **Settings → Sessions & API Key**; di **PLATFORM** namanya **API Keys**
+> (ada di sidebar project, dan juga di **Settings → API Keys**). Kalau halaman
+> yang terbuka masih "Sessions & API Key", berarti masih di FOR YOU.
+>
+> Dua jenis kunci lain juga bukan untuk variabel ini: Organization Access Token
+> (header `x-org-api-key`) dan user API key (`uak_...`).
+
+Tanpa tanda kutip dan tanpa spasi di ujung nilai — nilainya dibaca apa adanya
+(hanya spasi di ujung yang dipangkas kode).
+
+### 2. Verifikasi sebelum menyalakan apa pun
+
+```bash
+cd backend
+npm run check:composio
+# OK    GET /connected_accounts  (dipakai saat panel connector memuat status)
+# OK    GET /toolkits  (katalog toolkit; gagal di sini = kunci/API bermasalah)
+# OK    POST /toolkits/gmail/scopes/recommended  (langkah pertama tombol Connect)
+# OK    POST /auth_configs (probe izin write)  (tombol Connect membuat auth config; butuh izin WRITE auth_configs)
+# OK    POST /connected_accounts/link (probe izin write)  (tombol Connect memulai OAuth; butuh izin WRITE connected_accounts)
+# OK    POST /tools/execute/... (probe izin execute)  (chat mengeksekusi tool Gmail/Drive; butuh izin EXECUTE tools)
+```
+
+Kode keluar `0` hanya bila **keenamnya** lolos. Tiga probe terakhir sengaja
+mengirim payload yang pasti ditolak validasi (id palsu), jadi tidak ada resource
+yang dibuat: `403 APIKey_InsufficientPermissions` berarti izin kurang, sedangkan
+penolakan validasi (`400`/`404`) berarti izinnya cukup. Skrip ini mencetak panjang kunci
+dan empat karakter terakhirnya — bukan nilainya — supaya kunci yang diuji di
+laptop bisa dicocokkan dengan yang terpasang di server (Composio sendiri pun
+meredaksi bagian tengah kunci di pesan galatnya).
+
+| Hasil | Artinya |
+|---|---|
+| `jenis kunci: ck_ (consumer key bagian "FOR YOU")` | Inilah penyebabnya. Ambil kunci dari mode **PLATFORM** (`ak_...`); membuat kunci baru di bagian "FOR YOU" tidak akan pernah berhasil. |
+| `401` + `APIKey_InvalidAPIKey` (dengan awalan `ak_`) | Kunci tidak lengkap/terpotong, atau milik project yang sudah tidak ada. Sejak insiden keamanan Mei 2026 Composio hanya menyimpan **hash** kunci, jadi kunci lama tidak bisa dilihat lagi dari dashboard — buat kunci baru dari project yang sama. |
+| `403` + `APIKey_InsufficientPermissions` (mis. `the key has read access for "auth_configs"`) | Kunci benar tetapi **read-only** — inilah penyebab tombol *Connect* `503` walau tiga pemeriksaan dasar lolos. Edit kunci di **Settings → API Keys** dan beri akses WRITE `auth_configs` + `connected_accounts` serta EXECUTE `tools` (tabel di langkah 1), atau buat kunci baru dengan izin itu. |
+| `timeout` / `Could not reach Composio` | Jaringan mesin ini tidak bisa mencapai `backend.composio.dev`. |
+
+### 3. Yang dibuat backend secara otomatis
+
+Saat tombol *Connect* ditekan, backend meminta daftar scope minimum untuk
+toolkit tersebut (`POST /toolkits/{slug}/scopes/recommended`), membuat auth
+config Composio-managed bernama `AI Multimodal - <toolkit>` bila belum ada, lalu
+membuat tautan OAuth-nya (`POST /connected_accounts/link`). Dua langkah
+terakhir membutuhkan izin **write** pada `auth_configs` dan `connected_accounts`
+(lihat langkah 1) — tanpa izin itu keduanya dijawab `403
+APIKey_InsufficientPermissions`. Hasilnya disimpan
+di cache 5 menit; mengubah **daftar scope** yang diizinkan butuh restart backend
+(atau tunggu cache kedaluwarsa).
+
+Hanya tool baca yang bisa dipakai model; tool tulis (kirim email, edit
+dokumen/sheet/slide) diselesaikan lewat konfirmasi user di chat lewat
+`PendingConnectorAction` (kedaluwarsa 10 menit). Kunci Composio **tidak pernah**
+dikirim ke frontend.
+
+### 4. Bila Google menampilkan "Aplikasi ini diblokir" — pakai OAuth client sendiri
+
+Secara default tombol *Connect* memakai **OAuth app milik Composio**
+(`use_composio_managed_auth`), dan Google memblokir app yang belum diverifikasi
+untuk scope sensitif/restricted dengan layar merah **"Aplikasi ini diblokir"**
+(`accounts.google.com/signin/oauth/warning`). Ini di luar kendali kode aplikasi —
+solusi resmi Composio (KB *custom auth configs*) adalah memakai **OAuth client
+Google milik sendiri**, sehingga consent screen, daftar test user, dan proses
+verifikasi ada di project Google Cloud Anda.
+
+Langkah di [Google Cloud Console](https://console.cloud.google.com):
+
+1. **Pilih/buat project** — boleh project Firebase yang sama dengan yang dipakai
+   login aplikasi.
+2. **Enable API** (APIs & Services → Library): **Gmail API**, **Google Drive
+   API**, **Google Sheets API**, **Google Docs API**, **Google Slides API**, dan
+   **Admin SDK API** (dipakai scope `directory.readonly` untuk identitas akun).
+3. **OAuth consent screen** → User Type **External** → isi nama aplikasi + email
+   support → **Publishing status: Testing**.
+4. **Test users** → **Add users** → masukkan akun Google yang akan menghubungkan
+   Gmail/Drive (mis. akun Anda sendiri). **Tanpa langkah ini Google selalu
+   menolak dengan "Aplikasi ini diblokir"** — dan hanya akun di daftar ini yang
+   bisa Connect selama statusnya Testing.
+5. **Credentials** → Create credentials → **OAuth client ID** → Web application
+   → **Authorized redirect URI** isi persis:
+
+   ```
+   https://backend.composio.dev/api/v3/toolkits/auth/callback
+   ```
+
+   Salin **Client ID** (berakhir `.apps.googleusercontent.com`) dan **Client
+   secret** (berawalan `GOCSPX-`).
+6. Isi di `backend/.env` (dan variabel yang sama di Railway, lalu restart):
+
+   ```bash
+   COMPOSIO_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+   COMPOSIO_GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+
+Dengan kedua variabel itu terisi, backend otomatis membuat auth config
+**custom** `AI Multimodal - <toolkit>` (bukan lagi yang Composio-managed) saat
+tombol *Connect* ditekan. Dua catatan penting:
+
+- Akun yang dulu tersambung lewat OAuth app Composio harus **Connect ulang**
+  (kredensialnya menempel di auth config lama).
+- Mode **Testing** membatasi maksimal **100 test user** dan refresh token
+  **kedaluwarsa 7 hari** (user harus Connect ulang tiap minggu). Untuk dipakai
+  publik permanen, ajukan **verifikasi OAuth app** ke Google (untuk scope
+  restricted seperti `gmail.send` perlu peninjauan + kebijakan privasi); setelah
+  diverifikasi, ubah Publishing status menjadi **In production**.
+
+---
+
 ## 4. Buat akun admin pertama
 
 Alur aplikasi: user Google Sign-In masuk sebagai `guest` dan butuh approval admin
@@ -1345,6 +1501,8 @@ aman dipakai untuk menguji fitur tanpa menunggu setup Google Sign-In.
 | `Quota for imageGeneration exhausted` | Kuota gambar user habis. Admin bisa approve ulang dengan kuota baru, atau ubah `quota.imageGeneration` di MongoDB. |
 | Login berhasil tapi selalu diarahkan ke `/pending-approval` | Akun belum di-approve. Buka `/admin/members` dengan akun admin lalu approve. |
 | CORS error di browser | `FRONTEND_URL` di `backend/.env` harus sama persis dengan origin frontend (termasuk port). |
+| Panel *Google connectors* muncul tapi tombol **Connect** menjawab `503` | Hampir selalu kunci Composio, bukan kode. Jalankan `npm run check:composio` di folder `backend/` (langkah 3h) — hasilnya menyebut **jenis kunci** (dibaca dari awalannya), status HTTP, dan slug penyebabnya. Baris `jenis kunci: ck_ … TIDAK diterima REST API ini` berarti kuncinya diambil dari bagian "FOR YOU" dan harus diganti dengan `ak_…` dari mode PLATFORM. `403 APIKey_InsufficientPermissions` = kunci benar tetapi **read-only**; beri izin write `auth_configs` + `connected_accounts` dan execute `tools` di Settings → API Keys. Ingat juga bahwa kunci yang sudah benar di laptop bisa belum tersimpan benar di Railway. |
+| Pesan `Composio rejected the server configuration…` muncul di panel connector, tetapi daftar toolkit tetap tampil | Memang begitu sejak daftar toolkit dikembalikan sebagai fallback (`backend/controllers/connectorController.js`): gangguan Composio tidak boleh menyembunyikan menunya. Kolom `diagnostic.upstreamStatus` di respons `GET /api/v1/member/connectors` menyebut sebabnya. |
 | Kredensial terlanjur ter-commit ke git | Menghapus berkasnya dari commit berikutnya tidak cukup — isinya tetap bisa dibaca dari riwayat. Kredensial harus **dirotasi di provider**, lihat [`rotasi-kredensial.md`](./rotasi-kredensial.md). |
 
 ---
@@ -1356,6 +1514,7 @@ aman dipakai untuk menguji fitur tanpa menunggu setup Google Sign-In.
 npm run dev              # jalankan server dengan nodemon
 npm test                 # jalankan unit test (tidak butuh DB)
 npm run seed:admin       # upsert admin dari env ADMIN_UID/ADMIN_EMAIL
+npm run check:composio   # uji COMPOSIO_API_KEY langsung ke Composio (lihat 3h)
 
 # Frontend
 npm run dev              # dev server Vite

@@ -5,6 +5,8 @@
  * user ID, and only the tool slugs below are available to the chat model.
  */
 
+const { logger } = require('./logger');
+
 const API_ROOT = 'https://backend.composio.dev/api/v3.1';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const TOOLKITS = Object.freeze({
@@ -65,6 +67,27 @@ const titleForToolkit = (slug) => TOOLKITS[slug]?.name || slug;
 const getApiKey = () => String(process.env.COMPOSIO_API_KEY || '').trim();
 const isConfigured = () => Boolean(getApiKey());
 
+// OAuth app Google sendiri (opsional).
+//
+// Secara default tombol Connect memakai OAuth app milik Composio
+// (`use_composio_managed_auth`), dan Google memblokir app yang belum diverifikasi
+// untuk scope sensitif/restricted (gmail.send, directory.readonly) dengan layar
+// merah "Aplikasi ini diblokir". Solusi resminya (dokumentasi Composio: custom
+// auth configs): pakai OAuth client milik sendiri — kontrol consent screen,
+// test users, dan verifikasi ada di tangan kita.
+const OAUTH_CALLBACK_URI = 'https://backend.composio.dev/api/v3/toolkits/auth/callback';
+const getGoogleClientId = () => String(process.env.COMPOSIO_GOOGLE_CLIENT_ID || '').trim();
+const getGoogleClientSecret = () => String(process.env.COMPOSIO_GOOGLE_CLIENT_SECRET || '').trim();
+const usesCustomGoogleClient = () => Boolean(getGoogleClientId() && getGoogleClientSecret());
+const assertGoogleClientConfig = () => {
+  if ((getGoogleClientId() || getGoogleClientSecret()) && !usesCustomGoogleClient()) {
+    throw createComposioError(
+      'COMPOSIO_GOOGLE_CLIENT_ID and COMPOSIO_GOOGLE_CLIENT_SECRET must be set together.',
+      503
+    );
+  }
+};
+
 const createComposioError = (message, status) => {
   const error = new Error(message);
   error.status = status;
@@ -104,19 +127,56 @@ const request = async (endpoint, { method = 'GET', body, timeout = 20000 } = {})
   }
 
   if (!response.ok) {
-    const status = response.status === 401 || response.status === 403 ? 503 : 502;
+    const upstreamMessage = String(payload?.error?.message || payload?.message || '').slice(0, 300) || null;
+    const upstreamSlug = String(payload?.error?.slug || payload?.slug || '').slice(0, 120) || null;
+    const unauthorized = response.status === 401 || response.status === 403;
+
+    // Jejak ini yang menjawab "kenapa 503?" tanpa membuka dashboard provider:
+    // kunci dicabut (401 APIKey_InvalidAPIKey), izin kurang (403), dan API yang
+    // tumbang terlihat berbeda di kolom status/slug.
+    logger.warn('Composio request failed', {
+      endpoint,
+      upstreamStatus: response.status,
+      upstreamSlug,
+      upstreamMessage
+    });
+
     const error = createComposioError(
-      response.status === 401 || response.status === 403
-        ? 'Composio rejected the server configuration. Check the project API-key permissions.'
+      unauthorized
+        ? response.status === 401
+          ? 'Composio rejected the server API key (HTTP 401). Set COMPOSIO_API_KEY to a current project API key.' + apiKeyKindHint(apiKey)
+          : 'Composio rejected the request (HTTP 403). The project API key lacks permission for this endpoint.' +
+            (upstreamSlug === 'APIKey_InsufficientPermissions'
+              ? ' The key is read-only for this resource; the Connect button needs write access to "auth_configs" and "connected_accounts" (dashboard.composio.dev -> Settings -> API Keys), or run npm run check:composio in backend/ to verify.'
+              : '')
         : 'The Google connector request failed. Please try again.',
-      status
+      unauthorized ? 503 : 502
     );
     error.upstreamStatus = response.status;
-    error.upstreamMessage = payload?.message || payload?.error?.message || null;
+    error.upstreamSlug = upstreamSlug;
+    error.upstreamMessage = upstreamMessage;
     throw error;
   }
 
   return payload;
+};
+
+// Petunjuk yang menyebut JENIS kunci, bukan hanya "kunci salah".
+//
+// Composio punya dua jenis kunci yang sama-sama terlihat seperti "API key" di
+// dashboard, dan yang satu ditolak mentah-mentah oleh REST API ini: kunci dari
+// bagian "FOR YOU" berawalan `ck_` (consumer key, untuk Composio Connect/MCP),
+// sedangkan project API key dari mode "PLATFORM" berawalan `ak_`. Tanpa
+// petunjuk ini, kegagalannya terlihat seperti kunci yang sudah dicabut — dan
+// pemiliknya akan membuat kunci baru dari tempat yang sama, lalu gagal lagi.
+const apiKeyKindHint = (apiKey) => {
+  if (apiKey.startsWith('ck_')) {
+    return ' This key starts with "ck_", which is a "FOR YOU" consumer key (Composio Connect), not a project key. Switch the dashboard to PLATFORM mode (dashboard.composio.dev) and copy the key from Settings -> API Keys; it starts with "ak_".';
+  }
+  if (apiKey.startsWith('uak_')) {
+    return ' This key starts with "uak_", which is a user API key; project REST calls need a project key starting with "ak_".';
+  }
+  return '';
 };
 
 const authConfigCache = new Map();
@@ -136,6 +196,8 @@ const getManagedAuthConfig = async (toolkit) => {
   if (cached?.promise) return cached.promise;
 
   const promise = (async () => {
+    assertGoogleClientConfig();
+    const customClient = usesCustomGoogleClient();
     const recommended = await request(`/toolkits/${encodeURIComponent(toolkit)}/scopes/recommended`, {
       method: 'POST',
       body: { tools: SCOPE_TOOLSETS[toolkit], auth_scheme: 'OAUTH2', toolkit_version: 'latest' }
@@ -148,7 +210,7 @@ const getManagedAuthConfig = async (toolkit) => {
     const configName = `AI Multimodal - ${toolkit}`;
     const search = new URLSearchParams({
       toolkit_slug: toolkit,
-      is_composio_managed: 'true',
+      is_composio_managed: customClient ? 'false' : 'true',
       search: configName,
       limit: '100'
     });
@@ -158,21 +220,36 @@ const getManagedAuthConfig = async (toolkit) => {
       const normalizedScopes = Array.isArray(configuredScopes)
         ? configuredScopes.slice().sort().join(',')
         : String(configuredScopes || '').split(',').filter(Boolean).sort().join(',');
-      return item.is_composio_managed === true &&
+      return Boolean(item.is_composio_managed) === !customClient &&
         item.status !== 'DISABLED' &&
         item.name === configName && normalizedScopes === scopes.slice().sort().join(',');
     });
     if (existing?.id) return existing.id;
 
+    // Bentuk payload `use_custom_auth` diverifikasi langsung ke API v3.1:
+    // field di level `auth_config` memakai camelCase (`authScheme`), tetapi
+    // isian `credentials` memakai snake_case (`client_id`, dst).
     const created = await request('/auth_configs', {
       method: 'POST',
       body: {
         toolkit: { slug: toolkit },
-        auth_config: {
-          type: 'use_composio_managed_auth',
-          credentials: { scopes: scopeString },
-          name: configName
-        }
+        auth_config: customClient
+          ? {
+              type: 'use_custom_auth',
+              authScheme: 'OAUTH2',
+              credentials: {
+                client_id: getGoogleClientId(),
+                client_secret: getGoogleClientSecret(),
+                oauth_redirect_uri: OAUTH_CALLBACK_URI,
+                scopes: scopeString
+              },
+              name: configName
+            }
+          : {
+              type: 'use_composio_managed_auth',
+              credentials: { scopes: scopeString },
+              name: configName
+            }
       }
     });
     const authConfigId = created?.auth_config?.id || created?.id;
@@ -421,11 +498,13 @@ const clearCaches = () => {
 
 module.exports = {
   API_ROOT,
+  OAUTH_CALLBACK_URI,
   TOOLKITS,
   TOOLKIT_TOOLS,
   READ_ONLY_TOOLS,
   WRITE_TOOLS,
   isConfigured,
+  usesCustomGoogleClient,
   stableComposioUserId,
   getManagedAuthConfig,
   getAllowedTools,

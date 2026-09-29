@@ -43,11 +43,36 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | Image-to-Image | kredensial Cloudflare yang sama (FLUX.2 [klein]) | unggah + edit 1 gambar; hasilnya benar-benar mengikuti gambar input |
 | Text-to-Sound | **tidak wajib apa pun** — Edge TTS (suara Indonesia, tanpa kunci API) sudah melayani. Opsional: `GEMINI_API_KEY` (logat bisa diarahkan, gratis tanpa billing) + `ELEVENLABS_API_KEY` | generate 1 audio di `/tools/text-to-sound`; log boot menampilkan `Provider suara: gemini > edge (...)`. Tanpa kunci apa pun halaman tetap berfungsi (Edge, MP3). |
 | Sound-to-Text | minimal **satu** dari `GROQ_API_KEY` (gratis, 1.000 request/hari) atau `GEMINI_API_KEY` | unggah/rekam audio di `/tools/sound-to-text`; log boot menampilkan `Provider transkripsi: groq > gemini (ready=true ...)`. **Tidak ada jalur tanpa kunci** di fitur ini: tanpa kredensial permintaannya dijawab `503` dengan pesan yang menyebut variabel yang harus diisi. |
+| Connector Google di chat (Gmail, Drive, Sheets, Docs, Slides) | `COMPOSIO_API_KEY` — project API key **mode PLATFORM** (`ak_…`) dari dashboard.composio.dev → Settings → API Keys. **Bukan** `ck_…` (consumer key bagian "FOR YOU"), bukan Organization Access Token, bukan user key `uak_…` | jalankan `npm run check:composio` di folder `backend/` (dari mesin mana pun yang memakai kunci yang sama) — baris `jenis kunci` harus menyebut `ak_ (project API key mode PLATFORM)` dan **keenam** pemeriksaannya harus `OK` (termasuk probe izin write `auth_configs`/`connected_accounts` + execute `tools`). Kunci `ak_` yang **read-only** tetap menjawab `503` di setiap tombol *Connect* dengan slug `APIKey_InsufficientPermissions` — izinnya harus diubah di dashboard Composio (Settings → API Keys). Tanpa kunci jenis itu panel connector tetap tampil tetapi setiap tombol *Connect* menjawab `503`, berapa kali pun kuncinya dibuat ulang |
 | Text-to-Video & Image-to-Video | `BYNARA_API_KEY` (kunci yang sama dipakai text-to-image) | generate 1 video di `/tools/text-to-video`; log boot menampilkan `Provider video: bynara (ready=true bynara=configured)`. **Tidak ada jalur tanpa kunci:** Cloudflare tidak punya model video dan seluruh model video Pollinations `paid_only`, jadi tanpa kunci permintaannya dijawab `503` yang menyebut `BYNARA_API_KEY`. **Perhatian: berbayar** — satu video = satu pekerjaan berbayar di NaraRouter. |
 
 > Kode OpenRouter baru ada di commit `feat(chat): tambah OpenRouter…`.
 > Key-nya **baru relevan setelah commit itu ter-deploy**; mengisinya lebih dulu
 > tidak ada salahnya, tetapi tidak akan mengubah apa pun sebelum deploy selesai.
+>
+> `COMPOSIO_API_KEY` diuji dengan **memanggil Composio**, bukan dengan membaca
+> env: `npm run check:composio` (langkah lengkapnya di
+> [`setup-kredensial.md` bagian 3h](./setup-kredensial.md#3h-connector-google-composio)).
+> Ini penting karena kunci yang tersimpan benar tetapi sudah dicabut tetap
+> membuat aplikasi menjawab `503`, dan tidak ada kolom lain yang membedakannya.
+>
+> Kuncinya juga harus dari **mode PLATFORM**: kunci dari bagian "FOR YOU"
+> (`ck_…`) ditolak REST API dengan `401` yang pesannya sama seperti kunci
+> dicabut, sehingga mudah terkecoh menjadi "kunci baru juga gagal".
+>
+> Terakhir, kuncinya harus punya **izin write**, bukan read-only: tombol Connect
+> membuat auth config (`auth_configs` write) dan memulai OAuth
+> (`connected_accounts` write), sedangkan chat mengeksekusi tool (`tools`
+> execute). Kunci read-only cukup untuk menampilkan status panel, tetapi tombol
+> *Connect* selalu `503` dengan slug `APIKey_InsufficientPermissions`.
+>
+> Dua variabel opsional terkait: `COMPOSIO_GOOGLE_CLIENT_ID` +
+> `COMPOSIO_GOOGLE_CLIENT_SECRET` (OAuth client Google milik sendiri). **Wajib
+> diisi bila** tombol *Connect* berakhir di layar merah Google **"Aplikasi ini
+> diblokir"** — defaultnya memakai OAuth app Composio yang bisa diblokir untuk
+> scope sensitif. Langkah membuatnya (Google Cloud: enable API, OAuth consent
+> screen + test users, redirect URI) ada di
+> [`setup-kredensial.md` bagian 3h.4](./setup-kredensial.md#4-bila-google-menampilkan-aplikasi-ini-diblokir--pakai-oauth-client-sendiri).
 
 ---
 

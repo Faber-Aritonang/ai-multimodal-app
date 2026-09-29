@@ -12,12 +12,16 @@ const jsonResponse = (data, status = 200) => ({
 
 beforeEach(() => {
   process.env.COMPOSIO_API_KEY = 'test-composio-key';
+  delete process.env.COMPOSIO_GOOGLE_CLIENT_ID;
+  delete process.env.COMPOSIO_GOOGLE_CLIENT_SECRET;
   mockFetch.mockReset();
   composio.clearCaches();
 });
 
 afterAll(() => {
   delete process.env.COMPOSIO_API_KEY;
+  delete process.env.COMPOSIO_GOOGLE_CLIENT_ID;
+  delete process.env.COMPOSIO_GOOGLE_CLIENT_SECRET;
 });
 
 describe('Composio connector configuration', () => {
@@ -48,6 +52,36 @@ describe('Composio connector configuration', () => {
     expect(createRequest.auth_config.type).toBe('use_composio_managed_auth');
     expect(createRequest.auth_config.credentials.scopes).toBe('scope.read,scope.write');
     expect(JSON.stringify(createRequest)).not.toContain('test-composio-key');
+  });
+
+  test('creates a custom Google auth config with the app-owned OAuth client when configured', async () => {
+    process.env.COMPOSIO_GOOGLE_CLIENT_ID = 'client-id.apps.googleusercontent.com';
+    process.env.COMPOSIO_GOOGLE_CLIENT_SECRET = 'client-secret';
+    composio.clearCaches();
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ scopes: { least_privilege: ['scope.read'] } }))
+      .mockResolvedValueOnce(jsonResponse({ items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ auth_config: { id: 'ac_custom' } }));
+
+    await expect(composio.getManagedAuthConfig('gmail')).resolves.toBe('ac_custom');
+    const createRequest = JSON.parse(mockFetch.mock.calls[2][1].body);
+    expect(createRequest.auth_config.type).toBe('use_custom_auth');
+    expect(createRequest.auth_config.authScheme).toBe('OAUTH2');
+    expect(createRequest.auth_config.credentials).toEqual({
+      client_id: 'client-id.apps.googleusercontent.com',
+      client_secret: 'client-secret',
+      oauth_redirect_uri: composio.OAUTH_CALLBACK_URI,
+      scopes: 'scope.read'
+    });
+    expect(JSON.stringify(createRequest)).not.toContain('test-composio-key');
+  });
+
+  test('refuses a half-configured custom Google OAuth client without calling Composio', async () => {
+    process.env.COMPOSIO_GOOGLE_CLIENT_ID = 'client-id.apps.googleusercontent.com';
+    composio.clearCaches();
+
+    await expect(composio.getManagedAuthConfig('gmail')).rejects.toThrow(/must be set together/);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   test('starts OAuth linking with a stable private user ID and does not expose the API key', async () => {

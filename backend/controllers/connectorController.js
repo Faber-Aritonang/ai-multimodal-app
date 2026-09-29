@@ -33,8 +33,14 @@ exports.getStatus = async (req, res) => {
     }));
     res.json({
       success: true,
-      configured: false,
+      // `configured` menandakan variabelnya terisi, bukan bahwa Composio
+      // menerimanya — dua hal itu berbeda dan pernah tertukar saat mendiagnosis
+      // produksi. Status kunci yang sebenarnya ada di `diagnostic`.
+      configured: composio.isConfigured(),
       warning: error.message || 'Google connectors are temporarily unavailable.',
+      ...(error.upstreamStatus
+        ? { diagnostic: { upstreamStatus: error.upstreamStatus, upstreamSlug: error.upstreamSlug, upstreamMessage: error.upstreamMessage } }
+        : {}),
       connectors
     });
   }
