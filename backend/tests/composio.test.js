@@ -148,6 +148,75 @@ describe('Composio tool schema and validation', () => {
       .rejects.toThrow(/Invalid connector arguments/);
   });
 
+  test('marks optional schema fields nullable so strict providers accept null fills', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: [
+      {
+        slug: 'GMAIL_FETCH_EMAILS',
+        name: 'Fetch emails',
+        input_parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            page_token: { type: 'string' },
+            max_results: { type: 'integer' },
+            label_ids: { type: 'array', items: { type: 'string' } }
+          },
+          required: ['query'],
+          additionalProperties: false
+        }
+      }
+    ] }));
+
+    const schemas = await composio.getAllowedTools(['gmail']);
+    const params = schemas[0].function.parameters;
+    // Field wajib tetap tidak boleh null...
+    expect(params.properties.query.type).toBe('string');
+    // ...field opsional menerima null (validator Groq menolak null untuk
+    // skema "string" polos dan menggagalkan seluruh rantai provider).
+    expect(params.properties.page_token.type).toEqual(['string', 'null']);
+    expect(params.properties.max_results.type).toEqual(['integer', 'null']);
+  });
+
+  test('drops null optional arguments before executing the tool', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: [
+      {
+        slug: 'GMAIL_FETCH_EMAILS',
+        name: 'Fetch emails',
+        input_parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' }, page_token: { type: 'string' } },
+          required: ['query'],
+          additionalProperties: false
+        }
+      }
+    ] }));
+
+    const validated = await composio.validateToolArguments(
+      'GMAIL_FETCH_EMAILS',
+      { query: 'is:unread', page_token: null, verbose: null },
+      ['gmail']
+    );
+    expect(validated.args).toEqual({ query: 'is:unread' });
+  });
+
+  test('reports a required argument as missing when the model fills it with null', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: [
+      {
+        slug: 'GMAIL_FETCH_EMAILS',
+        name: 'Fetch emails',
+        input_parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+          additionalProperties: false
+        }
+      }
+    ] }));
+
+    await expect(composio.validateToolArguments('GMAIL_FETCH_EMAILS', { query: null }, ['gmail']))
+      .rejects.toThrow(/Missing connector argument: arguments\.query/);
+  });
+
   test('does not accept unapproved write and destructive tools', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [] }));
     await expect(composio.validateToolArguments('GOOGLEDRIVE_DELETE_FILE', {}, ['googledrive']))

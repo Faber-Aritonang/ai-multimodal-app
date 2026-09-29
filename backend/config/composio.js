@@ -327,6 +327,51 @@ const getConnectorStatus = async (uid) => {
   });
 };
 
+// Validator tool call Groq (dan provider ketat lainnya) menolak `null` untuk
+// field opsional yang skemanya hanya "string" — padahal model kadang mengisi
+// field opsional dengan null (konvensi OpenAI structured outputs), lalu seluruh
+// provider gagal berantai dan chat menjawab "All chat providers failed".
+// Dua lapis perbaikan:
+//   1. Skema yang dikirim ke provider menyatakan field opsional nullable.
+//   2. Nilai null dibuang sebelum dieksekusi ("absen" ≠ null di validator
+//      Composio), jadi provider yang tidak mendukung null pun tetap aman.
+const makeNullable = (schema) => {
+  if (Array.isArray(schema.enum) && !schema.enum.includes(null)) schema.enum = [...schema.enum, null];
+  if (typeof schema.type === 'string') schema.type = [schema.type, 'null'];
+  else if (Array.isArray(schema.type) && !schema.type.includes('null')) schema.type = [...schema.type, 'null'];
+};
+
+const allowNullForOptional = (schema) => {
+  if (!schema || typeof schema !== 'object') return;
+  if (schema.type === 'object' && schema.properties && typeof schema.properties === 'object') {
+    const required = new Set(schema.required || []);
+    for (const [key, child] of Object.entries(schema.properties)) {
+      if (!child || typeof child !== 'object') continue;
+      if (!required.has(key) && (child.type !== undefined || Array.isArray(child.enum))) makeNullable(child);
+      allowNullForOptional(child);
+    }
+  }
+  if (Array.isArray(schema.items)) schema.items.forEach((item) => allowNullForOptional(item));
+  else if (schema.items && typeof schema.items === 'object') allowNullForOptional(schema.items);
+  for (const key of ['anyOf', 'oneOf', 'allOf']) {
+    if (Array.isArray(schema[key])) schema[key].forEach((variant) => allowNullForOptional(variant));
+  }
+};
+
+const stripNullArgs = (value) => {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== null && item !== undefined).map(stripNullArgs);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== null && item !== undefined)
+        .map(([key, item]) => [key, stripNullArgs(item)])
+    );
+  }
+  return value;
+};
+
 const getToolSchemas = async (selectedToolkits = Object.keys(TOOLKITS)) => {
   const toolkits = [...new Set(selectedToolkits)].filter((slug) => TOOLKITS[slug]);
   const allSlugs = toolkits.flatMap((slug) => TOOLKIT_TOOLS[slug]);
@@ -344,6 +389,7 @@ const getToolSchemas = async (selectedToolkits = Object.keys(TOOLKITS)) => {
   for (const tool of result.items || []) {
     const slug = tool.slug;
     if (!allSlugs.includes(slug) || !tool.input_parameters) continue;
+    allowNullForOptional(tool.input_parameters);
     tools.set(slug, {
       type: 'function',
       function: {
@@ -392,17 +438,24 @@ const resolveUserAccount = async (uid, toolkit, connectedAccountId) => {
   return accounts[0];
 };
 
+const valueMatchesType = (type, value) => {
+  switch (type) {
+    case 'object': return typeof value === 'object' && !Array.isArray(value);
+    case 'array': return Array.isArray(value);
+    case 'integer': return Number.isInteger(value);
+    case 'number': return typeof value === 'number' && Number.isFinite(value);
+    case 'string': return typeof value === 'string';
+    case 'boolean': return typeof value === 'boolean';
+    case 'null': return value === null;
+    default: return true;
+  }
+};
+
 const assertValidJsonValue = (value, schema, path) => {
   if (value === null) return;
   const type = schema?.type;
-  const valid = !type || (
-    type === 'object' ? typeof value === 'object' && !Array.isArray(value) :
-      type === 'array' ? Array.isArray(value) :
-        type === 'integer' ? Number.isInteger(value) :
-          type === 'number' ? typeof value === 'number' && Number.isFinite(value) :
-            type === 'string' ? typeof value === 'string' :
-              type === 'boolean' ? typeof value === 'boolean' : true
-  );
+  const types = Array.isArray(type) ? type : type ? [type] : [];
+  const valid = !types.length || types.some((expected) => valueMatchesType(expected, value));
   if (!valid) throw createComposioError(`Invalid connector arguments at ${path}.`, 400);
   if (schema?.enum && !schema.enum.includes(value)) {
     throw createComposioError(`Invalid connector arguments at ${path}.`, 400);
@@ -440,6 +493,7 @@ const validateToolArguments = async (toolSlug, args, selectedToolkits = Object.k
   if (Buffer.byteLength(JSON.stringify(args), 'utf8') > 30000) {
     throw createComposioError('Connector arguments exceed the allowed size.', 413);
   }
+  args = stripNullArgs(args);
 
   const schemas = await getToolSchemas([toolkit]);
   const definition = schemas.get(toolSlug)?.function?.parameters;
@@ -511,6 +565,7 @@ module.exports = {
   getConnectorStatus,
   startConnection,
   getToolkitForTool,
+  stripNullArgs,
   validateToolArguments,
   executeTool,
   listUserAccounts,
