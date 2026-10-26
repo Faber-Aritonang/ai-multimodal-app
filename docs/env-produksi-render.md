@@ -283,10 +283,13 @@ melayani user". Dua jalur deploy membawa penandanya dengan cara berbeda:
 | `build-meta` | dari `backend/build-meta.json` yang ditulis job CI untuk platform yang mengunggah direktori lokal (tidak ada metadata git yang bisa dibaca) |
 
 `commit: null` berarti tidak ada satu pun sumber yang terbaca (mis. deployment
-dibangun dari mesin lokal tanpa penanda). Ini bukan kegagalan: job deploy hanya
-memberi `::warning::` saat penandanya tidak dilaporkan, dan **gagal** saat
-nilainya ada tetapi berbeda dari commit yang baru di-push — karena itu berarti
-deploy-nya belum selesai atau kode lama yang masih live.
+dibangun dari mesin lokal tanpa penanda). Job deploy **gagal** dalam dua keadaan:
+ketika nilainya ada tetapi berbeda dari commit yang baru di-push (deploy belum
+selesai atau kode lama masih live), dan ketika kolomnya **tidak dilaporkan sama
+sekali** selama 15 menit — tanpa nilai pembanding, hijau hanya berarti "ada yang
+menjawab", bukan "kode baru sudah live". Karena itu deployment pertama yang masih
+memakai kode lama memang merah sampai sekali di-deploy manual; setelah itu
+kolomnya selalu terisi.
 
 ```bash
 curl -s https://ai-multimodal-backend.onrender.com/health | python3 -m json.tool | grep -E '"commit"|"commitSource"'

@@ -129,9 +129,11 @@ jobs:
   # yang sama; job tetap hijau, tetapi build gratisnya terbuang.
   #
   # Status job ini jujur karena langkah verifikasi di bawah menuntut `/health`
-  # produksi melaporkan commit yang baru di-push. Build yang gagal di Render
-  # berarti commit-nya tidak pernah muncul, dan job ikut gagal setelah batas
-  # waktu — bukan hijau karena "perintah deploy-nya selesai".
+  # produksi melaporkan commit yang baru di-push. Build yang gagal di Render —
+  # atau deploy yang tidak pernah dipicu sama sekali — berarti commit-nya tidak
+  # pernah muncul, dan job gagal setelah batas waktu. Kolom commit yang tidak
+  # dilaporkan juga gagal, bukan sekadar `::warning::`, karena tanpa pembanding
+  # status hijau tidak membuktikan apa pun tentang kode yang live.
   deploy-backend:
     needs: quality
     # Hanya pada push ke main, atau saat dijalankan manual dengan input-nya
@@ -213,7 +215,9 @@ jobs:
       # benarnya di kode lama maupun baru, jadi deployment yang gagal — sementara
       # kode lama terus melayani user — tetap terlihat hijau. Karena itu `/health`
       # melaporkan commit yang sedang berjalan (`RENDER_GIT_COMMIT`), dan langkah
-      # ini menuntut nilainya sama dengan commit yang baru di-push.
+      # ini menuntut nilainya sama dengan commit yang baru di-push. Kolom yang
+      # TIDAK ADA sama sekali juga menggagalkan job: tanpa nilai pembanding,
+      # "hijau" hanya berarti "ada jawaban dari server", bukan "kode baru live".
       #
       # Langkah ini tidak mencetak nilai rahasia: `/health` sengaja hanya
       # mengirim satu kata per kolom plus KODE galat (`HTTP 401`, `timeout`),
@@ -249,13 +253,15 @@ jobs:
                       and terakhir.get("database") == "connected"
                       and terakhir.get("storageCheck") != "pending"
                   ):
-                      # `/health` boleh belum melaporkan commit (deployment lama).
-                      # Kalau sudah dilaporkan tetapi belum sama, deployment baru
-                      # masih berjalan — jangan berhenti menunggu, karena itu
-                      # persis keadaan yang membuat "kode lama masih live" tidak
-                      # pernah terdeteksi.
+                      # Berhenti HANYA kalau commit produksi sudah sama dengan
+                      # yang di-push (atau tidak ada commit pembanding). Deployment
+                      # lama yang belum melaporkan commit juga TIDAK dianggap
+                      # selesai: kolom yang hilang berarti kita tidak punya bukti
+                      # apa pun, dan menunggu tetap masuk akal karena deploy yang
+                      # sedang berjalan akan menggantinya dengan kode yang
+                      # melaporkan commit.
                       berjalan = (terakhir.get("commit") or "").strip().lower()
-                      if not diharapkan or not berjalan or berjalan == diharapkan:
+                      if not diharapkan or berjalan == diharapkan:
                           break
               except Exception as galat:
                   print(f"  {url} belum siap: {type(galat).__name__}", flush=True)
@@ -326,14 +332,21 @@ jobs:
           if not diharapkan:
               print("::warning::GITHUB_SHA tidak tersedia sehingga commit produksi tidak bisa dibandingkan.")
           elif not berjalan:
-              # Deployment yang berjalan SEBELUM kolom ini ada memang belum
-              # memuatnya, jadi ini belum tentu masalah. Ketidakadaannya pada
-              # deploy berikutnya berarti penandanya tidak terbaca.
+              # Kolom yang tidak ada berarti TIDAK ADA bukti bahwa deploy berjalan.
+              # Keadaan ini dulu hanya menghasilkan `::warning::`, dan akibatnya
+              # job hijau padahal Render belum membangun commit yang di-push —
+              # persis kegagalan yang seharusnya dicegah langkah ini. Deployment
+              # lama yang belum memuat kolom ini memang akan merah sampai sekali
+              # di-deploy manual; setelah itu kolomnya selalu ada.
               print(
-                  "::warning::/health tidak melaporkan commit, jadi produksi tidak bisa "
-                  "dipastikan menjalankan kode baru. Deployment yang lebih tua memang belum "
-                  f"memuat kolom ini (jalur penanda: {jalur})."
+                  "::error::/health tidak melaporkan commit sama sekali selama 15 menit, jadi "
+                  "tidak ada bukti bahwa produksi menjalankan kode baru. Penyebabnya salah satu "
+                  "dari: deploy Render tidak pernah dipicu (Auto-Deploy mati dan "
+                  "RENDER_DEPLOY_HOOK_URL kosong), build-nya gagal, atau kode yang live masih "
+                  "versi lama yang belum mengirim kolom commit. Periksa Events/Logs service "
+                  "ai-multimodal-backend, lalu jalankan Manual Deploy -> Deploy latest commit."
               )
+              sys.exit(1)
           elif berjalan != diharapkan:
               print(
                   f"::error::Produksi menjalankan commit {berjalan[:7]}, bukan {diharapkan[:7]} "

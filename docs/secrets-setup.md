@@ -54,7 +54,7 @@ sama dengan `GITHUB_SHA`:
 |---|---|
 | `commit` sama dengan commit yang di-push | `::notice::` — deploy terbukti |
 | `commit` berbeda | `::error::` dan job **gagal** (setelah menunggu sampai 15 menit, karena deployment barunya bisa jadi masih berjalan) |
-| `commit` tidak dilaporkan | `::warning::` — deployment sebelum kolom ini ada memang belum memuatnya; pada deploy berikutnya, ketiadaannya berarti penandanya tidak terbaca |
+| `commit` tidak dilaporkan sama sekali | `::error::` dan job **gagal** — tidak ada bukti bahwa kode baru live. Biasanya berarti deploy Render tidak pernah dipicu (Auto-Deploy mati dan hook kosong), build-nya gagal, atau kode yang live masih versi lama yang belum mengirim kolom `commit` |
 
 Kolom `commitSource` menyebut jalur penandanya. Produksi sekarang di Render, yang
 mengisi `RENDER_GIT_COMMIT` sendiri (`commitSource: "render-git"`). Nilai
@@ -64,7 +64,10 @@ tanpa metadata git.
 
 Batas tunggunya 15 menit — bukan 5 — karena instance Render free tidur saat tidak
 ada trafik (±30-60 detik untuk bangun) dan build-nya sendiri makan beberapa
-menit. Job-nya juga gagal (bukan hijau) kalau `storageMode` bernilai `local` atau
+menit. Selama batas itu job **terus menunggu** meski `/health` belum melaporkan
+commit, lalu gagal kalau nilainya tidak pernah muncul — jadi deployment pertama
+yang masih memakai kode lama (belum mengirim kolom `commit`) memang merah sampai
+satu kali di-deploy manual. Job-nya juga gagal (bukan hijau) kalau `storageMode` bernilai `local` atau
 `storageCheck` bernilai `failed`, jadi kredensial Cloudinary yang salah tidak
 bisa lolos hanya karena build-nya sukses.
 

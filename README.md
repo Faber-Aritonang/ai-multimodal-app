@@ -864,7 +864,9 @@ Setiap push ke `main` menjalankan tiga job:
    **commit yang benar-benar berjalan** — supaya "deploy selesai" tidak lagi
    bisa berarti "kode lama masih live". Job gagal setelah 15 menit kalau commit
    yang di-push tidak pernah muncul di `/health` (build gagal, tertahan, atau
-   deploy tidak pernah dipicu).
+   deploy tidak pernah dipicu), **termasuk** kalau `/health` tidak melaporkan
+   kolom `commit` sama sekali — tanpa pembanding, status hijau tidak
+   membuktikan apa pun.
 3. **deploy-frontend** — **memverifikasi** deployment Vercel untuk commit yang
    di-push lewat REST API: menunggu sampai `READY`, gagal kalau `ERROR` atau
    lewat 10 menit, lalu memastikan `/`, `/login`, dan `/tools/text-to-image`
