@@ -8,13 +8,20 @@ const tanggal = (value) =>
     ? new Date(value).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
     : '—'
 
+// Selang penyegaran otomatis. Daftar galat hanya hidup di memori proses, jadi
+// halaman yang dibiarkan terbuka bisa menampilkan kondisi lama tanpa ini.
+const REFRESH_INTERVAL_MS = 30000
+
 const AdminErrors = () => {
   const [data, setData] = useState({ total: 0, tracked: 0, capacity: 0, errors: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [lastUpdated, setLastUpdated] = useState(null)
 
-  const fetchErrors = async () => {
-    setLoading(true)
+  // `silent` dipakai penyegaran berkala: daftar yang sudah tampil tidak perlu
+  // diganti spinner tiap 30 detik, karena isinya sering kali sama.
+  const fetchErrors = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     setError('')
 
     try {
@@ -25,15 +32,30 @@ const AdminErrors = () => {
         capacity: response.data.capacity || 0,
         errors: response.data.errors || []
       })
+      setLastUpdated(new Date())
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat daftar galat.')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
     fetchErrors()
+  }, [])
+
+  // Penyegaran otomatis tiap 30 detik, tetapi tidak saat tab disembunyikan:
+  // polling latar belakang hanya membebani server tanpa ada yang melihatnya.
+  // Begitu tab kembali terlihat, siklus berikutnya menyusul paling lambat 30
+  // detik kemudian.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchErrors({ silent: true })
+      }
+    }, REFRESH_INTERVAL_MS)
+
+    return () => clearInterval(timer)
   }, [])
 
   return (
@@ -44,14 +66,21 @@ const AdminErrors = () => {
           title="Errors"
           description="Galat terakhir yang tercatat di proses backend yang sedang berjalan. Daftar ini kosong lagi setelah restart atau deploy."
           actions={
-            <button
-              type="button"
-              onClick={fetchErrors}
-              disabled={loading}
-              className="btn btn-ghost text-xs disabled:cursor-wait disabled:opacity-50"
-            >
-              Refresh
-            </button>
+            <>
+              {lastUpdated && (
+                <span className="font-mono text-[11px] text-slate-500">
+                  diperbarui {lastUpdated.toLocaleTimeString('id-ID')} · otomatis tiap 30 dtk
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => fetchErrors()}
+                disabled={loading}
+                className="btn btn-ghost text-xs disabled:cursor-wait disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </>
           }
         />
 
