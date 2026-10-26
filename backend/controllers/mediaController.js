@@ -99,6 +99,21 @@ const DEFAULT_SIZE = '1024x1024';
 const ALLOWED_QUALITIES = ['standard', 'hd'];
 const MAX_PROMPT_LENGTH = 1000;
 
+// Sanitasi pesan error agar tidak membocorkan detail sensitif provider
+const sanitizeErrorMessage = (error) => {
+  if (!error) return 'Terjadi kesalahan saat memproses permintaan.';
+  const message = String(error.message || '');
+  // Blokir pola yang bisa mengandung kredensial/URL sensitif
+  if (/(api[_-]?key|token|secret|authorization|bearer)/i.test(message)) {
+    return 'Kesalahan konfigurasi atau autentikasi penyedia layanan.';
+  }
+  // Batasi panjang
+  if (message.length > 200) {
+    return message.slice(0, 197) + '...';
+  }
+  return message;
+};
+
 // Jenis & status yang sah untuk filter riwayat. Daftarnya ditulis di sini
 // (bukan disalin dari schema) supaya nilai yang tidak dikenal bisa dijawab 400
 // dengan pesan yang jelas: tanpa ini, `type` yang salah menghasilkan error cast
@@ -192,7 +207,9 @@ const buildFailureResponse = (error, { configCodes, defaultMessage }) => {
         : isConfigError
           ? error.message
           : defaultMessage,
-      error: error.message
+      // Pesan internal provider (bisa memuat endpoint/nama bucket) hanya dikirim
+      // di luar production; di production field `error` sengaja tidak ada.
+      ...(process.env.NODE_ENV !== 'production' ? { error: error.message } : {})
     }
   };
 };
@@ -314,11 +331,11 @@ exports.textToImage = async (req, res) => {
 
     if (media) {
       media.status = 'failed';
-      media.error = { message: error.message };
+      media.error = { message: sanitizeErrorMessage(error) };
       try {
         await media.save();
       } catch (saveError) {
-        console.error('Failed to update media status:', saveError.message);
+        console.error('Failed to update media status');
       }
     }
 
@@ -523,11 +540,11 @@ exports.imageToImage = async (req, res) => {
 
     if (media) {
       media.status = 'failed';
-      media.error = { message: error.message };
+      media.error = { message: sanitizeErrorMessage(error) };
       try {
         await media.save();
       } catch (saveError) {
-        console.error('Failed to update media status:', saveError.message);
+        console.error('Failed to update media status');
       }
     }
 
@@ -700,11 +717,11 @@ exports.textToSound = async (req, res) => {
 
     if (media) {
       media.status = 'failed';
-      media.error = { message: error.message };
+      media.error = { message: sanitizeErrorMessage(error) };
       try {
         await media.save();
       } catch (saveError) {
-        console.error('Failed to update media status:', saveError.message);
+        console.error('Failed to update media status');
       }
     }
 
@@ -899,11 +916,11 @@ exports.soundToText = async (req, res) => {
 
     if (media) {
       media.status = 'failed';
-      media.error = { message: error.message };
+      media.error = { message: sanitizeErrorMessage(error) };
       try {
         await media.save();
       } catch (saveError) {
-        console.error('Failed to update media status:', saveError.message);
+        console.error('Failed to update media status');
       }
     }
 
@@ -1175,7 +1192,6 @@ exports.textToVideo = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Video generation failed. Please try again.',
-      error: error.message
     });
   }
 
@@ -1342,7 +1358,6 @@ exports.getMediaHistory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch media history',
-      error: error.message
     });
   }
 };
@@ -1385,7 +1400,6 @@ exports.deleteMedia = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete media',
-      error: error.message
     });
   }
 };
@@ -1419,7 +1433,6 @@ exports.getMediaById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch media',
-      error: error.message
     });
   }
 };
@@ -1556,7 +1569,6 @@ exports.shareMedia = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to share this media',
-      error: error.message
     });
   }
 };
@@ -1593,7 +1605,6 @@ exports.unshareMedia = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to revoke sharing',
-      error: error.message
     });
   }
 };
@@ -1640,7 +1651,6 @@ exports.getSharedMedia = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to load shared media',
-      error: error.message
     });
   }
 };

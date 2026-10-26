@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { authAPI } from '../config/api'
 import { signOutUser } from '../config/firebase'
-import { HomeIcon, UserIcon, SignOutButton } from './icons'
+import { HomeIcon, UserIcon, WalletIcon, WarningIcon, SignOutButton } from './icons'
 
 const NAVIGATION = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon, code: '01' },
-  { name: 'Members', href: '/admin/members', icon: UserIcon, code: '02' }
+  { name: 'Members', href: '/admin/members', icon: UserIcon, code: '02' },
+  { name: 'Transaksi', href: '/admin/transactions', icon: WalletIcon, code: '03' },
+  { name: 'Errors', href: '/admin/errors', icon: WarningIcon, code: '04' }
 ]
 
 /**

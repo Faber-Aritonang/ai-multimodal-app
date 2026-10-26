@@ -18,7 +18,18 @@ const cors = require('cors');
 const { getAllowedOrigins } = require('./config/cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
+
+// Validasi konfigurasi kritis di production
+if (process.env.NODE_ENV === 'production') {
+  const jwtSecret = process.env.JWT_SECRET || '';
+  const placeholders = ['your-super-secret-jwt-key-change-in-production', 'changeme', 'secret'];
+  if (!jwtSecret || jwtSecret.length < 32 || placeholders.includes(jwtSecret)) {
+    console.error('[FATAL] JWT_SECRET tidak aman untuk production. Set minimal 32 karakter dan bukan nilai default.');
+    process.exit(1);
+  }
+}
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -124,6 +135,7 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
+app.use(cookieParser());
 
 // Di produksi backend berjalan di belakang proxy platform (Railway/Vercel).
 // Tanpa ini req.ip berisi IP proxy, sehingga SEMUA pengunjung berbagi satu

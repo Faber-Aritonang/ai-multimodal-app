@@ -344,6 +344,51 @@ export const HistoryIcon = ({ className = "w-6 h-6" }) => (
   </svg>
 )
 
+export const WalletIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M3 8a2 2 0 012-2h12a2 2 0 012 2v1H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2H3z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M16 13.5h.01"
+    />
+  </svg>
+)
+
+// Ikon peringatan: dipakai menu "Errors" di konsol admin.
+export const WarningIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M10.29 3.86l-8.4 14.14A2 2 0 003.6 21h16.8a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 9v4m0 4h.01"
+    />
+  </svg>
+)
+
 export const CheckIcon = ({ className = "w-5 h-5" }) => (
   <svg 
     className={className} 
@@ -378,5 +423,7 @@ export default {
   SendIcon,
   RefreshIcon,
   HistoryIcon,
-  CheckIcon
+  CheckIcon,
+  WalletIcon,
+  WarningIcon
 }

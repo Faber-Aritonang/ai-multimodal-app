@@ -21,6 +21,9 @@ import ProfilePage from './pages/ProfilePage'
 import UpgradePage from './pages/UpgradePage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminMembers from './pages/admin/AdminMembers'
+import AdminMemberDetail from './pages/admin/AdminMemberDetail'
+import AdminTransactions from './pages/admin/AdminTransactions'
+import AdminErrors from './pages/admin/AdminErrors'
 import PendingApproval from './pages/PendingApproval'
 
 // Components
@@ -108,6 +111,21 @@ function App() {
         <Route path="/admin/members" element={
           <ProtectedRoute user={user} requiredRole="admin">
             <AdminMembers />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/members/:uid" element={
+          <ProtectedRoute user={user} requiredRole="admin">
+            <AdminMemberDetail />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/transactions" element={
+          <ProtectedRoute user={user} requiredRole="admin">
+            <AdminTransactions />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/errors" element={
+          <ProtectedRoute user={user} requiredRole="admin">
+            <AdminErrors />
           </ProtectedRoute>
         } />
         

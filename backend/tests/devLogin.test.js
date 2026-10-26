@@ -17,7 +17,7 @@ const path = require('path');
 // server.js membaca UPLOAD_DIR saat mounting express.static
 const tempUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devlogin-uploads-'));
 process.env.UPLOAD_DIR = tempUploadDir;
-process.env.JWT_SECRET = 'dev-login-test-secret';
+process.env.JWT_SECRET = 'dev-login-test-secret-0123456789abcdef';
 
 jest.mock('../models/User');
 jest.mock('../models/Admin');

@@ -13,7 +13,6 @@
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
     "axios": "^1.6.0",
-    "bcryptjs": "^2.4.3",
     "clsx": "^2.0.0",
     "firebase": "^10.5.0",
     "moment": "^2.29.4",

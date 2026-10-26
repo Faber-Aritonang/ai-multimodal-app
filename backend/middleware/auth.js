@@ -43,8 +43,7 @@ exports.authenticate = async (req, res, next) => {
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: 'Authentication failed',
-      error: error.message
+      message: 'Authentication failed'
     });
   }
 };
@@ -128,7 +127,6 @@ exports.requireMember = async (req, res, next) => {
     return res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
     });
   }
 };
@@ -160,7 +158,6 @@ exports.requireAdmin = async (req, res, next) => {
     return res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
     });
   }
 };
@@ -228,7 +225,6 @@ exports.checkQuota = (type) => {
       return res.status(500).json({
         success: false,
         message: 'Server error',
-        error: error.message
       });
     }
   };

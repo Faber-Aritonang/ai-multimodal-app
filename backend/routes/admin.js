@@ -12,7 +12,9 @@ const {
   approveMember,
   rejectMember,
   getAnalytics,
-  getErrors
+  getErrors,
+  getMemberDetail,
+  getPayments
 } = require('../controllers/adminController');
 
 // Semua route ini membutuhkan akses admin.
@@ -25,6 +27,12 @@ router.get('/pending-members', getPendingMembers);
 router.get('/approved-members', getApprovedMembers);
 router.put('/approve-member/:uid', approveMember);
 router.delete('/reject-member/:uid', rejectMember);
+
+// Rincian aktivitas satu user (chat, media, pembayaran).
+router.get('/members/:uid', getMemberDetail);
+
+// Daftar transaksi semua user.
+router.get('/payments', getPayments);
 
 // Analytics
 router.get('/analytics', getAnalytics);

@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { adminAPI } from '../../config/api'
 import AdminLayout from '../../components/AdminLayout'
 import { GlassPanel, PageHeader, SectionTitle, StatTile } from '../../components/ui'
 
 // Ditulis lengkap (bukan `rise-${index}`) supaya kelasnya ikut masuk ke CSS build.
 const RISE_STEPS = ['rise-1', 'rise-2', 'rise-3', 'rise-4']
+
+const rupiah = (value) => `Rp${Number(value || 0).toLocaleString('id-ID')}`
+
+// Urutan tetap supaya kartu tidak berpindah tempat saat satu status tidak punya
+// transaksi (agregasi hanya mengembalikan status yang ada isinya).
+const PAYMENT_STATUSES = [
+  { key: 'paid', label: 'paid', tone: 'text-emerald-300' },
+  { key: 'pending', label: 'pending', tone: 'text-amber-300' },
+  { key: 'failed', label: 'failed', tone: 'text-rose-300' },
+  { key: 'expired', label: 'expired', tone: 'text-slate-400' }
+]
 
 const STATS = [
   { key: 'totalUsers', label: 'total users', icon: '👥', accent: 'cyan' },
@@ -124,6 +136,43 @@ const AdminDashboard = () => {
             </div>
           </GlassPanel>
         )}
+
+        {/* --------------------------- Transaksi per status ----------------------- */}
+        <GlassPanel className="p-5 sm:p-6">
+          <SectionTitle
+            hint="Jumlah transaksi dan nominalnya per status."
+            action={
+              <Link
+                to="/admin/transactions"
+                className="text-xs text-cyan-300 hover:text-cyan-200"
+              >
+                semua transaksi →
+              </Link>
+            }
+          >
+            Transaksi per Status
+          </SectionTitle>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {PAYMENT_STATUSES.map((status) => {
+              const row = (analytics?.paymentsByStatus || []).find(
+                (item) => item._id === status.key
+              )
+
+              return (
+                <div key={status.key} className="glass-inset px-3.5 py-3">
+                  <p className="hud">{status.label}</p>
+                  <p className={`mt-1 font-mono text-xl font-semibold ${status.tone}`}>
+                    {row?.count || 0}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[11px] text-slate-500">
+                    {rupiah(row?.amount || 0)}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </GlassPanel>
 
         {/* --------------------------- Permintaan akses -------------------------- */}
         <GlassPanel className="overflow-hidden">

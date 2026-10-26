@@ -76,6 +76,16 @@ exports.register = async (req, res) => {
       });
     }
 
+    // Di production, pendaftaran WAJIB lewat verifikasi Firebase (Google
+    // Sign-In). Jalur "manual" di bawah (tanpa firebaseToken) hanya untuk
+    // pengujian lokal — tanpanya siapa pun bisa mencetak akun guest tanpa batas.
+    if (!firebaseToken && process.env.NODE_ENV === 'production') {
+      return res.status(400).json({
+        success: false,
+        message: 'Firebase authentication is required for registration.'
+      });
+    }
+
     // Paket yang dipilih saat mendaftar: 'free' (member biasa, menunggu
     // approval admin) atau 'paid' (member berbayar, langsung diarahkan ke
     // pembayaran setelah daftar dan aktif tanpa approval begitu lunas).
@@ -245,8 +255,7 @@ exports.register = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message
+      message: 'Internal server error'
     });
   }
 };
@@ -351,8 +360,7 @@ exports.login = async (req, res) => {
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: 'Login failed',
-      error: error.message
+      message: 'Login failed'
     });
   }
 };
@@ -368,7 +376,7 @@ exports.login = async (req, res) => {
  * Selalu mengembalikan 404 saat NODE_ENV=production.
  */
 exports.devLogin = async (req, res) => {
-  if (!isDevLoginEnabled()) {
+  if (process.env.NODE_ENV === 'production' || !isDevLoginEnabled()) {
     return res.status(404).json({
       success: false,
       message: 'Not found'
@@ -478,8 +486,7 @@ exports.devLogin = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Dev login failed',
-      error: error.message
+      message: 'Dev login failed'
     });
   }
 };
@@ -553,8 +560,7 @@ exports.getAuthStatus = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Server error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };

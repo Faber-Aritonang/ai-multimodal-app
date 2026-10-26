@@ -128,7 +128,6 @@ exports.updateProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update profile',
-      error: error.message
     });
   }
 };
@@ -143,7 +142,7 @@ exports.getApprovedMembers = async (req, res) => {
       isApproved: true,
       role: 'member'
     })
-      .select('uid email displayName photoURL referralCode createdAt quota')
+      .select('displayName photoURL referralCode createdAt quota')
       .sort({ createdAt: -1 })
       .limit(100); // Batasi query
 
@@ -157,7 +156,6 @@ exports.getApprovedMembers = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch members',
-      error: error.message
     });
   }
 };
@@ -199,7 +197,6 @@ exports.getMemberByReferralCode = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch member',
-      error: error.message
     });
   }
 };
@@ -233,7 +230,6 @@ exports.getReferralStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch referral stats',
-      error: error.message
     });
   }
 };

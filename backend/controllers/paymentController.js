@@ -196,7 +196,6 @@ exports.createUpgradePayment = async (req, res) => {
     return res.status(502).json({
       success: false,
       message: 'Gagal membuat transaksi pembayaran. Coba lagi beberapa saat.',
-      error: error.message
     });
   }
 };
@@ -233,7 +232,6 @@ exports.getPaymentStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch payment status',
-      error: error.message
     });
   }
 };
@@ -296,7 +294,6 @@ exports.checkPaymentWithGateway = async (req, res) => {
     return res.status(502).json({
       success: false,
       message: 'Gagal memeriksa status pembayaran di gateway. Coba lagi.',
-      error: error.message
     });
   }
 };
@@ -369,7 +366,6 @@ exports.handlePaymentNotification = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to process notification',
-      error: error.message
     });
   }
 };

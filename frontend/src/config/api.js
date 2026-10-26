@@ -254,7 +254,14 @@ export const adminAPI = {
   // free (config/membershipPlans.js) — angkanya tidak lagi disalin di frontend.
   approveMember: (uid, quota) => api.put(`/admin/approve-member/${uid}`, quota ? { quota } : {}),
   rejectMember: (uid) => api.delete(`/admin/reject-member/${uid}`),
+  // Rincian satu user: profil, ringkasan pemakaian, sesi chat, media, pembayaran.
+  getMemberDetail: (uid) => api.get(`/admin/members/${uid}`),
   getAnalytics: () => api.get('/admin/analytics'),
+  // Daftar transaksi semua user. `params` mendukung { status, limit }.
+  getPayments: (params = {}) => api.get('/admin/payments', { params }),
+  // Galat terakhir yang tercatat proses backend ini (bukan arsip; kosong lagi
+  // setelah restart/deploy).
+  getErrors: () => api.get('/admin/errors'),
 };
 
 export default api;

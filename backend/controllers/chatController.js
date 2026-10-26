@@ -33,7 +33,6 @@ exports.getChatSessions = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch chat sessions',
-      error: error.message
     });
   }
 };
@@ -58,7 +57,6 @@ exports.createChatSession = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create chat session',
-      error: error.message
     });
   }
 };
@@ -336,7 +334,6 @@ exports.sendMessage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to send message',
-      error: error.message
     });
   }
 };
@@ -367,7 +364,6 @@ exports.getChatSession = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch chat session',
-      error: error.message
     });
   }
 };
@@ -398,7 +394,6 @@ exports.deleteChatSession = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete chat session',
-      error: error.message
     });
   }
 };

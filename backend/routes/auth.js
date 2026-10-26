@@ -39,7 +39,7 @@ router.get('/referral/:referralCode', MemberController.getMemberByReferralCode);
 // POST /api/v1/auth/dev-login
 // Login tanpa Firebase untuk pengembangan lokal.
 // Route ini TIDAK dipasang saat NODE_ENV=production.
-if (isDevLoginEnabled()) {
+if (process.env.NODE_ENV !== 'production' && isDevLoginEnabled()) {
   router.post('/dev-login', devLogin);
 }
 

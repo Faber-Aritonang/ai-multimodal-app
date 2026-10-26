@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { adminAPI } from '../../config/api'
 import AdminLayout from '../../components/AdminLayout'
 import QRCode from '../../components/QRCode'
@@ -9,6 +10,14 @@ const AdminMembers = () => {
   const [approvedMembers, setApprovedMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedMember, setSelectedMember] = useState(null)
+
+  // Filter berjalan di sisi klien: daftar member sudah diambil sekaligus oleh
+  // halaman ini, jadi mengetik tidak perlu memanggil API lagi. `plan` memakai
+  // paket AKTIF untuk member yang sudah disetujui, dan paket PILIHAN untuk
+  // pendaftar yang belum disetujui (paket aktifnya baru dipasang setelah
+  // pembayaran/approval).
+  const [query, setQuery] = useState('')
+  const [planFilter, setPlanFilter] = useState('all')
 
   useEffect(() => {
     fetchMembers()
@@ -53,6 +62,26 @@ const AdminMembers = () => {
     }
   }
 
+  const cocokFilter = (member, plan) => {
+    const kata = query.trim().toLowerCase()
+    const cocokKata =
+      !kata ||
+      [member.displayName, member.email].some((nilai) =>
+        String(nilai || '').toLowerCase().includes(kata)
+      )
+    const cocokPaket = planFilter === 'all' || (planFilter === 'paid') === (plan === 'paid')
+
+    return cocokKata && cocokPaket
+  }
+
+  const filteredPending = pendingMembers.filter((member) =>
+    cocokFilter(member, member.selectedPlan)
+  )
+  const filteredApproved = approvedMembers.filter((member) =>
+    cocokFilter(member, member.plan)
+  )
+  const filterAktif = query.trim() !== '' || planFilter !== 'all'
+
   if (loading) {
     return (
       <AdminLayout>
@@ -72,19 +101,82 @@ const AdminMembers = () => {
         <PageHeader
           eyebrow="kontrol"
           title="Member Management"
-          description="Setujui member baru dan lihat rincian kuota serta kode undangannya."
+          description="Setujui member baru dan lihat rincian kuota serta kode undangannya. Klik “lihat aktivitas” untuk membuka chat, media, dan pembayaran satu user."
         />
+
+        {/* -------------------------------- Filter ------------------------------- */}
+        <GlassPanel className="p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex-1">
+              <label htmlFor="member-search" className="hud mb-1.5 block">
+                cari member
+              </label>
+              <input
+                id="member-search"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="field"
+                placeholder="nama atau email"
+              />
+            </div>
+
+            <div>
+              <p className="hud mb-1.5">paket</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter paket member">
+                {[
+                  { value: 'all', label: 'semua' },
+                  { value: 'free', label: 'free' },
+                  { value: 'paid', label: 'paid' }
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setPlanFilter(option.value)}
+                    aria-pressed={planFilter === option.value}
+                    className={`btn text-xs ${
+                      planFilter === option.value ? 'btn-primary' : 'btn-ghost'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {filterAktif && (
+            <p className="mt-3 text-xs text-slate-500">
+              Menampilkan {filteredPending.length} pending dan {filteredApproved.length}{' '}
+              approved yang cocok.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('')
+                  setPlanFilter('all')
+                }}
+                className="text-cyan-300 hover:text-cyan-200"
+              >
+                Reset filter
+              </button>
+            </p>
+          )}
+        </GlassPanel>
 
         {/* ---------------------------- Menunggu review --------------------------- */}
         <GlassPanel className="overflow-hidden">
           <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] p-5 sm:p-6">
-            <SectionTitle className="mb-0">Pending Members ({pendingMembers.length})</SectionTitle>
-            <span className={`chip ${pendingMembers.length > 0 ? 'chip-warn' : 'chip-ok'}`}>
-              {pendingMembers.length > 0 ? 'perlu tindakan' : 'bersih'}
+            <SectionTitle className="mb-0">Pending Members ({filteredPending.length})</SectionTitle>
+            <span className={`chip ${filteredPending.length > 0 ? 'chip-warn' : 'chip-ok'}`}>
+              {filteredPending.length > 0
+                ? 'perlu tindakan'
+                : filterAktif
+                  ? 'tidak ada hasil'
+                  : 'bersih'}
             </span>
           </div>
 
-          {pendingMembers.length > 0 ? (
+          {filteredPending.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[40rem] text-sm">
                 <thead>
@@ -96,7 +188,7 @@ const AdminMembers = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingMembers.map((member) => (
+                  {filteredPending.map((member) => (
                     <tr
                       key={member._id}
                       className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
@@ -114,7 +206,17 @@ const AdminMembers = () => {
                               {member.displayName?.charAt(0) || '?'}
                             </span>
                           )}
-                          <span className="font-medium text-slate-200">{member.displayName}</span>
+                          <div className="min-w-0">
+                            <span className="font-medium text-slate-200">
+                              {member.displayName}
+                            </span>
+                            <Link
+                              to={`/admin/members/${member.uid}`}
+                              className="mt-0.5 block text-xs text-cyan-300 hover:text-cyan-200"
+                            >
+                              lihat aktivitas →
+                            </Link>
+                          </div>
                         </div>
                       </td>
                       <td className="p-4 text-slate-400">
@@ -181,7 +283,9 @@ const AdminMembers = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <p className="text-sm text-slate-500">No pending members</p>
+              <p className="text-sm text-slate-500">
+                {filterAktif ? 'Tidak ada pending member yang cocok.' : 'No pending members'}
+              </p>
             </div>
           )}
         </GlassPanel>
@@ -190,11 +294,11 @@ const AdminMembers = () => {
         <GlassPanel className="overflow-hidden">
           <div className="border-b border-white/[0.06] p-5 sm:p-6">
             <SectionTitle className="mb-0" hint="Klik ikon QR untuk membagikan kode undangan member.">
-              Approved Members ({approvedMembers.length})
+              Approved Members ({filteredApproved.length})
             </SectionTitle>
           </div>
 
-          {approvedMembers.length > 0 ? (
+          {filteredApproved.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[42rem] text-sm">
                 <thead>
@@ -206,7 +310,7 @@ const AdminMembers = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {approvedMembers.map((member) => (
+                  {filteredApproved.map((member) => (
                     <tr
                       key={member._id}
                       className="border-b border-white/[0.06] transition-colors last:border-0 hover:bg-white/[0.03]"
@@ -224,7 +328,17 @@ const AdminMembers = () => {
                               {member.displayName?.charAt(0) || '?'}
                             </span>
                           )}
-                          <span className="font-medium text-slate-200">{member.displayName}</span>
+                          <div className="min-w-0">
+                            <span className="font-medium text-slate-200">
+                              {member.displayName}
+                            </span>
+                            <Link
+                              to={`/admin/members/${member.uid}`}
+                              className="mt-0.5 block text-xs text-cyan-300 hover:text-cyan-200"
+                            >
+                              lihat aktivitas →
+                            </Link>
+                          </div>
                         </div>
                       </td>
                       <td className="p-4">
@@ -262,7 +376,9 @@ const AdminMembers = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <p className="text-sm text-slate-500">No approved members</p>
+              <p className="text-sm text-slate-500">
+                {filterAktif ? 'Tidak ada approved member yang cocok.' : 'No approved members'}
+              </p>
             </div>
           )}
         </GlassPanel>

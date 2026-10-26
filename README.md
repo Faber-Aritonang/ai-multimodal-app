@@ -426,7 +426,9 @@ dikembalikan dari sini.
 | GET | `/api/v1/admin/approved-members` | List approved members | ✅ Admin |
 | PUT | `/api/v1/admin/approve-member/:uid` | Approve member | ✅ Admin |
 | DELETE | `/api/v1/admin/reject-member/:uid` | Reject member | ✅ Admin |
-| GET | `/api/v1/admin/analytics` | Get analytics | ✅ Admin |
+| GET | `/api/v1/admin/members/:uid` | Rincian satu user: profil, ringkasan pemakaian, sesi chat (20 terbaru), media (50 terbaru), dan seluruh transaksi pembayarannya | ✅ Admin |
+| GET | `/api/v1/admin/payments` | Daftar transaksi semua user — `?q=` (nama/email pemilik), `?status=`, `?limit=` (bawaan 100, maks 200), lengkap dengan pemiliknya + `totalPaid` dari seluruh transaksi berstatus `paid` | ✅ Admin |
+| GET | `/api/v1/admin/analytics` | Statistik aplikasi: user, media per tipe, serta jumlah & nominal transaksi per status (`paymentsByStatus`) | ✅ Admin |
 | GET | `/api/v1/admin/errors` | Galat terakhir (server & frontend) yang tercatat proses ini, lengkap dengan `requestId`-nya | ✅ Admin |
 
 ## Example API Usage
