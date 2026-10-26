@@ -3,7 +3,7 @@
 Catatan keadaan dependency, apa yang menghalangi tiap kenaikan versi, dan apa yang
 harus diverifikasi sebelum menaikkannya.
 
-Bacaan terkait: [`env-produksi-railway.md`](./env-produksi-railway.md) (variabel
+Bacaan terkait: [`env-produksi-render.md`](./env-produksi-render.md) (variabel
 produksi), [`backup-restore.md`](./backup-restore.md) (titik pulih sebelum
 perubahan besar).
 
@@ -95,8 +95,8 @@ dipakai kalau yang berubah sekaligus banyak.
   1. `node-version: '22'` di job `quality` (`.github/workflows/deploy.yml`) dan
      pastikan job `quality` hijau;
   2. tambahkan `"engines": { "node": ">=22" }` di `backend/package.json` supaya
-     versi Node di Railway tidak lagi implisit — lalu **periksa satu deploy**
-     (Railway membaca `engines` lewat Nixpacks, dan itu satu-satunya bagian di
+     versi Node di Render tidak lagi implisit — lalu **periksa satu deploy**
+     (Render membaca `engines` lewat Nixpacks, dan itu satu-satunya bagian di
      sini yang tidak bisa diuji dari lokal);
   3. baru naikkan `firebase-admin`;
   4. uji **login Google secara manual** (Firebase Auth tidak terjangkau unit test,

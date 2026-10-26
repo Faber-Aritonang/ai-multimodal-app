@@ -17,6 +17,7 @@ const path = require('path');
 const { getBuildInfo } = require('../config/buildInfo');
 
 const SHA = '56e1648641c4a7cd9a534f6339742021f319fc7c';
+const SHA_META = 'a73d45fbddb0d8e033cb8c8057ff3617ccee1f99';
 
 const dirSementara = fs.mkdtempSync(path.join(os.tmpdir(), 'build-info-'));
 let berkas;
@@ -32,12 +33,15 @@ const tanpaPenanda = () => {
   process.env.BUILD_META_PATH = berkas;
 };
 
-const env = process.env.RAILWAY_GIT_COMMIT_SHA;
+const envRender = process.env.RENDER_GIT_COMMIT;
+const envRailway = process.env.RAILWAY_GIT_COMMIT_SHA;
 
 afterEach(() => {
   if (berkas && fs.existsSync(berkas)) fs.rmSync(berkas, { force: true });
-  if (env === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA;
-  else process.env.RAILWAY_GIT_COMMIT_SHA = env;
+  if (envRender === undefined) delete process.env.RENDER_GIT_COMMIT;
+  else process.env.RENDER_GIT_COMMIT = envRender;
+  if (envRailway === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA;
+  else process.env.RAILWAY_GIT_COMMIT_SHA = envRailway;
   delete process.env.BUILD_META_PATH;
 });
 
@@ -47,22 +51,33 @@ afterAll(() => {
 
 describe('getBuildInfo', () => {
   test('tanpa sumber apa pun nilainya null, bukan error', () => {
+    delete process.env.RENDER_GIT_COMMIT;
     delete process.env.RAILWAY_GIT_COMMIT_SHA;
     tanpaPenanda();
 
     expect(getBuildInfo()).toEqual({ commit: null, source: null });
   });
 
-  test('RAILWAY_GIT_COMMIT_SHA dipakai lebih dulu karena Railway mengisinya sendiri', () => {
+  test('RENDER_GIT_COMMIT dipakai lebih dulu karena Render mengisinya sendiri', () => {
+    process.env.RENDER_GIT_COMMIT = SHA;
+    // Sumber lain sengaja diisi nilai berbeda: kalau urutannya terbalik,
+    // deployment yang sedang live akan dilaporkan memakai commit yang salah.
+    process.env.RAILWAY_GIT_COMMIT_SHA = SHA_META;
+    tulisPenanda({ commit: SHA_META });
+
+    expect(getBuildInfo()).toEqual({ commit: SHA, source: 'render-git' });
+  });
+
+  test('RAILWAY_GIT_COMMIT_SHA masih dibaca untuk deployment lama', () => {
+    delete process.env.RENDER_GIT_COMMIT;
     process.env.RAILWAY_GIT_COMMIT_SHA = SHA;
-    // Penanda milik jalur `railway up` sengaja diisi nilai lain: kalau urutannya
-    // terbalik, deployment GitHub akan dilaporkan memakai commit yang salah.
-    tulisPenanda({ commit: 'a73d45fbddb0d8e033cb8c8057ff3617ccee1f99' });
+    tulisPenanda({ commit: SHA_META });
 
     expect(getBuildInfo()).toEqual({ commit: SHA, source: 'railway-git' });
   });
 
   test('penanda dari job CI dipakai saat platform tidak mengisinya', () => {
+    delete process.env.RENDER_GIT_COMMIT;
     delete process.env.RAILWAY_GIT_COMMIT_SHA;
     tulisPenanda({ commit: SHA, builtAt: '2026-09-22T09:47:12Z' });
 
@@ -70,9 +85,10 @@ describe('getBuildInfo', () => {
   });
 
   test('SHA huruf besar dinormalkan, supaya pembandingannya tidak bergantung penulisan', () => {
-    // Nilai dari dua sisi pembanding (Railway dan GitHub) harus bisa dibandingkan
-    // sebagai string biasa; SHA hanya case-insensitive secara kebetulan.
-    process.env.RAILWAY_GIT_COMMIT_SHA = SHA.toUpperCase();
+    // Nilai dari dua sisi pembanding (platform dan GitHub) harus bisa
+    // dibandingkan sebagai string biasa; SHA hanya case-insensitive secara kebetulan.
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    process.env.RENDER_GIT_COMMIT = SHA.toUpperCase();
 
     expect(getBuildInfo().commit).toBe(SHA);
   });
@@ -84,6 +100,7 @@ describe('getBuildInfo', () => {
     ['SHA terlalu pendek untuk sebuah commit', JSON.stringify({ commit: 'abc12' })],
     ['penanda tanpa kolom commit', JSON.stringify({ builtAt: '2026-09-22T09:47:12Z' })]
   ])('%s -> commit null', (_nama, isi) => {
+    delete process.env.RENDER_GIT_COMMIT;
     delete process.env.RAILWAY_GIT_COMMIT_SHA;
     if (isi === undefined) tanpaPenanda();
     else tulisPenanda(isi);
@@ -95,7 +112,8 @@ describe('getBuildInfo', () => {
     // Sama seperti perlakuan pada kredensial: nilai contoh dari dokumentasi tidak
     // boleh lolos sebagai konfigurasi yang sah, karena di sini ia akan membuat
     // perbandingan commit selalu tidak cocok.
-    process.env.RAILWAY_GIT_COMMIT_SHA = 'commit-anda-di-sini';
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    process.env.RENDER_GIT_COMMIT = 'commit-anda-di-sini';
     tulisPenanda({ commit: SHA });
 
     expect(getBuildInfo()).toEqual({ commit: SHA, source: 'build-meta' });

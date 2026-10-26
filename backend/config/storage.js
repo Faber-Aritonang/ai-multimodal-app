@@ -1,7 +1,7 @@
 /**
  * Penyimpanan berkas media (gambar hasil generate).
  *
- * Container Railway bersifat sementara: setiap deploy mengganti container dan
+ * Container Render bersifat sementara: setiap deploy mengganti container dan
  * menghapus seluruh isi `/app/uploads`, sehingga gambar yang sudah tersimpan ikut
  * hilang — record-nya tetap ada di database dan muncul di UI sebagai gambar
  * rusak. Berkasnya tidak bisa dipulihkan.
@@ -228,7 +228,7 @@ const cloudinaryCredentialSource = () => {
 /**
  * Variabel Cloudinary yang belum diisi.
  * Nama dikembalikan dalam bentuk variabel lingkungan supaya pesan galatnya tetap
- * menunjuk ke sesuatu yang bisa dicari di dashboard Railway.
+ * menunjuk ke sesuatu yang bisa dicari di dashboard Render.
  */
 const missingCloudinaryVars = () => {
   const kredensial = cloudinaryCredentials();

@@ -88,7 +88,7 @@ const BUILT_IN_PRODUCTION_ORIGINS = [
   'https://maubuatapa.my.id'
 ];
 // Whitelist domain aplikasi selalu aktif, bukan hanya saat NODE_ENV tepat
-// bernilai `production`. Jika variabel NODE_ENV lupa diisi di Railway, domain
+// bernilai `production`. Jika variabel NODE_ENV lupa diisi di Render, domain
 // custom tetap harus bisa login; keamanan tetap terjaga karena hanya hostname
 // milik aplikasi yang ditambahkan, bukan wildcard.
 const allowedOrigins = [...new Set([
@@ -97,7 +97,7 @@ const allowedOrigins = [...new Set([
 ])];
 
 // CORS `origin` menerima daftar string. Whitelist bawaan ini mencegah error
-// jaringan meskipun FRONTEND_URL di Railway masih hanya berisi domain lama.
+// jaringan meskipun FRONTEND_URL di Render masih hanya berisi domain lama.
 
 // Nilai placeholder dari .env.example yang tidak boleh dianggap "sudah dikonfigurasi".
 const PLACEHOLDER_VALUES = new Set([
@@ -137,7 +137,7 @@ app.use(cors({
 }));
 app.use(cookieParser());
 
-// Di produksi backend berjalan di belakang proxy platform (Railway/Vercel).
+// Di produksi backend berjalan di belakang proxy platform (Render/Vercel).
 // Tanpa ini req.ip berisi IP proxy, sehingga SEMUA pengunjung berbagi satu
 // hitungan rate limit dan aplikasi akan menolak diri sendiri dengan 429.
 if (process.env.NODE_ENV === 'production') {
@@ -243,9 +243,9 @@ app.get('/health', (req, res) => {
     // penandanya tidak terbaca, bukan berarti gagal.
     commit: build.commit,
     // Dibedakan karena dua jalur deployment berperilaku sama saat benar tetapi
-    // berbeda saat salah: `railway-git` berarti Railway mengisinya untuk
-    // deployment dari integrasi GitHub, `build-meta` berarti dari penanda yang
-    // ditulis job CI sebelum `railway up`. Hanya dikirim saat nilainya ada, sama
+    // berbeda saat salah: `render-git` berarti Render mengisinya untuk
+    // deployment dari repo GitHub, `build-meta` berarti dari penanda yang
+    // ditulis job CI. Hanya dikirim saat nilainya ada, sama
     // seperti `storageCredentialSource`.
     ...(build.source ? { commitSource: build.source } : {}),
     // Mode penyimpanan dilaporkan SELALU, termasuk di production.
@@ -283,7 +283,7 @@ app.get('/health', (req, res) => {
     // berarti nilai kredensialnya salah, `timeout` berarti providernya tidak
     // menjawab, dan keduanya butuh tindakan yang berbeda. Sebelumnya penyebabnya
     // hanya terbaca dari log server, yang berarti satu-satunya cara mengetahui
-    // kenapa deploy merah adalah membuka dashboard Railway.
+    // kenapa deploy merah adalah membuka dashboard Render.
     ...(hasilPenyimpanan.alasan ? { storageCheckReason: hasilPenyimpanan.alasan } : {})
   };
 
@@ -381,12 +381,12 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await connectDB();
-  // Bind explicitly to all interfaces. Railway's proxy cannot reach a server
+  // Bind explicitly to all interfaces. Render's proxy cannot reach a server
     // bound only to the container loopback interface.
     app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`, { port: Number(PORT) });
     // Dicatat sekali saat boot supaya mode penyimpanan terlihat langsung di log
-    // platform (Railway), bukan harus ditebak dari perilaku aplikasi. Sumber
+    // platform (Render), bukan harus ditebak dari perilaku aplikasi. Sumber
     // kredensialnya ikut dicatat karena "dibaca dari CLOUDINARY_URL" dan
     // "dibaca dari tiga variabel terpisah" adalah dua konfigurasi berbeda yang
     // berperilaku identik saat sudah benar — jadi hanya saat salah baris inilah

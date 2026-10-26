@@ -370,7 +370,7 @@ bergantung pada URL apa pun.
 ### Pencarian web opsional (Exa)
 
 Chat bisa mencari informasi web terbaru per pesan. Isi `EXA_API_KEY` di backend
-(environment lokal `backend/.env`, atau secret Railway); key tidak pernah dikirim
+(environment lokal `backend/.env`, atau Environment service Render); key tidak pernah dikirim
 ke browser. Ambil key melalui [Exa dashboard](https://dashboard.exa.ai) — akun
 baru mendapat kredit awal dan kuota gratis bulanan menurut paket Exa saat ini.
 Di halaman Chat, aktifkan **Search the web** sebelum mengirim pertanyaan. Balasan
@@ -621,7 +621,7 @@ Karena itu **Groq tetap jadi provider utama** dan Gemini idealnya hanya fallback
 
 ## 3d. Penyimpanan media (Cloudinary) — wajib di produksi
 
-Tanpa ini, gambar hasil generate **hilang setiap deploy**. Container Railway
+Tanpa ini, gambar hasil generate **hilang setiap deploy**. Container Render
 memakai filesystem sementara: setiap deploy/restart mengganti container beserta
 isi `/app/uploads`, sedangkan record-nya tetap ada di database — akibatnya UI
 menampilkan gambar rusak (yang terlihat hanya teks `alt`) padahal kuota user
@@ -642,7 +642,7 @@ CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
 ```
 
 3. Isi nilai itu di `backend/.env` (lokal, opsional) **dan** di dashboard
-   Railway → service backend → *Variables* (wajib):
+   Render → service `ai-multimodal-backend` → tab *Environment* (wajib):
 
 ```
 CLOUDINARY_URL=cloudinary://123456789012345:xxxxxxxxxxxxxxxxxxxxxxxxxxx@nama-cloud
@@ -723,7 +723,7 @@ dicabut, atau masih placeholder.
 Isinya sengaja hanya KODE, bukan pesan dari provider, karena pesannya memuat nama
 cloud/bucket dan kolom ini tayang di `/health` publik serta di log CI repo publik.
 Sebelum kolom ini ada, satu-satunya cara mengetahui sebabnya adalah membaca baris
-`Verifikasi penyimpanan:` di log startup Railway.
+`Verifikasi penyimpanan:` di log startup Render.
 
 ### Kalau Cloudinary menjawab `HTTP 401`: mana dari ketiga nilai yang salah?
 
@@ -754,7 +754,7 @@ baris *API Environment variable*, berbentuk
 bukan dari judul halaman.
 
 Yang **bukan** penyebab: spasi atau tanda kutip yang ikut tersalin. Nilai
-variabel di Railway bisa berisi spasi di ujung, tetapi kode sudah memangkasnya
+variabel di Render bisa berisi spasi di ujung, tetapi kode sudah memangkasnya
 (`trimmed()` di `config/storage.js`) sebelum dipakai.
 
 ### Yang perlu diketahui
@@ -1358,7 +1358,7 @@ Langkah di [Google Cloud Console](https://console.cloud.google.com):
 
    Salin **Client ID** (berakhir `.apps.googleusercontent.com`) dan **Client
    secret** (berawalan `GOCSPX-`).
-6. Isi di `backend/.env` (dan variabel yang sama di Railway, lalu restart):
+6. Isi di `backend/.env` (dan variabel yang sama di Environment Render, lalu restart):
 
    ```bash
    COMPOSIO_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
@@ -1501,7 +1501,7 @@ aman dipakai untuk menguji fitur tanpa menunggu setup Google Sign-In.
 | `Quota for imageGeneration exhausted` | Kuota gambar user habis. Admin bisa approve ulang dengan kuota baru, atau ubah `quota.imageGeneration` di MongoDB. |
 | Login berhasil tapi selalu diarahkan ke `/pending-approval` | Akun belum di-approve. Buka `/admin/members` dengan akun admin lalu approve. |
 | CORS error di browser | `FRONTEND_URL` di `backend/.env` harus sama persis dengan origin frontend (termasuk port). |
-| Panel *Google connectors* muncul tapi tombol **Connect** menjawab `503` | Hampir selalu kunci Composio, bukan kode. Jalankan `npm run check:composio` di folder `backend/` (langkah 3h) — hasilnya menyebut **jenis kunci** (dibaca dari awalannya), status HTTP, dan slug penyebabnya. Baris `jenis kunci: ck_ … TIDAK diterima REST API ini` berarti kuncinya diambil dari bagian "FOR YOU" dan harus diganti dengan `ak_…` dari mode PLATFORM. `403 APIKey_InsufficientPermissions` = kunci benar tetapi **read-only**; beri izin write `auth_configs` + `connected_accounts` dan execute `tools` di Settings → API Keys. Ingat juga bahwa kunci yang sudah benar di laptop bisa belum tersimpan benar di Railway. |
+| Panel *Google connectors* muncul tapi tombol **Connect** menjawab `503` | Hampir selalu kunci Composio, bukan kode. Jalankan `npm run check:composio` di folder `backend/` (langkah 3h) — hasilnya menyebut **jenis kunci** (dibaca dari awalannya), status HTTP, dan slug penyebabnya. Baris `jenis kunci: ck_ … TIDAK diterima REST API ini` berarti kuncinya diambil dari bagian "FOR YOU" dan harus diganti dengan `ak_…` dari mode PLATFORM. `403 APIKey_InsufficientPermissions` = kunci benar tetapi **read-only**; beri izin write `auth_configs` + `connected_accounts` dan execute `tools` di Settings → API Keys. Ingat juga bahwa kunci yang sudah benar di laptop bisa belum tersimpan benar di Render. |
 | Pesan `Composio rejected the server configuration…` muncul di panel connector, tetapi daftar toolkit tetap tampil | Memang begitu sejak daftar toolkit dikembalikan sebagai fallback (`backend/controllers/connectorController.js`): gangguan Composio tidak boleh menyembunyikan menunya. Kolom `diagnostic.upstreamStatus` di respons `GET /api/v1/member/connectors` menyebut sebabnya. |
 | Kredensial terlanjur ter-commit ke git | Menghapus berkasnya dari commit berikutnya tidak cukup — isinya tetap bisa dibaca dari riwayat. Kredensial harus **dirotasi di provider**, lihat [`rotasi-kredensial.md`](./rotasi-kredensial.md). |
 

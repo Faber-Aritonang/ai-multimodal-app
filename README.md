@@ -1,6 +1,6 @@
 # AI Multimodal Application
 
-[![Deploy to Railway & Vercel](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml)
+[![Deploy to Render & Vercel](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/Faber-Aritonang/ai-multimodal-app/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Full-stack web application with AI-powered multimodal features: **chat**,
@@ -13,9 +13,9 @@ satu-satunya yang butuh kunci berbayar (lihat
 | | |
 |---|---|
 | 🌐 **Demo (live)** | <https://www.maubuatapa.my.id> |
-| ⚙️ **API produksi** | <https://ai-multimodal-app-production.up.railway.app/health> |
+| ⚙️ **API produksi** | <https://ai-multimodal-backend.onrender.com/health> |
 | 📦 **Repositori** | <https://github.com/Faber-Aritonang/ai-multimodal-app> |
-| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Railway](docs/env-produksi-railway.md) · [backup & restore](docs/backup-restore.md) · [dependensi](docs/dependensi.md) · [rotasi kredensial](docs/rotasi-kredensial.md) · [panduan kontribusi](CONTRIBUTING.md) |
+| 📚 **Dokumentasi** | [setup kredensial](docs/setup-kredensial.md) · [env produksi Render](docs/env-produksi-render.md) · [backup & restore](docs/backup-restore.md) · [dependensi](docs/dependensi.md) · [rotasi kredensial](docs/rotasi-kredensial.md) · [panduan kontribusi](CONTRIBUTING.md) |
 
 > Demo berjalan di atas kuota gratis provider AI, jadi sesekali lambat atau
 > menunggu giliran. Masuk memakai Google Sign-In; member baru menunggu
@@ -65,7 +65,7 @@ satu-satunya yang butuh kunci berbayar (lihat
 | Layer | Technology | Free Tier | Scale-Up Path |
 |-------|------------|-----------|---------------|
 | **Frontend** | React + Vite + TailwindCSS | ✅ Free | Vercel/Netlify |
-| **Backend** | Node.js + Express | ✅ Free | Railway/Render |
+| **Backend** | Node.js + Express | ✅ Free | Render |
 | **Database** | MongoDB Atlas | ✅ 512MB Free | MongoDB Cloud |
 | **Auth** | Firebase Auth | ✅ Free | Firebase Blaze |
 | **Text-to-Image** | Cloudflare Workers AI (FLUX) + Pollinations fallback | ✅ 10.000 Neurons/hari (±65 gambar 1024x1024) | Black Forest Labs / OpenAI |
@@ -649,40 +649,44 @@ inisial nama; hanya `http(s)` dan data URL gambar yang diterima.
 ## Deployment
 
 Deploy produksi berjalan **otomatis dari CI**: satu push ke `main` menjalankan
-test & lint, mengunggah backend lewat `railway up`, memverifikasi `/health`
-produksi, lalu memastikan deployment Vercel untuk commit itu benar-benar naik
+test & lint, memicu deploy backend di Render, memverifikasi `/health` produksi,
+lalu memastikan deployment Vercel untuk commit itu benar-benar naik
 (lihat [Pipeline otomatis](#pipeline-otomatis-githubworkflowsdeployyml)).
 Langkah manual di bawah hanya perlu kalau menargetkan project atau platform lain.
 
-### Backend Deployment (Railway)
+### Backend Deployment (Render)
 
-Cara yang dipakai sekarang: service Railway dihubungkan ke repo ini dengan root
-`backend/`, lalu setiap push ke `main` di-deploy oleh job `Deploy Backend to
-Railway` (butuh secret `RAILWAY_TOKEN`).
+Cara yang dipakai sekarang: Web Service **`ai-multimodal-backend`** di Render
+(region Singapore) terhubung ke repo ini dengan **Root Directory = `backend`**,
+lalu setiap push ke `main` di-deploy oleh job `Deploy Backend to Render` — lewat
+deploy hook `RENDER_DEPLOY_HOOK_URL`, atau lewat *Auto-Deploy* Render bila secret
+itu kosong (pilih salah satu, lihat
+[`docs/secrets-setup.md`](docs/secrets-setup.md)).
 
 Manual:
 
-1. `railway login`, lalu `railway link` ke project tujuan
-2. Isi variabel lingkungan di dashboard Railway — daftar lengkap per variabel,
+1. Buka dashboard Render → service `ai-multimodal-backend` → **Manual Deploy →
+   Deploy latest commit**
+2. Isi variabel lingkungan di tab **Environment** — daftar lengkap per variabel,
    akibatnya kalau salah, dan cara verifikasinya ada di
-   [`docs/env-produksi-railway.md`](docs/env-produksi-railway.md)
-3. `railway up` dari **akar repo**, bukan dari folder `backend/` — service ini
-   memakai `rootDirectory: backend`, sehingga mengunggah direktori `backend`
-   membuat builder mencari `backend/backend` dan deployment gagal dengan
-   `commit=-` tanpa log build
-4. Pastikan `GET /health` menjawab `"status":"OK"`, `"database":"connected"`,
+   [`docs/env-produksi-render.md`](docs/env-produksi-render.md)
+3. Pastikan `GET /health` menjawab `"status":"OK"`, `"database":"connected"`,
    `storageMode` **bukan** `local`, dan `storageCheck` bernilai `ok`. Kalau
    `storageCheck` bernilai `failed`, `storageCheckReason` menyebut sebabnya
    (`HTTP 401` = kredensialnya ditolak, `timeout` = provider tidak menjawab)
+4. Instance **free** tidur saat tidak ada trafik: permintaan pertama setelah
+   lama menganggur butuh ±30-60 detik. Itu normal, bukan tanda deploy gagal
 
 ### Frontend Deployment (Vercel)
 
 1. Import repo ini di [Vercel](https://vercel.com), root directory `frontend/`
 2. Set `VITE_API_URL` ke domain backend produksi
-   (`https://ai-multimodal-app-production.up.railway.app`). Frontend juga memiliki
-   fallback ke URL ini agar domain custom tidak mengirim request API ke
-   route SPA (`/api/...`) yang hanya mengembalikan `index.html`.
-3. Deploy — build berikutnya otomatis dari setiap push ke `main`
+   (`https://ai-multimodal-backend.onrender.com`, tanpa slash di akhir). Frontend
+   juga memiliki fallback ke URL ini agar domain custom tidak mengirim request
+   API ke route SPA (`/api/...`) yang hanya mengembalikan `index.html`.
+3. Deploy — build berikutnya otomatis dari setiap push ke `main`. Mengubah
+   `VITE_API_URL` **wajib diikuti Redeploy**, karena `VITE_*` hanya dibaca saat
+   build
 
 ### Environment Variables for Production
 
@@ -726,11 +730,11 @@ CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
 
 > Daftar lengkap per variabel — mana yang wajib, akibatnya kalau salah, dan
 > perintah untuk memverifikasinya di produksi — ada di
-> [`docs/env-produksi-railway.md`](docs/env-produksi-railway.md).
+> [`docs/env-produksi-render.md`](docs/env-produksi-render.md).
 
 **Frontend**: Set in Vercel dashboard:
 ```
-VITE_API_URL=https://ai-multimodal-app-production.up.railway.app
+VITE_API_URL=https://ai-multimodal-backend.onrender.com
 VITE_FIREBASE_API_KEY=...
 VITE_FIREBASE_AUTH_DOMAIN=...
 VITE_FIREBASE_PROJECT_ID=...
@@ -745,16 +749,16 @@ VITE_FIREBASE_APP_ID=...
 > | Wajib ada | Di mana | Akibat kalau hilang |
 > |---|---|---|
 > | domain utama `www.maubuatapa.my.id` di **Authorized domains** | Firebase Console → Authentication → Settings | tombol Google gagal: `auth/unauthorized-domain` |
-> | **Root Directory = `backend`** | Railway → service → Settings → Source | deployment `FAILED` dalam ~10 detik (RAILPACK mencari `package.json` di akar repo) |
+> | **Root Directory = `backend`** | Render → service → Settings | build `FAILED` dalam hitungan detik (builder mencari `package.json` di akar repo) |
 > | aturan **`rewrites` ke `/index.html`** | `frontend/vercel.json` | beranda terbuka, tetapi tiap tautan langsung (`/login`, `/tools/…`) dijawab 404 |
 >
-> Selain itu `FRONTEND_URL` di Railway harus memuat semua hostname frontend yang
+> Selain itu `FRONTEND_URL` di Render harus memuat semua hostname frontend yang
 > sedang dipakai: `https://ai-multimodal-app.vercel.app,https://maubuatapa.my.id,https://www.maubuatapa.my.id`.
 > Kalau tidak, browser memblokir panggilan API sebagai CORS. Domain custom adalah
 > alamat demo utama; domain Vercel tetap dicantumkan sebagai alias deployment.
 >
 > **Berkas `/uploads` harus boleh dimuat lintas origin.** Karena frontend
-> (Vercel) dan backend (Railway) adalah dua origin berbeda, `helmet()` yang
+> (Vercel) dan backend (Render) adalah dua origin berbeda, `helmet()` yang
 > menyetel `Cross-Origin-Resource-Policy: same-origin` membuat browser menolak
 > gambar dengan `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` — hasil generate tampil
 > rusak (hanya teks `alt`) padahal permintaannya 200 dan berkasnya ada. Mount
@@ -787,7 +791,7 @@ VITE_FIREBASE_APP_ID=...
 
 ### Penyimpanan media
 
-Container Railway memakai filesystem **sementara**: setiap deploy (dan setiap
+Container Render memakai filesystem **sementara**: setiap deploy (dan setiap
 restart) mengganti container beserta seluruh isi `/app/uploads`. Tanpa object
 storage, gambar hasil generate hilang pada deploy berikutnya — catatannya tetap
 ada di database, jadi UI menampilkan gambar rusak dan kuota user sudah terpakai.
@@ -854,13 +858,13 @@ Setiap push ke `main` menjalankan tiga job:
 
 1. **quality** — unit test backend + lint & build frontend. Tidak butuh secret;
    kalau gagal, deploy tidak dijalankan.
-2. **deploy-backend** — `railway up` lewat **Railway CLI**, dijalankan dari
-   **akar repo** sehingga konteks unggahannya sama dengan konteks deployment
-   GitHub (subfolder `backend/` terbentuk benar). Job ini juga **memeriksa
-   kredensialnya lebih dulu** (menyebut project/service yang sebenarnya dipegang)
-   dan **memverifikasi produksi setelahnya**: database, penyimpanan,
-   kredensialnya, dan **commit yang benar-benar berjalan** — supaya "deploy
-   selesai" tidak lagi bisa berarti "kode lama masih live".
+2. **deploy-backend** — memicu deploy Render lewat deploy hook (atau membiarkan
+   *Auto-Deploy* Render yang memulainya, bila secret hook kosong), lalu
+   **memverifikasi produksi**: database, penyimpanan, kredensialnya, dan
+   **commit yang benar-benar berjalan** — supaya "deploy selesai" tidak lagi
+   bisa berarti "kode lama masih live". Job gagal setelah 15 menit kalau commit
+   yang di-push tidak pernah muncul di `/health` (build gagal, tertahan, atau
+   deploy tidak pernah dipicu).
 3. **deploy-frontend** — **memverifikasi** deployment Vercel untuk commit yang
    di-push lewat REST API: menunggu sampai `READY`, gagal kalau `ERROR` atau
    lewat 10 menit, lalu memastikan `/`, `/login`, dan `/tools/text-to-image`
@@ -880,37 +884,35 @@ Setiap push ke `main` menjalankan tiga job:
 > `frontend/frontend` lalu gagal dengan *"The provided path ... does not
 > exist"*.
 
-> **Penting juga (Railway):** service `ai-multimodal-app` terhubung ke repo GitHub
-> ini, sedangkan aplikasi backend ada di subfolder `backend`. Tanpa **Root
-> Directory** yang diisi, builder RAILPACK mencari `package.json` di akar repo,
-> tidak menemukannya, lalu deployment berhenti sekitar 10 detik dengan status
-> `FAILED` dan log build yang cuma berisi *scheduling build* — pesan yang tidak
-> menunjukkan penyebabnya. Setel **Settings → Source → Root Directory =
-> `backend`**. Semua deployment gagal dari `27d209e` sampai `56e571c` berasal
-> dari sebab ini, bukan dari kode aplikasi. Deployment pertama yang benar-benar
-> menjalankan server adalah yang `rootDirectory: backend` (`SUCCESS`).
+> **Penting juga (Render):** service `ai-multimodal-backend` terhubung ke repo
+> GitHub ini, sedangkan aplikasi backend ada di subfolder `backend`. Tanpa
+> **Root Directory** yang diisi, builder mencari `package.json` di akar repo,
+> tidak menemukannya, lalu build berhenti dengan status `FAILED` dan log yang
+> tidak menunjukkan penyebabnya. Setel **Settings → Build & Deploy → Root
+> Directory = `backend`**. Kegagalan yang sama pernah terjadi di platform
+> sebelumnya dari `27d209e` sampai `56e571c` — bukan dari kode aplikasi.
 
-Service yang sama juga **auto-deploy dari GitHub** setiap ada push ke `main`
-(`repoTriggers` aktif), jadi job `deploy-backend` bersifat pelengkap — bukan
-satu-satunya jalur deploy.
+Render juga bisa **auto-deploy dari GitHub** setiap ada push ke `main`. Karena
+itu pilih **satu** pemicu: isi `RENDER_DEPLOY_HOOK_URL` dan matikan Auto-Deploy
+(direkomendasikan, supaya deploy pasti berjalan untuk commit itu), atau biarkan
+Auto-Deploy menyala dan biarkan secret hook kosong. Kalau keduanya aktif,
+setiap push menghasilkan dua build untuk commit yang sama.
 
-Keduanya memakai CLI resmi, bukan action pihak ketiga: workflow lama memakai
-`railway/railway-github-action` (repositori action-nya sudah tidak ada) dan
-`amondnet/vercel-action@v30` (tag itu tidak pernah ada), sehingga setiap push
-gagal di langkah *Set up job* — bukan karena kode aplikasi.
+Workflow memakai endpoint resmi (deploy hook Render, REST API Vercel), bukan
+action pihak ketiga: workflow lama memakai `railway/railway-github-action`
+(repositori action-nya sudah tidak ada) dan `amondnet/vercel-action@v30` (tag
+itu tidak pernah ada), sehingga setiap push gagal di langkah *Set up job* —
+bukan karena kode aplikasi.
 
-Secret yang wajib ada di repo (**Settings → Secrets and variables → Actions**):
+Secret yang dipakai workflow (**Settings → Secrets and variables → Actions**):
 
 | Secret | Dipakai untuk |
 |---|---|
-| `RAILWAY_TOKEN` | token project Railway (bukan token akun) |
-| `RAILWAY_PROJECT_ID` | project Railway tujuan |
-| `RAILWAY_SERVICE` | opsional — nama service Railway bila bukan `ai-multimodal-app` |
+| `RENDER_DEPLOY_HOOK_URL` | opsional — URL Deploy Hook service Render (lihat "satu pemicu" di atas) |
 | `VERCEL_TOKEN` | token Vercel |
-| `VERCEL_ORG_ID` | org/team Vercel |
 | `VERCEL_PROJECT_ID` | project Vercel (frontend) |
 
-Deploy bisa dijalankan manual lewat **Actions → Deploy to Railway & Vercel →
+Deploy bisa dijalankan manual lewat **Actions → Deploy to Render & Vercel →
 Run workflow** (lihat input `deploy_backend` / `deploy_frontend`).
 
 ## Architecture
@@ -1076,7 +1078,7 @@ ai-multimodal-app/
   dan 5 high. Penghalangnya bukan sekadar versi: v14 mensyaratkan **Node >=22**
   sedangkan `.github/workflows/deploy.yml` dipin ke Node 20, dan
   `backend/package.json` belum punya field `engines` sehingga versi Node di
-  Railway bersifat implisit — naik tanpa itu berisiko gagal saat runtime di
+  Render bersifat implisit — naik tanpa itu berisiko gagal saat runtime di
   produksi, bukan saat build. Urutannya: pin Node 22 di CI → tambah `engines` →
   baru naikkan paketnya, lalu **uji login Google secara manual** (Firebase Auth
   tidak terjangkau unit test).

@@ -60,7 +60,7 @@ const NAME_RULES = [
   },
   {
     nama: 'berkas token',
-    cocok: (p) => /(^|\/)\.?railway-token/i.test(p)
+    cocok: (p) => /(^|\/)\.?(railway|render)-token/i.test(p)
   }
 ];
 

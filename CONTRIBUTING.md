@@ -126,7 +126,7 @@ Lingkup dalam tanda kurung bersifat opsional (`chat`, `media`, `backend`,
   browser memakai `fetch`/`WebSocket` bawaan Node tanpa paket tambahan.
 - **Dokumentasi ikut diperbarui** kalau env berubah: `backend/.env.example`,
   bagian yang relevan di `README.md`, `docs/setup-kredensial.md`, dan
-  `docs/env-produksi-railway.md`.
+  `docs/env-produksi-render.md`.
 
 ## Jangan pernah commit rahasia
 
@@ -138,7 +138,7 @@ Repo ini **publik**. Yang di-track hanya `backend/.env.example`.
 - Jangan mencetak nilai rahasia ke log. `/health` hanya melaporkan status
   `configured`/`missing`, dan blok detail provider hanya muncul di luar
   production.
-- Kredensial produksi diisi di dashboard platform (Railway/Vercel), bukan di
+- Kredensial produksi diisi di dashboard platform (Render/Vercel), bukan di
   repo.
 
 Aturan tertulis saja pernah tidak cukup di repo ini: `backend/.env.save.1` sempat

@@ -8,7 +8,7 @@
  * Kenapa ada: kegagalan connector Google di aplikasi hanya muncul sebagai
  * `503` + pesan umum di browser, dan penyebabnya (kunci dicabut, izin kurang,
  * kredensial tidak sampai ke container) baru ketahuan setelah membuka log
- * Railway. Skrip ini menanyakan hal yang sama langsung ke Composio dari mesin
+ * Render. Skrip ini menanyakan hal yang sama langsung ke Composio dari mesin
  * tempat kuncinya diisi, jadi jawabannya bisa dibaca sebelum deploy.
  *
  * Skrip TIDAK mencetak nilai kunci. Yang dicetak hanya panjangnya dan empat

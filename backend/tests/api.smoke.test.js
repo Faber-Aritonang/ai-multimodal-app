@@ -59,7 +59,7 @@ describe('GET /health', () => {
   test('commit yang berjalan dilaporkan, termasuk di production', async () => {
     const asli = process.env.NODE_ENV;
     const sha = '56e1648641c4a7cd9a534f6339742021f319fc7c';
-    process.env.RAILWAY_GIT_COMMIT_SHA = sha;
+    process.env.RENDER_GIT_COMMIT = sha;
 
     try {
       // Di production blok `services` disembunyikan, jadi kalau penanda commit
@@ -69,10 +69,10 @@ describe('GET /health', () => {
       const produksi = await request(app).get('/health');
 
       expect(produksi.body.commit).toBe(sha);
-      expect(produksi.body.commitSource).toBe('railway-git');
+      expect(produksi.body.commitSource).toBe('render-git');
       expect(produksi.body.services).toBeUndefined();
     } finally {
-      delete process.env.RAILWAY_GIT_COMMIT_SHA;
+      delete process.env.RENDER_GIT_COMMIT;
       if (asli === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = asli;
     }
@@ -362,7 +362,7 @@ describe('GET /health', () => {
         videoReady: false,
         // Tanpa kredensial penyimpanan apa pun, berkas disimpan lokal. Di produksi
         // nilainya harus `cloudinary` atau `s3`, karena filesystem container
-        // Railway hilang tiap deploy.
+        // filesystem container hilang tiap deploy.
         storage: {
           mode: 'local',
           bucket: null,

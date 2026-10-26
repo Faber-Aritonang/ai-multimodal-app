@@ -14,7 +14,7 @@
  *
  * Bentuk berkasnya dipilih karena alatnya tidak selalu tersedia:
  *   - `mongodump`/`mongorestore` adalah cara lazim, tetapi biner-nya tidak ada
- *     di mesin developer maupun di CI, dan memasangnya di Railway tidak masuk
+ *     di mesin developer maupun di CI, dan memasangnya di server produksi tidak masuk
  *     akal. Pendekatan berbasis Node bisa dijalankan di mana saja repo ini bisa
  *     dijalankan (dan di job GitHub Actions mana pun), tanpa memasang apa pun.
  *   - Satu berkas NDJSON per koleksi (satu dokumen per baris) supaya bisa

@@ -9,7 +9,7 @@
  *   2. beberapa galat terakhir disimpan di memori proses ini supaya bisa dilihat
  *      SEKARANG, tanpa membuka panel log, lewat GET /api/v1/admin/errors.
  *
- * Kenapa perlu nomor 2 kalau log sudah ada: log Railway hanya menyimpan riwayat
+ * Kenapa perlu nomor 2 kalau log sudah ada: log Render hanya menyimpan riwayat
  * dan tidak bisa ditanyai "galat apa saja yang terjadi sejak deploy terakhir".
  * Pertanyaan itu yang paling sering muncul saat deploy baru terlihat bermasalah,
  * dan jawabannya harus bisa dibaca dalam hitungan detik.

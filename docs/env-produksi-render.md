@@ -1,7 +1,11 @@
-# Variabel Env Produksi (Railway) & Cara Verifikasinya
+# Variabel Env Produksi (Render) & Cara Verifikasinya
 
-Service: **`ai-multimodal-app`** · Environment: **`production`** · URL:
-`https://ai-multimodal-app-production.up.railway.app`
+Service: **`ai-multimodal-backend`** (Web Service, region Singapore) · URL:
+`https://ai-multimodal-backend.onrender.com`
+
+Frontend berjalan di Vercel dan memanggil backend ini lewat `VITE_API_URL`.
+Nilai variabel diisi di **Render → service `ai-multimodal-backend` → tab
+Environment**; mengubahnya memicu deploy ulang otomatis.
 
 Dokumen ini menjawab dua hal: **apa yang wajib diisi**, dan **bagaimana
 membuktikan bahwa nilainya benar-benar aktif** — bukan sekadar "build hijau".
@@ -134,30 +138,31 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `ERROR_LOG_SIZE` | `50` | berapa banyak galat terakhir yang disimpan di memori proses untuk `GET /api/v1/admin/errors`. Restart/deploy mengosongkannya, dan itu memang yang diinginkan |
 | `CLIENT_ERROR_WINDOW_MS` / `CLIENT_ERROR_LIMIT_MAX` | 60 detik / 30 | batas laporan galat dari browser (`POST /api/v1/client-errors`, publik) per alamat IP |
 | `UPLOAD_DIR` | `uploads` | lokasi berkas sementara (mode `local`) |
-| `PORT` | diisi Railway | jangan diubah manual |
+| `PORT` | diisi Render | jangan diubah manual |
 | Model per provider | lihat `backend/.env.example` | `GROQ_CHAT_MODEL`, `GEMINI_CHAT_MODEL`, `CLOUDFLARE_IMAGE_MODEL`, `CLOUDFLARE_EDIT_MODEL`, `POLLINATIONS_MODEL`, `BYNARA_IMAGE_MODEL`, `OPENAI_*` |
 
 ---
 
 ## D. Kalau nilai variabel harus diganti (rotasi)
 
-Mengganti nilai di Railway **memicu deploy ulang otomatis** untuk service itu,
-jadi tidak perlu men-deploy ulang secara manual. Untuk rotasi API key, urutan
-"terbitkan baru → pasang → verifikasi → cabut yang lama" membuat peralihan
-berjalan tanpa downtime; `JWT_SECRET` tidak bisa begitu karena token hanya punya
-satu penandatangan (semua sesi lama langsung mati).
+Mengganti nilai di dashboard Render **memicu deploy ulang otomatis** untuk
+service itu, jadi tidak perlu men-deploy ulang secara manual. Untuk rotasi API
+key, urutan "terbitkan baru → pasang → verifikasi → cabut yang lama" membuat
+peralihan berjalan tanpa downtime; `JWT_SECRET` tidak bisa begitu karena token
+hanya punya satu penandatangan (semua sesi lama langsung mati).
 
-```bash
-# Ganti satu variabel lalu tunggu deploy selesai. Nilai lewat stdin supaya tidak
-# masuk ke daftar argumen proses maupun riwayat shell.
-openssl rand -base64 32 | railway variable set JWT_SECRET --stdin \
-  --service ai-multimodal-app --environment production --project "$PROJECT"
-```
+**Lewat dashboard:** Render → service `ai-multimodal-backend` → tab
+**Environment** → **Edit** pada variabel → **Save Changes**. Nilai baru tidak
+pernah masuk riwayat shell.
 
-> `railway variable list --json` mencetak **nilai** setiap variabel, bukan hanya
-> namanya — jangan dijalankan di CI atau di terminal yang output-nya disimpan.
-> Untuk memeriksa apakah sebuah key sudah terbaca proses tanpa membocorkan
-> isinya, pakai log startup Railway (lihat bagian provider chat di bawah).
+**Lewat API** (bila beberapa variabel sekaligus): lihat
+[`rotasi-kredensial.md` bagian D](./rotasi-kredensial.md#d-memasang-nilai-baru-di-render).
+
+> `GET /v1/services/{id}/env-vars` di API Render mengembalikan **nilai** setiap
+> variabel, bukan hanya namanya — jangan dijalankan di CI atau di terminal yang
+> output-nya disimpan. Untuk memeriksa apakah sebuah key sudah terbaca proses
+> tanpa membocorkan isinya, pakai log startup Render (lihat bagian provider chat
+> di bawah).
 
 Langkah lengkap per kredensial (termasuk dari mana tiap kunci diambil, cara
 verifikasinya, dan cara memastikan kunci lama benar-benar mati) ada di
@@ -170,7 +175,7 @@ verifikasinya, dan cara memastikan kunci lama benar-benar mati) ada di
 Jalankan dari mesin mana pun (tidak ada nilai rahasia yang tercetak):
 
 ```bash
-B=https://ai-multimodal-app-production.up.railway.app
+B=https://ai-multimodal-backend.onrender.com
 
 # 1. Backend hidup + database + penyimpanan + kredensial penyimpanannya
 curl -s $B/health
@@ -208,9 +213,10 @@ curl -s -D - -o /dev/null -H 'Origin: https://situs-asing.example' $B/health \
 #    ditolak (benar)
 ```
 
-Hasil keempat perintah di atas terakhir diukur **17 September 2026** dan
-semuanya sesuai harapan. Setelah mengubah variabel di Railway, tunggu deploy
-ulang selesai baru jalankan verifikasi ini.
+Setelah mengubah variabel di Render, tunggu deploy ulang selesai baru jalankan
+verifikasi ini. Instance **free** tidur setelah tidak ada trafik: permintaan
+pertama bisa butuh ±30-60 detik, jadi jangan menyimpulkan backend mati dari satu
+`curl` yang timeout.
 
 ### Gejala → penyebab
 
@@ -222,12 +228,12 @@ ulang selesai baru jalankan verifikasi ini.
 | Generate gambar selalu gagal padahal `/health` bilang `cloudinary` | `storageCheck` bernilai `failed`: kredensialnya terisi tetapi **ditolak provider** (salah salin, sudah dicabut, atau placeholder). Sebabnya dibaca dari `storageCheckReason` di `/health`: `HTTP 401`/`403` = nilainya salah, `timeout` = provider tidak menjawab. **Kalau 401-nya dari Cloudinary:** `api_key` dan `api_secret` biasanya sudah benar — yang salah `CLOUDINARY_CLOUD_NAME`. Cara tercepat menghilangkan seluruh kelas kesalahan ini: pakai satu nilai `CLOUDINARY_URL`, lalu pastikan `storageCredentialSource` di `/health` bernilai `url`. Langkahnya ada di `docs/setup-kredensial.md`. |
 | Banyak user kena 429 bersamaan | `NODE_ENV` bukan `production` → hitungan rate limit memakai IP proxy |
 | `POST /auth/dev-login` menjawab 200 | `NODE_ENV` belum `production` — **segera perbaiki**, ini membuka pembuatan token tanpa login |
-| User melaporkan `Image generation failed. Please try again.` padahal tidak ada gambar yang tersimpan | sejak pemeriksaan penyimpanan ditambahkan, **kegagalan konfigurasi penyimpanan tidak lagi memakai pesan itu**: user menerima `503` berisi `Media storage is not configured correctly on the server … Retrying will not help`. Kalau pesan "coba lagi" masih muncul, penyebabnya bukan konfigurasi penyimpanan — cek record berstatus `failed` di koleksi media dan baris `Text-to-image error:` di log Railway. |
+| User melaporkan `Image generation failed. Please try again.` padahal tidak ada gambar yang tersimpan | sejak pemeriksaan penyimpanan ditambahkan, **kegagalan konfigurasi penyimpanan tidak lagi memakai pesan itu**: user menerima `503` berisi `Media storage is not configured correctly on the server … Retrying will not help`. Kalau pesan "coba lagi" masih muncul, penyebabnya bukan konfigurasi penyimpanan —  cek record berstatus `failed` di koleksi media dan baris `Text-to-image error:` di log Render. |
 | Chat: `AI service temporarily unavailable` | tidak ada satu pun key provider chat yang valid |
-| Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Railway (`openrouter=missing` berarti variabelnya belum sampai ke service) |
+| Chat: balasan bilang cadangannya cuma dua provider, padahal `OPENROUTER_API_KEY` sudah diisi | key-nya belum terbaca proses — cek baris `Provider chat:` di log startup Render (`openrouter=missing` berarti variabelnya belum sampai ke service) |
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
 | Semua user tiba-tiba diminta login ulang, token lama menjawab 401 | `JWT_SECRET` baru saja dirotasi. Ini perilaku yang benar — token lama memang tidak lagi ditandatangani oleh secret yang aktif. |
-| Setelah mengganti API key, fitur masih memakai key lama | deploy ulang belum selesai, atau key dipasang di service/environment yang bukan `ai-multimodal-app`/`production`. Cek baris `Provider chat:` di log startup. |
+| Setelah mengganti API key, fitur masih memakai key lama | deploy ulang belum selesai, atau key dipasang di service Render yang lain. Cek baris `Provider chat:` di log startup. |
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
 
@@ -245,7 +251,7 @@ lewat:
 
 1. **badge provider di UI chat** — setiap balasan menyimpan dan menampilkan
    provider yang benar-benar menjawab (`via groq`, `via openrouter`, …); atau
-2. **log startup Railway** (Deploy Logs / service logs), yang mencetak rantai
+2. **log startup Render** (tab *Logs* service), yang mencetak rantai
    dan status tiap key tepat di bawah baris mode penyimpanan:
 
    ```
@@ -272,8 +278,9 @@ melayani user". Dua jalur deploy membawa penandanya dengan cara berbeda:
 
 | `commitSource` | Dari mana nilainya |
 |---|---|
-| `railway-git` | Railway mengisi `RAILWAY_GIT_COMMIT_SHA` untuk deployment yang berasal dari **integrasi GitHub** (setiap push ke `main`) |
-| `build-meta` | dari `backend/build-meta.json` yang ditulis job CI tepat sebelum `railway up` — jalur CLI mengunggah direktori lokal, jadi tidak ada metadata git yang bisa dibaca |
+| `render-git` | Render mengisi `RENDER_GIT_COMMIT` untuk deployment yang berasal dari repo GitHub (setiap push ke `main`, termasuk yang dipicu deploy hook) |
+| `railway-git` | deployment lama yang masih dilayani Railway; `RAILWAY_GIT_COMMIT_SHA` tetap dibaca supaya tidak tiba-tiba berubah jadi `null` |
+| `build-meta` | dari `backend/build-meta.json` yang ditulis job CI untuk platform yang mengunggah direktori lokal (tidak ada metadata git yang bisa dibaca) |
 
 `commit: null` berarti tidak ada satu pun sumber yang terbaca (mis. deployment
 dibangun dari mesin lokal tanpa penanda). Ini bukan kegagalan: job deploy hanya
@@ -282,9 +289,9 @@ nilainya ada tetapi berbeda dari commit yang baru di-push — karena itu berarti
 deploy-nya belum selesai atau kode lama yang masih live.
 
 ```bash
-curl -s https://ai-multimodal-app-production.up.railway.app/health | python3 -m json.tool | grep -E '"commit"|"commitSource"'
+curl -s https://ai-multimodal-backend.onrender.com/health | python3 -m json.tool | grep -E '"commit"|"commitSource"'
 #    "commit": "56e1648641c4a7cd9a534f6339742021f319fc7c",
-#    "commitSource": "railway-git",
+#    "commitSource": "render-git",
 #
 # Cocokkan dengan commit yang seharusnya live:
 #    git rev-parse HEAD

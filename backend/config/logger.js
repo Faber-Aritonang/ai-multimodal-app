@@ -5,7 +5,7 @@
  * akses HTTP dan `console.log`/`console.error` berisi kalimat bebas. Dua
  * masalahnya nyata dan sudah pernah menyulitkan:
  *
- *   1. Di produksi (Railway) log dibaca sebagai baris JSON oleh panel log.
+ *   1. Di produksi (Render) log dibaca sebagai baris JSON oleh panel log.
  *      Kalimat bebas tidak punya kolom, jadi "error dari user mana, endpoint
  *      mana, pada request yang mana" hanya bisa dicocokkan dengan mata.
  *   2. Tidak ada penghubung antara satu request dan galat yang ditimbulkannya.
@@ -43,7 +43,7 @@
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
 
 // Nama service ikut di tiap baris supaya log dari beberapa service (mis.
-// backend Railway + job lain) bisa dibedakan setelah dikumpulkan jadi satu.
+// backend Render + job lain) bisa dibedakan setelah dikumpulkan jadi satu.
 const SERVICE = String(process.env.SERVICE_NAME || '').trim() || 'ai-multimodal-backend';
 
 // Batas panjang untuk nilai yang bisa datang dari luar (pesan galat dari

@@ -4,7 +4,7 @@
  * sehingga server tetap bisa start walau kredensial belum diisi.
  *
  * Mendukung dua format FIREBASE_SERVICE_ACCOUNT:
- *   1. JSON string langsung (produksi, mis. Railway secret):
+ *   1. JSON string langsung (produksi, mis. environment variable Render):
  *      FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
  *   2. Path ke file service account (lokal):
  *      FIREBASE_SERVICE_ACCOUNT=./config/firebase-service-account.json

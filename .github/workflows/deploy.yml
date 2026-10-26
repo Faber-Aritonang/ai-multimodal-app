@@ -1,8 +1,9 @@
-name: Deploy to Railway & Vercel
+name: Deploy to Render & Vercel
 
-# Deploy memakai CLI resmi (Railway CLI & Vercel CLI), BUKAN action pihak ketiga.
+# Deploy backend memakai deploy hook Render; frontend diverifikasi lewat REST API
+# Vercel. Keduanya memakai endpoint resmi, BUKAN action pihak ketiga.
 #
-# Alasannya konkret: workflow sebelumnya memakai `railway/railway-github-action`
+# Alasannya konkret: workflow lama memakai `railway/railway-github-action`
 # (repositori action-nya sudah tidak ada sehingga job gagal di langkah "Set up
 # job") dan `amondnet/vercel-action@v30` (tag v30 tidak pernah ada; rilisnya
 # melompat ke v42). Keduanya bukan soal kode aplikasi, tapi referensi action yang
@@ -10,9 +11,6 @@ name: Deploy to Railway & Vercel
 #
 # Catatan: repo ini publik, jadi log run juga publik. Verifikasi pasca-deploy di
 # bawah hanya membaca `/health` (tidak pernah mencetak nilai rahasia apa pun).
-#
-# Uji ulang referensi versi: `npm view @railway/cli version` dan
-# `npm view vercel version`.
 
 on:
   push:
@@ -30,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_backend:
-        description: 'Deploy Backend to Railway'
+        description: 'Deploy Backend to Render'
         required: false
         default: 'true'
       deploy_frontend:
@@ -53,15 +51,9 @@ permissions:
   contents: read
 
 env:
-  # Dipin ke major version agar tidak berubah sendiri.
-  RAILWAY_CLI_VERSION: '5'
-  RAILWAY_ENVIRONMENT: 'production'
-  # Nama service Railway. Nilainya bukan tebakan: project tujuan hanya punya
-  # satu service, bernama "ai-multimodal-app". Bisa diganti tanpa mengubah
-  # workflow dengan menambah secret RAILWAY_SERVICE.
-  RAILWAY_SERVICE_DEFAULT: 'ai-multimodal-app'
-  # URL publik backend produksi, dipakai langkah verifikasi pasca-deploy.
-  PUBLIC_BACKEND_URL: 'https://ai-multimodal-app-production.up.railway.app'
+  # URL publik backend produksi (service Render `ai-multimodal-backend`), dipakai
+  # langkah verifikasi pasca-deploy.
+  PUBLIC_BACKEND_URL: 'https://ai-multimodal-backend.onrender.com'
 
 jobs:
   # Quality gate: unit test backend + lint & build frontend.
@@ -121,12 +113,25 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-  # Deploy Backend ke Railway.
+  # Deploy Backend ke Render.
   #
-  # `railway up` mengunggah direktori backend dan membangunnya di Railway
-  # (Nixpacks mendeteksi Node dari package.json), jadi tidak perlu memasang
-  # dependency di runner. Tanpa `--detach`, perintah ini menunggu build selesai
-  # dan gagal kalau build-nya gagal — itu yang membuat status job jujur.
+  # Service Render `ai-multimodal-backend` terhubung ke repo ini dengan
+  # **Root Directory = `backend`**, jadi deploy-nya tidak mengunggah apa pun dari
+  # runner: yang dikirim hanyalah pemicu, Render yang menarik commit dari GitHub
+  # dan membangunnya (Nixpacks mendeteksi Node dari package.json).
+  #
+  # Dua jalur pemicu, dan **hanya salah satu** yang boleh aktif:
+  #   - secret `RENDER_DEPLOY_HOOK_URL` diisi  -> job ini memanggil hook-nya;
+  #     matikan *Auto-Deploy* di Render supaya tidak ada dua build per commit.
+  #   - secret kosong                          -> Render diandalkan pada
+  #     *Auto-Deploy* dari GitHub (default-nya aktif).
+  # Kalau keduanya aktif, setiap push menghasilkan dua deployment untuk commit
+  # yang sama; job tetap hijau, tetapi build gratisnya terbuang.
+  #
+  # Status job ini jujur karena langkah verifikasi di bawah menuntut `/health`
+  # produksi melaporkan commit yang baru di-push. Build yang gagal di Render
+  # berarti commit-nya tidak pernah muncul, dan job ikut gagal setelah batas
+  # waktu — bukan hijau karena "perintah deploy-nya selesai".
   deploy-backend:
     needs: quality
     # Hanya pada push ke main, atau saat dijalankan manual dengan input-nya
@@ -134,173 +139,56 @@ jobs:
     # 'true'`) supaya penambahan event baru di masa depan tidak tanpa sengaja
     # ikut men-deploy.
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_backend == 'true')
-    name: Deploy Backend to Railway
+    name: Deploy Backend to Render
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-      # Opsional: diisi hanya kalau nama service-nya bukan default di atas.
-      RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
+      # PUBLIC_BACKEND_URL diwarisi dari env workflow di atas.
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Pastikan kredensial tersedia
+      - name: Picu deploy Render
         run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "::error::Secret RAILWAY_TOKEN belum diisi di repo ini."
-            exit 1
-          fi
-          if [ -z "$RAILWAY_PROJECT_ID" ]; then
-            echo "::error::Secret RAILWAY_PROJECT_ID belum diisi di repo ini."
-            exit 1
-          fi
-
-      - name: Install Railway CLI
-        run: npm install --global "@railway/cli@${RAILWAY_CLI_VERSION}"
-
-      # PENTING — `railway up` dijalankan dari AKAR repo, bukan dari `backend/`.
-      # Service Railway menetapkan `rootDirectory: backend`, dan builder
-      # menggabungkannya dengan konteks unggahan: mengunggah direktori `backend`
-      # membuat builder mencari `backend/backend` lalu gagal (deployment
-      # `FAILED` dengan `commit=-`, tanpa log build yang menjelaskan sebabnya).
-      # Dari akar repo, konteks unggahan sama dengan konteks deployment GitHub,
-      # sehingga `backend/` terbentuk benar.
-      # Kegagalan yang pernah terjadi: `railway up` berhenti dengan
-      # `Service 'ai-multimodal-app' not found`. Penyebabnya BUKAN kode, melainkan
-      # nilai secret — dan ada DUA sebab yang menghasilkan pesan identik:
-      # `RAILWAY_PROJECT_ID` menunjuk project yang tidak memuat service backend
-      # (di akun ini hanya satu dari dua project yang punya service itu), atau
-      # `RAILWAY_TOKEN` adalah token PROJECT milik project lain — token project
-      # hanya berlaku pada project tempat ia dibuat dan tidak mengenal project lain
-      # sama sekali. Keduanya mengulang di setiap push tanpa menjelaskan apa pun.
-      #
-      # Karena itu output `railway up` direkam: kalau pesannya memang "not found",
-      # job ini mencetak langkah perbaikannya (tanpa mencetak nilai secret — GitHub
-      # sudah menyamarkan secret di log, dan URI/log Railway tidak memuat
-      # kredensial).
-      #
-      # Step di bawah memisahkan kedua sebab itu LEBIH DULU, dengan membandingkan
-      # daftar project yang benar-benar bisa dibaca token terhadap id project dan
-      # nama service yang dipakai.
-      #
-      # Langkah ini hanya MELAPORKAN: langkah deploy tetap penilainya, dan
-      # `continue-on-error` menjaga agar diagnosa yang gagal tidak ikut
-      # menggagalkan job. Yang dicetak hanya NAMA project dan service, tidak pernah
-      # nilai token. Pesan pentingnya dinaikkan jadi anotasi job supaya terbaca
-      # dari halaman commit tanpa membuka log.
-      - name: Kenali kredensial Railway
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          echo "Target: project=$RAILWAY_PROJECT_ID service=${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
-
-          if ! railway list --json > /tmp/projects.json 2>/tmp/projects.err; then
-            echo "::warning::Token Railway ini tidak bisa membaca daftar project."
-            sed -n '1,5p' /tmp/projects.err | sed 's/^/    /'
-            echo "    Daftar project hanya bisa dibaca token AKUN. Token PROJECT (dibuat dari"
-            echo "    Project Settings -> Tokens) tidak mengenal project lain, sehingga nama"
-            echo "    service yang benar pun bisa dijawab 'Service ... not found'."
+          if [ -z "${RENDER_DEPLOY_HOOK_URL:-}" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK_URL kosong - mengandalkan Auto-Deploy Render dari GitHub."
+            echo "           Kalau Auto-Deploy dimatikan di dashboard Render, deploy TIDAK akan berjalan"
+            echo "           dan langkah verifikasi di bawah akan gagal karena commit baru tidak pernah live."
             exit 0
           fi
 
-          RAILWAY_TARGET_PROJECT="$RAILWAY_PROJECT_ID" \
-          RAILWAY_TARGET_SERVICE="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}" \
+          # Deploy hook adalah URL rahasia: jangan pernah mencetaknya, termasuk
+          # saat curl gagal. Hanya status HTTP-nya yang dilaporkan.
+          kode=$(curl -sS -o /tmp/render-hook.json -w '%{http_code}' -X POST "$RENDER_DEPLOY_HOOK_URL")
+          echo "Render menerima permintaan deploy (HTTP $kode)."
+
+          if [ "$kode" != "200" ] && [ "$kode" != "201" ] && [ "$kode" != "202" ]; then
+            echo "::error::Deploy hook Render menolak permintaan (HTTP $kode)."
+            echo "Periksa Settings -> Deploy Hook di service Render, lalu perbarui secret RENDER_DEPLOY_HOOK_URL."
+            exit 1
+          fi
+
+          # `deployId`/`id` tidak wajib ada pada semua bentuk respons; kalau ada,
+          # mencatatnya membuat deploy ini bisa dicari di halaman Events Render.
           python3 - <<'PY'
           import json
-          import os
 
-          projects = json.load(open("/tmp/projects.json"))
-          target = os.environ["RAILWAY_TARGET_PROJECT"]
-          service = os.environ["RAILWAY_TARGET_SERVICE"]
+          try:
+              isi = json.load(open("/tmp/render-hook.json"))
+          except Exception:
+              raise SystemExit(0)
 
-          def services(project):
-              return [e["node"]["name"] for e in (project.get("services") or {}).get("edges", [])]
-
-          print("Project yang terlihat token ini:")
-          for p in projects:
-              daftar = ", ".join(services(p)) or "(tanpa service)"
-              print(f"  - {p['name']} [{p['id']}] -> {daftar}")
-
-          ditunjuk = next((p for p in projects if p["id"] == target), None)
-          if ditunjuk is None:
-              print(
-                  "::error::RAILWAY_PROJECT_ID tidak ada di daftar project yang bisa dibaca "
-                  "token ini — periksa juga environment-nya."
-              )
-          elif service in services(ditunjuk):
-              print(f"::notice::Kredensial cocok: project {ditunjuk['name']} memuat service {service}.")
-          else:
-              print(f"::error::Project {ditunjuk['name']} tidak memuat service {service}.")
-              pemilik = [p for p in projects if service in services(p)]
-              if pemilik:
-                  for p in pemilik:
-                      print(f"RAILWAY_PROJECT_ID untuk service {service} adalah {p['id']} (project {p['name']}).")
-              else:
-                  print(f"Token ini tidak melihat satu pun project yang memuat service {service}.")
+          deploy = isi.get("deploy") if isinstance(isi, dict) else None
+          id_deploy = (deploy or isi).get("id") if isinstance(deploy or isi, dict) else None
+          if id_deploy:
+              print(f"Deploy id: {id_deploy}")
           PY
-
-      - name: Deploy ke Railway
-        working-directory: .
-        run: |
-          set -o pipefail
-          service="${RAILWAY_SERVICE:-$RAILWAY_SERVICE_DEFAULT}"
-          echo "Target: service=$service environment=$RAILWAY_ENVIRONMENT"
-
-          # Penanda build. `railway up` mengunggah direktori lokal dan tidak
-          # membawa metadata git, sehingga Railway TIDAK mengisi
-          # RAILWAY_GIT_COMMIT_SHA untuk deployment hasil CLI. Tanpa penanda ini,
-          # `/health` tidak bisa membedakan kode baru dari kode lama, dan langkah
-          # verifikasi kehilangan pembandingnya.
-          #
-          # Berkasnya sengaja TIDAK masuk `.gitignore`: `railway up` menghormati
-          # `.gitignore` (lihat flag `--no-gitignore` di CLI-nya), jadi berkas yang
-          # di-ignore justru hilang dari unggahan. Karena itu ia ditulis di sini,
-          # dihapus lagi setelah unggahan selesai (`trap`), dan tidak pernah
-          # ter-commit.
-          meta="backend/build-meta.json"
-          printf '{"commit": "%s", "builtAt": "%s"}\n' \
-            "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$meta"
-          trap 'rm -f "$meta"' EXIT
-
-          if railway up \
-            --project "$RAILWAY_PROJECT_ID" \
-            --service "$service" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --ci 2>&1 | tee /tmp/railway-up.log; then
-            exit 0
-          fi
-
-          if grep -q "not found" /tmp/railway-up.log; then
-            echo "::error::Service '$service' tidak ada di project yang ditunjuk RAILWAY_PROJECT_ID."
-            cat <<'PESAN'
-          Perbaiki secret di Settings -> Secrets and variables -> Actions:
-            RAILWAY_PROJECT_ID : id project yang BENAR-BENAR memuat service backend.
-                                 Ambil dengan `railway list --json` (kolom `id`,
-                                 lihat juga daftar `services` tiap project).
-                                 Project produksi aplikasi ini bernama
-                                 `truthful-imagination`; di akun ini HANYA project
-                                 itu yang memuat service `ai-multimodal-app`.
-                                 Project `vibrant-victory` memuat service lain
-                                 (`pretty-connection`) dan tidak akan cocok.
-            RAILWAY_SERVICE    : diisi HANYA kalau nama service backend bukan
-                                 `ai-multimodal-app`.
-            RAILWAY_TOKEN      : harus token untuk project yang sama; token project
-                                 hanya berlaku pada satu project.
-          Setelah diperbaiki, jalankan ulang: Actions -> Deploy to Railway & Vercel
-          -> Run workflow.
-          PESAN
-          else
-            echo "::error::railway up gagal - lihat log di atas (bukan masalah nama service)."
-          fi
-
-          exit 1
 
       # Verifikasi produksi, bukan sekadar "build sukses".
       #
       # Kegagalan nyata yang pernah terjadi: ketiga variabel CLOUDINARY_* tidak
-      # pernah benar-benar tersimpan di service Railway, sehingga produksi
+      # pernah benar-benar tersimpan di service backend, sehingga produksi
       # diam-diam memakai mode penyimpanan `local` — container menulis gambar ke
       # filesystem sementara, dan SETIAP deploy berikutnya menghapus riwayat
       # gambar user tanpa satu pun error. Build tetap hijau, aplikasi tetap
@@ -324,8 +212,8 @@ jobs:
       # LAMA yang tetap live. Seluruh pemeriksaan di atas membaca kolom yang sama
       # benarnya di kode lama maupun baru, jadi deployment yang gagal — sementara
       # kode lama terus melayani user — tetap terlihat hijau. Karena itu `/health`
-      # melaporkan commit yang sedang berjalan, dan langkah ini menuntut nilainya
-      # sama dengan commit yang baru di-push.
+      # melaporkan commit yang sedang berjalan (`RENDER_GIT_COMMIT`), dan langkah
+      # ini menuntut nilainya sama dengan commit yang baru di-push.
       #
       # Langkah ini tidak mencetak nilai rahasia: `/health` sengaja hanya
       # mengirim satu kata per kolom plus KODE galat (`HTTP 401`, `timeout`),
@@ -341,7 +229,11 @@ jobs:
           import urllib.request
 
           url = os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + "/health"
-          batas = time.time() + 300
+          # Instance Render free tidur saat tidak ada trafik dan butuh ~30-60 detik
+          # untuk bangun, lalu build + swap container memakan beberapa menit lagi.
+          # Batas 15 menit memberi ruang untuk keduanya tanpa membuat job
+          # menggantung tanpa akhir.
+          batas = time.time() + 900
           terakhir = None
           diharapkan = (os.environ.get("GITHUB_SHA") or "").strip().lower()
 
@@ -370,7 +262,8 @@ jobs:
               time.sleep(15)
 
           if not terakhir or terakhir.get("status") != "OK" or terakhir.get("database") != "connected":
-              print("::error::Produksi tidak melaporkan status OK + database connected dalam 5 menit.")
+              print("::error::Produksi tidak melaporkan status OK + database connected dalam 15 menit.")
+              print("         Buka dashboard Render -> service ai-multimodal-backend -> Logs.")
               sys.exit(1)
 
           mode = terakhir.get("storageMode")
@@ -382,8 +275,8 @@ jobs:
               print(
                   "::error::Produksi memakai mode penyimpanan 'local': gambar user akan "
                   "hilang pada deploy berikutnya. Isi CLOUDINARY_CLOUD_NAME, "
-                  "CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET di service Railway, "
-                  "lalu pastikan tidak ada variabel STORAGE_PROVIDER yang menimpanya."
+                  "CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET di Environment service "
+                  "Render, lalu pastikan tidak ada variabel STORAGE_PROVIDER yang menimpanya."
               )
               sys.exit(1)
           else:
@@ -397,15 +290,15 @@ jobs:
               # ikut dilaporkan: `HTTP 401/403` berarti nilainya salah,
               # `timeout` berarti providernya tidak menjawab. Sebelum kolom ini
               # ada, satu-satunya cara mengetahui sebabnya adalah membuka
-              # dashboard Railway dan membaca log startup.
+              # dashboard platform dan membaca log startup.
               sebab = terakhir.get("storageCheckReason", "tidak dilaporkan")
               print(
                   "::error::Kredensial penyimpanan ditolak provider: mode "
                   f"'{mode}' terkonfigurasi, tetapi pemeriksaannya gagal "
                   f"({sebab}), sehingga SETIAP generate gambar akan ditolak. "
-                  "Periksa ulang nilai CLOUDINARY_* (atau S3_*) di service Railway "
-                  "dan pastikan disalin utuh tanpa tanda kutip atau spasi ikut "
-                  "terbawa."
+                  "Periksa ulang nilai CLOUDINARY_* (atau S3_*) di Environment "
+                  "service Render dan pastikan disalin utuh tanpa tanda kutip "
+                  "atau spasi ikut terbawa."
               )
               sys.exit(1)
           elif check is None:
@@ -415,7 +308,7 @@ jobs:
               )
           elif check == "pending":
               print(
-                  "::warning::Pemeriksaan kredensial penyimpanan belum selesai dalam 5 menit. "
+                  "::warning::Pemeriksaan kredensial penyimpanan belum selesai dalam 15 menit. "
                   "Jalankan ulang verifikasi ini setelah deploy berikutnya."
               )
           else:
@@ -445,7 +338,7 @@ jobs:
               print(
                   f"::error::Produksi menjalankan commit {berjalan[:7]}, bukan {diharapkan[:7]} "
                   "yang baru di-push — deploy-nya belum selesai, gagal, atau diambil alih "
-                  "deployment lain. Periksa Deploy Logs di Railway."
+                  "deployment lain. Periksa Events/Logs di dashboard Render."
               )
               sys.exit(1)
           else:
@@ -593,4 +486,3 @@ jobs:
 
               time.sleep(15)
           PY
-

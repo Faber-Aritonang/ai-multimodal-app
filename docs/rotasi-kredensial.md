@@ -5,7 +5,7 @@ Dokumen ini adalah daftar langkah untuk mengganti kredensial yang ter-commit di
 **tidak bisa "dibatalkan"** — selama kredensial di dalamnya belum dirotasi, isi
 repo sudah cukup untuk memakai layanan berbayar/akun atas nama pemiliknya.
 
-Bacaan terkait: [`env-produksi-railway.md`](./env-produksi-railway.md) (variabel
+Bacaan terkait: [`env-produksi-render.md`](./env-produksi-render.md) (variabel
 produksi), [`setup-kredensial.md`](./setup-kredensial.md) (setup lokal),
 [`secrets-setup.md`](./secrets-setup.md) (secret GitHub Actions).
 
@@ -101,7 +101,7 @@ Service itu punya 24 variabel; 21 nama dari berkas bocor dicocokkan satu per sat
 | `FIREBASE_SERVICE_ACCOUNT` | BEDA | tidak perlu diganti ✅ |
 | `FRONTEND_URL`, `NODE_ENV` | BEDA | bukan rahasia |
 | `OPENROUTER_API_KEY` | **SAMA** | satu-satunya nilai bocor yang masih terpasang — lihat di bawah |
-| 14 nama lain (lihat catatan) | tidak ada di Railway | sebagian punya akibat fungsional |
+| 14 nama lain (lihat catatan) | tidak ada di produksi | sebagian punya akibat fungsional |
 
 **`OPENROUTER_API_KEY` adalah satu-satunya yang masih cocok**, dan kuncinya sudah
 mati — diuji ulang: `401 User not found`. Jadi tidak ada paparan, tetapi ada dua
@@ -109,7 +109,7 @@ akibat yang perlu diketahui: cadangan chat OpenRouter tidak pernah bekerja, dan
 menggantinya dengan kunci baru akan memulihkannya. Membiarkannya berarti chat
 hanya punya jalur Groq.
 
-**14 nama yang tidak ada di Railway, per akibarnya:**
+**14 nama yang tidak ada di produksi, per akibarnya:**
 
 - `GEMINI_API_KEY` — dipakai `config/chatProviders.js`. Tidak ada di produksi
   berarti cadangan chat **Gemini memang tidak tersedia**.
@@ -130,16 +130,16 @@ Catatan penting dari tabel di atas:
   **Hasil ukur 21 September 2026:** token yang ditandatangani dengan nilai dari
   berkas ini **ditolak** oleh produksi
   (`GET /api/v1/member/profile` → `401 Invalid token`), yang berarti
-  `JWT_SECRET` di Railway sudah **bukan** nilai bocor ini. Jadi lubang "siapa
+  `JWT_SECRET` di Render sudah **bukan** nilai bocor ini. Jadi lubang "siapa
   pun bisa membuat token" sedang tidak terbuka di produksi. Tetap pastikan
-  lewat tab Variables, karena nilai yang sama bisa saja dipakai di environment
+  lewat tab Environment, karena nilai yang sama bisa saja dipakai di environment
   lain (mis. `.env` lokal yang dipakai bersama).
 - **`MONGODB_URI` yang bocor adalah database lokal**, bukan Atlas. Tidak ada
   password di dalamnya, jadi tidak ada yang perlu dirotasi. Tapi wajib
-  dipastikan: nilai `MONGODB_URI` di service Railway **bukan** string yang sama.
+  dipastikan: nilai `MONGODB_URI` di service Render **bukan** string yang sama.
   Nilai yang bocor berbentuk `mongodb://localhost…` tanpa `user:password`,
   sedangkan produksi harus `mongodb+srv://…@…mongodb.net`. Periksa lewat
-  Railway → service `ai-multimodal-app` → tab **Variables** (tidak perlu CLI).
+  Render → service `ai-multimodal-backend` → tab **Environment** (tidak perlu CLI).
   Kalau ternyata sama, ganti password user Atlas lewat langkah C5.
 - **`FIREBASE_SERVICE_ACCOUNT` aman.** Yang ter-commit adalah *path*-nya, bukan
   kuncinya, dan berkas `backend/config/firebase-service-account.json` sendiri
@@ -151,7 +151,7 @@ Catatan penting dari tabel di atas:
 > menyatakan repo ini publik. Kalau benar, kredensial di atas sudah bisa dibaca
 > publik sejak **2026-09-21 01:04**, termasuk oleh bot yang memindai GitHub.
 > Terapkan kecepatan rotasi sesuai asumsi itu, bukan menganggapnya internal.
-> Secret GitHub Actions (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, dst.) **tidak** ikut
+> Secret GitHub Actions (`RENDER_DEPLOY_HOOK_URL`, `VERCEL_TOKEN`, dst.) **tidak** ikut
 > bocor — GitHub menyimpan secret tetap terenkripsi, dan nilainya memang tidak
 > pernah ditulis di berkas ini.
 
@@ -162,7 +162,7 @@ Catatan penting dari tabel di atas:
 Untuk API key (Groq, Gemini, Cloudflare) ada cara yang **tanpa downtime**:
 
 1. **Terbitkan kunci baru** di dashboard provider. Jangan cabut yang lama dulu.
-2. **Pasang kunci baru di Railway** untuk service `ai-multimodal-app` →
+2. **Pasang kunci baru di Render** untuk service `ai-multimodal-backend` →
    variabel yang diubah memicu deploy ulang otomatis.
 3. **Verifikasi** fitur terkait benar-benar memakai kunci baru (bagian E).
 4. **Baru cabut kunci lama** di provider. Kunci lama boleh hidup beberapa
@@ -186,14 +186,14 @@ proses karena key Groq dan Gemini dicabut bersamaan.
 Tidak ada dashboard untuk ini — nilainya dibuat sendiri.
 
 ```bash
-# 1. Buat nilai baru dan langsung pasang tanpa pernah mencetaknya.
-#    Nilai lewat stdin, jadi tidak masuk ke daftar argumen proses maupun
-#    riwayat shell.
-openssl rand -base64 32 | railway variable set JWT_SECRET --stdin \
-  --service ai-multimodal-app --environment production --project "$PROJECT"
-
-# 2. Tunggu deploy ulang selesai, lalu verifikasi (bagian E)
+# 1. Buat nilai baru tanpa mencetaknya ke riwayat shell.
+openssl rand -base64 32
 ```
+
+2. Render → service **`ai-multimodal-backend`** → tab **Environment** →
+   `JWT_SECRET` → **Edit** → tempel nilai baru → **Save**. Render langsung
+   men-deploy ulang service itu.
+3. Tunggu deploy selesai, lalu verifikasi (bagian E).
 
 Efek samping yang harus diumumkan ke pengguna: **semua sesi lama langsung
 ditolak**, semua orang login ulang. Token lama akan menjawab `401`.
@@ -207,9 +207,9 @@ terbuka.
 1. Buat kunci baru **sebelum** menghapus yang lama, supaya tidak ada masa
    produksi tidak punya key chat. Buka **console.groq.com** → *API Keys* →
    **Create API Key**. Beri nama yang
-   menunjukkan asalnya (mis. `railway-prod-2026-09`) supaya rotasi berikutnya
+   menunjukkan asalnya (mis. `render-prod-2026-09`) supaya rotasi berikutnya
    mudah ditelusuri.
-2. Pasang di Railway (bagian D).
+2. Pasang di Render (bagian D).
 3. Verifikasi: kirim satu pesan di UI chat, pastikan badge-nya `via groq`.
 4. Setelah verifikasi hijau, **hapus kunci lama** di console.groq.com.
 
@@ -218,12 +218,12 @@ terbuka.
 > **Status terukur: nilai di berkas bocor tidak valid** (401 saat diuji), jadi
 > tidak ada kunci yang perlu dicabut untuk nilai ini. Langkah di bawah tetap
 > berguna kalau Gemini ingin dipakai sebagai cadangan — pastikan saja kunci yang
-> terpasang di Railway bukan kunci yang gagal itu.
+> terpasang di Render bukan kunci yang gagal itu.
 
 1. Buka **aistudio.google.com/apikey** → **Create API key**.
-2. Pasang di Railway (bagian D).
+2. Pasang di Render (bagian D).
 3. Verifikasi: badge `via gemini` muncul saat Groq sengaja dilewati (mis. set
-   `CHAT_PROVIDER=gemini` sementara), atau lihat log startup Railway.
+   `CHAT_PROVIDER=gemini` sementara), atau lihat log startup Render.
 4. Hapus kunci lama di AI Studio.
 
 > Nilai `GEMINI_API_KEY` di berkas bocor **tidak berhasil diautentikasi** (401),
@@ -248,7 +248,7 @@ Kredensial ini dipakai fitur text-to-image dan image-to-image (model FLUX.2
    = hapus lalu buat baru.
 3. **Create Token** → izin minimum yang dibutuhkan (Workers AI / akun yang
    relevan). Beri masa berlaku (*TTL*) bila tersedia.
-4. Pasang `CLOUDFLARE_API_TOKEN` baru di Railway. `CLOUDFLARE_ACCOUNT_ID` tidak
+4. Pasang `CLOUDFLARE_API_TOKEN` baru di Render. `CLOUDFLARE_ACCOUNT_ID` tidak
    perlu diganti — ambil ulang dari halaman akun kalau lupa, itu bukan rahasia.
 5. Verifikasi: generate 1 gambar, lalu 1 image-to-image. Metadata hasil
    menampilkan provider yang dipakai (harus `cloudflare`, bukan `pollinations`).
@@ -261,7 +261,7 @@ berkas lain yang ikut ter-commit, rotasinya:
 
 1. MongoDB Atlas → *Database Access* → user yang dipakai aplikasi →
    **Edit** → **Edit Password** / *Generate new password*.
-2. Perbarui `MONGODB_URI` di Railway dengan password baru (ingat: karakter
+2. Perbarui `MONGODB_URI` di Render dengan password baru (ingat: karakter
    spesial harus di-URL-encode, `@` → `%40`).
 3. Verifikasi: `/health` harus menjawab `"database":"connected"`.
 
@@ -292,72 +292,74 @@ git log --all --full-history --name-only --pretty=format: | sort -u | grep -iE '
 ### C8. `OPENROUTER_API_KEY` — tidak ada yang perlu dilakukan
 
 Kunci ini sempat terlewat dari inventaris karena posisinya di tengah baris
-(bagian A), jadi pastikan dulu bahwa yang ada di Railway bukan nilai ini. Kalau
+(bagian A), jadi pastikan dulu bahwa yang ada di Render bukan nilai ini. Kalau
 ternyata sama: kuncinya sekarang menjawab `401 User not found`, artinya tidak
 bisa dipakai siapa pun — termasuk aplikasi Anda. Bukan lubang keamanan, tapi
 berarti cadangan chat OpenRouter memang tidak pernah aktif, dan dokumen
-`OPENROUTER_CHAT_MODEL` di `docs/env-produksi-railway.md` patut dicurigai belum
+`OPENROUTER_CHAT_MODEL` di `docs/env-produksi-render.md` patut dicurigai belum
 pernah terpakai.
 
 Kalau ingin OpenRouter benar-benar berfungsi sebagai cadangan, buat kunci baru
 di **openrouter.ai/keys**, pasang sebagai `OPENROUTER_API_KEY`, lalu cek baris
-`Provider chat:` di log startup Railway: harus muncul `openrouter=configured`.
+`Provider chat:` di log startup Render: harus muncul `openrouter=configured`.
 
 ---
 
-## D. Memasang nilai baru di Railway
+## D. Memasang nilai baru di Render
 
-Service: **`ai-multimodal-app`** · Environment: **`production`**.
-Mengubah variabel memicu deploy ulang otomatis.
+Service: **`ai-multimodal-backend`** (region Singapore) · Environment:
+**production**. Mengubah variabel memicu deploy ulang otomatis.
 
 ### Lewat dashboard (paling aman)
 
-Railway → project → service `ai-multimodal-app` → tab **Variables** → ubah
-nilainya → tunggu deploy selesai di tab *Deployments*.
+Render → service `ai-multimodal-backend` → tab **Environment** → **Edit** pada
+variabel yang diganti → **Save Changes** → tunggu deploy selesai di tab
+*Events* / *Logs*.
 
-### Lewat CLI (bisa disalin-tempel, enak untuk beberapa kunci sekaligus)
+### Lewat API (enak untuk beberapa kunci sekaligus)
+
+Render tidak punya CLI resmi untuk mengubah environment variable 1 per 1;
+yang tersedia adalah REST API. Buat API key di **Account Settings → API Keys**,
+lalu:
 
 ```bash
-npm install --global @railway/cli        # versi yang diuji: 5.58.0
+export RENDER_API_KEY='…'          # jangan tempel ke chat/issue
+export RENDER_SERVICE_ID='srv-dbe530vf3r2c73co8350'
 
-# Autentikasi non-interaktif. Ambil project token dari
-# Railway → Project Settings → Tokens. Jangan tempel token ini ke chat/issue.
-export RAILWAY_TOKEN='…'
-PROJECT='<RAILWAY_PROJECT_ID>'
-SERVICE=ai-multimodal-app
-ENV=production
+# Ganti JWT_SECRET. Nilai dibaca dari file sementara yang langsung dihapus,
+# supaya tidak masuk ke daftar argumen proses maupun riwayat shell.
+openssl rand -base64 32 > /tmp/jwt
+python3 - <<'PY'
+import json, os, urllib.request
 
-# Ganti satu per satu. Nilai dibaca dari stdin sehingga tidak pernah masuk ke
-# daftar argumen proses maupun riwayat shell.
-openssl rand -base64 32 | railway variable set JWT_SECRET \
-  --stdin --service "$SERVICE" --environment "$ENV" --project "$PROJECT"
-
-printf '%s' 'gsk_…' | railway variable set GROQ_API_KEY \
-  --stdin --service "$SERVICE" --environment "$ENV" --project "$PROJECT"
-
-printf '%s' '…' | railway variable set GEMINI_API_KEY \
-  --stdin --service "$SERVICE" --environment "$ENV" --project "$PROJECT"
-
-printf '%s' '…' | railway variable set CLOUDFLARE_API_TOKEN \
-  --stdin --service "$SERVICE" --environment "$ENV" --project "$PROJECT"
+jwt = open('/tmp/jwt').read().strip()
+req = urllib.request.Request(
+    f"https://api.render.com/v1/services/{os.environ['RENDER_SERVICE_ID']}/env-vars",
+    method='PUT',
+    headers={
+        'Authorization': f"Bearer {os.environ['RENDER_API_KEY']}",
+        'Content-Type': 'application/json',
+    },
+    data=json.dumps([{'key': 'JWT_SECRET', 'value': jwt}]).encode(),
+)
+with urllib.request.urlopen(req, timeout=30) as r:
+    print('status', r.status)
+PY
+rm -f /tmp/jwt
 ```
 
-Bentuk `railway variables --set KEY=value` yang lama masih jalan tetapi sudah
-ditandai *legacy* di CLI 5.x; `railway variable set KEY --stdin` adalah bentuk
-sekarang. Cek `railway variable set --help` di versi Anda kalau flag-nya berbeda.
-
-> **Hati-hati:** `railway variable list --json` mencetak **nilai** semua
+> **Hati-hati:** `GET /v1/services/{id}/env-vars` mengembalikan **nilai** setiap
 > variabel, bukan hanya namanya. Jangan dijalankan di terminal yang di-log, di
 > CI, atau di sesi yang output-nya ditempel ke mana pun. Untuk memeriksa *apakah*
 > sebuah variabel sudah terpasang tanpa membocorkan isinya, cek log startup
-> Railway (bagian E) — di sana hanya tercetak `configured`/`missing`.
+> Render (bagian E) — di sana hanya tercetak `configured`/`missing`.
 
 ---
 
 ## E. Verifikasi setelah rotasi
 
 ```bash
-B=https://ai-multimodal-app-production.up.railway.app
+B=https://ai-multimodal-backend.onrender.com
 
 # 1. Backend hidup, database tersambung, penyimpanan bukan "local"
 curl -s $B/health
@@ -379,7 +381,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $B/api/v1/auth/dev-login -d '{}
 ```
 
 Lalu di UI: login ulang, kirim 1 pesan chat, dan generate 1 gambar. Log startup
-Railway menegaskan kunci mana yang sudah terbaca proses tanpa mencetak isinya:
+Render menegaskan kunci mana yang sudah terbaca proses tanpa mencetak isinya:
 
 ```
 Penyimpanan media: mode=cloudinary
@@ -437,9 +439,8 @@ kebocoran lain:
 
 | Kredensial | Lokasi | Cara rotasi |
 |---|---|---|
-| `RAILWAY_TOKEN`, `RAILWAY_PROJECT_ID` | GitHub → Settings → Secrets and variables → Actions | Railway → Project Settings → Tokens → buat token baru, hapus lama |
+| `RENDER_DEPLOY_HOOK_URL` | GitHub → Settings → Secrets and variables → Actions | Render → service → Settings → **Deploy Hook** → buat yang baru, lalu hapus yang lama (URL lama langsung mati) |
 | `VERCEL_TOKEN`, `VERCEL_PROJECT_ID` | GitHub → Secrets and variables → Actions | Vercel → Settings → Tokens → buat, lalu hapus lama |
-| `RAILWAY_SERVICE` (opsional) | GitHub → Secrets and variables → Actions | bukan rahasia; hanya nama service |
 
 Berkas yang memakainya: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
 
@@ -447,13 +448,13 @@ Berkas yang memakainya: [`.github/workflows/deploy.yml`](../.github/workflows/de
 
 ## H. Checklist
 
-- [ ] **`GROQ_API_KEY`** (satu-satunya lubang yang masih terbuka): kunci baru dipasang di Railway → chat diverifikasi `via groq` → kunci lama **dicabut di console.groq.com**
+- [ ] **`GROQ_API_KEY`** (satu-satunya lubang yang masih terbuka): kunci baru dipasang di Render → chat diverifikasi `via groq` → kunci lama **dicabut di console.groq.com**
 - [x] Dipastikan `OPENROUTER_API_KEY` di produksi **masih** nilai bocor (dibandingkan langsung, 21 Sep 2026). Nilainya `401 User not found`, jadi tidak ada paparan — tetapi cadangan chat OpenRouter tetap mati sampai kuncinya diganti
-- [ ] Diganti `OPENROUTER_API_KEY` di Railway dengan kunci baru (atau dihapus, kalau memang tidak dipakai) supaya cadangan chat hidup lagi
-- [ ] Dipastikan `GEMINI_API_KEY` di Railway bukan nilai bocor (nilai itu tidak berhasil diautentikasi, jadi kalau itu yang terpasang, Gemini memang tidak pernah jalan)
+- [ ] Diganti `OPENROUTER_API_KEY` di Render dengan kunci baru (atau dihapus, kalau memang tidak dipakai) supaya cadangan chat hidup lagi
+- [ ] Dipastikan `GEMINI_API_KEY` di Render bukan nilai bocor (nilai itu tidak berhasil diautentikasi, jadi kalau itu yang terpasang, Gemini memang tidak pernah jalan)
 - [ ] Tidak ada token asing yang masih aktif di halaman API Tokens Cloudflare
-- [ ] `JWT_SECRET` diperiksa di tab Variables, dan diganti **hanya kalau** nilainya masih sama dengan yang bocor (kalau diganti: semua user login ulang)
-- [ ] Dipastikan `MONGODB_URI` di Railway bukan URI lokal yang bocor
+- [ ] `JWT_SECRET` diperiksa di tab Environment, dan diganti **hanya kalau** nilainya masih sama dengan yang bocor (kalau diganti: semua user login ulang)
+- [ ] Dipastikan `MONGODB_URI` di Render bukan URI lokal yang bocor
 - [ ] Dipastikan `backend/config/firebase-service-account.json` tidak ter-track
 - [x] Berkas bocor dilepas dari tracking (`git rm --cached`)
 - [x] Salinan lokal `.env.save.1` dihapus

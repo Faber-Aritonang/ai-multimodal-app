@@ -12,7 +12,7 @@
  * berkas yang sama, jadi keduanya tidak bisa menyimpang soal bentuk data.
  *
  * Kenapa tidak `mongodump`: biner itu tidak ada di mesin developer maupun di
- * runner CI repo ini, dan memasangnya di Railway tidak masuk akal. Lihat catatan
+ * runner CI repo ini, dan memasangnya di server produksi tidak masuk akal. Lihat catatan
  * lengkap di config/backup.js.
  *
  * Catatan operasional:
