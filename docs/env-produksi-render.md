@@ -119,6 +119,8 @@ pernah muncul, supaya mudah dicocokkan saat produksi bermasalah.
 | `VIDEO_PROVIDER` | `bynara` (satu-satunya) | provider text-to-video/image-to-video; `none` mematikan fiturnya |
 | `VIDEO_FALLBACK_PROVIDER` | `none` | belum ada provider video kedua yang terpasang |
 | `BYNARA_VIDEO_MODEL` | `agnes-video-v2.0` | alias model video NaraRouter. Mode (`t2v`/`i2v`) dikirim sebagai field terpisah, bukan akhiran nama model |
+| `BYNARA_VIDEO_BASE_URL` | `https://api-images.bynara.id/v1` | base API video. Rute status (`GET /v1/videos/{id}`) **tidak** dilayani host ini, jadi permintaan yang menjawab 404 otomatis dicoba ke `https://router.bynara.id/v1` (lihat catatan di bawah). Isi hanya kalau penyedia memindahkan Anda ke host lain; base tanpa `/v1` ditambahi sendiri oleh kode |
+| `BYNARA_VIDEO_DOWNLOAD_BASE_URL` | `https://api-images.bynara.id` | host pengunduhan MP4; host kedua (`router.bynara.id`) dicoba lebih dulu sebagai cadangan bila yang ini menolak |
 | `VIDEO_RESOLUTION` | `720p` | `720p` / `1080p`. **480p tidak didukung provider**, jadi nilainya tidak ditawarkan di UI maupun diterima API |
 | `VIDEO_DURATION` | `5` | durasi awal satu video dalam detik (3-15). User tetap bisa memilih 3-15 detik di UI; nilai ini hanya yang terpilih lebih dulu |
 | `VIDEO_RATIO` | `16:9` | bentuk gambar untuk text-to-video; image-to-video mengikuti gambar pertamanya |
@@ -234,6 +236,7 @@ pertama bisa butuh ±30-60 detik, jadi jangan menyimpulkan backend mati dari sat
 | Balasan chat memuat teks "Here's a thinking process:" | model reasoning dipakai dengan `OPENROUTER_REASONING=default`; set `off` |
 | Semua user tiba-tiba diminta login ulang, token lama menjawab 401 | `JWT_SECRET` baru saja dirotasi. Ini perilaku yang benar — token lama memang tidak lagi ditandatangani oleh secret yang aktif. |
 | Setelah mengganti API key, fitur masih memakai key lama | deploy ulang belum selesai, atau key dipasang di service Render yang lain. Cek baris `Provider chat:` di log startup. |
+| Video gagal dengan `Video generation failed. Please try again.` | pesan itu sengaja ramah; sebabnya ada di log Render pada baris `Video generation error:` (job latar belakang) atau `Image-to-video error:` (sebelum `202`, biasanya penyimpanan gambar pertama). Kalau di sana tertulis `NaraRouter video error (HTTP 404) … di http://…/v1/videos…`, artinya rute video tidak ada di host yang dicoba — kode kini mencoba `router.bynara.id` juga dan melaporkan kedua URL-nya, jadi pesan berikutnya menyebut host mana yang gagal. `HTTP 401` = `BYNARA_API_KEY` ditolak; `HTTP 402`/`403` = paket/kredit NaraRouter habis (video memang berpaket berbayar); `PROVIDER_NOT_FOUND` dengan kedua URL tercetak = modelnya (lihat `BYNARA_VIDEO_MODEL`) atau hostnya berbeda dari yang diperkirakan. |
 
 ### Kenapa status provider tidak terlihat di `/health` produksi
 

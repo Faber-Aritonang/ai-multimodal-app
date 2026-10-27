@@ -587,6 +587,14 @@ paralel. Kalau pembuatannya gagal — termasuk yang terputus karena
 deploy/restart — jatahnya **dikembalikan**. Reservasi dan pengembaliannya atomik,
 jadi angkanya tidak pernah minus.
 
+API video NaraRouter terbagi di dua host: pembuatan pekerjaan dilayani
+`api-images.bynara.id`, sedangkan rute statusnya (`GET /v1/videos/{id}`) hanya ada
+di `router.bynara.id`. Karena itu setiap permintaan video mencoba kedua host
+(host yang sudah terbukti menjawab diingat per pekerjaan, supaya polling tiap
+lima detik tidak mengulang percobaan ke host yang rutenya tidak ada), dan
+`BYNARA_VIDEO_BASE_URL` hanya perlu diisi bila penyedia memindahkan Anda ke host
+lain.
+
 `resolution` menerima `720p` atau `1080p` (bawaan `720p`). **`480p` sengaja tidak
 ada** — dokumentasi NaraRouter hanya menyebut 720p/1080p, dan menawarkan nilai
 yang pasti ditolak provider hanya berakhir sebagai kegagalan yang sulit

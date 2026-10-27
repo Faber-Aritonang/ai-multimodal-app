@@ -50,6 +50,15 @@ const DEFAULT_POLL_INTERVAL_MS = 5000;
 const DEFAULT_JOB_TIMEOUT_MS = 600000;
 
 const DEFAULT_BYNARA_VIDEO_BASE_URL = 'https://api-images.bynara.id/v1';
+// Host kedua yang melayani API yang sama ("NaraRouter"). Dipakai kalau host
+// pertama tidak punya rutenya — dan itu KEADAAN NYATA, bukan kehati-hatian
+// tanpa dasar. Terukur tanpa kunci API: di host pertama, `POST /v1/videos` dan
+// `GET /v1/videos` dijawab 401 (rutenya ada, tinggal butuh kredensial),
+// sedangkan `GET /v1/videos/{id}` dan `GET /v1/videos/{id}/download` dijawab 404
+// halaman bawaan host ("Not found") — rutenya memang tidak ada di sana.
+// Akibatnya pekerjaan berhasil dibuat, lalu POLLING-nya gagal, dan fitur video
+// tampil sebagai "Video generation failed" walau job-nya berjalan di provider.
+const DEFAULT_BYNARA_VIDEO_FALLBACK_BASE_URL = 'https://router.bynara.id/v1';
 // Unduhan hasil memakai host yang sama dengan endpoint video-nya (dokumentasi
 // NaraRouter membalas `url` berupa path relatif `/v1/videos/{id}/download`),
 // tetapi host router tetap dicoba sebagai cadangan — pola yang sama dipakai
@@ -149,8 +158,40 @@ const getJobTimeoutMs = () =>
 const bynaraModel = () =>
   process.env.BYNARA_VIDEO_MODEL || process.env.VIDEO_MODEL || DEFAULT_BYNARA_VIDEO_MODEL;
 
+/**
+ * Rapikan satu base video: buang garis miring di ujung, dan pastikan versi
+ * API-nya ikut.
+ *
+ * Bagian versi ditambahkan karena base tanpa `/v1` menghasilkan rute `/videos`
+ * yang tidak ada, dan provider menjawabnya dengan 404 "Not found" — kegagalan
+ * yang terlihat seperti "model tidak ada" padahal hanya salah tulis URL.
+ * Dokumentasi menuliskan host dan rute secara terpisah (`https://…` + `/v1/…`),
+ * jadi kesalahan ini mudah terjadi saat menyalin nilainya ke env.
+ */
+const rapikanBase = (nilai) => {
+  const base = String(nilai || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+
+  return /\/v\d+$/i.test(base) ? base : `${base}/v1`;
+};
+
 const bynaraVideoBaseUrl = () =>
-  (process.env.BYNARA_VIDEO_BASE_URL || DEFAULT_BYNARA_VIDEO_BASE_URL).replace(/\/+$/, '');
+  rapikanBase(process.env.BYNARA_VIDEO_BASE_URL) || DEFAULT_BYNARA_VIDEO_BASE_URL;
+
+/**
+ * Seluruh host video yang akan dicoba, berurutan tanpa duplikat.
+ * @returns {string[]}
+ */
+const bynaraVideoBaseUrls = () => {
+  const kandidat = [bynaraVideoBaseUrl(), DEFAULT_BYNARA_VIDEO_FALLBACK_BASE_URL];
+  const hasil = [];
+
+  for (const base of kandidat) {
+    if (base && !hasil.includes(base)) hasil.push(base);
+  }
+
+  return hasil;
+};
 
 const bynaraAuthHeader = () => ({
   Authorization: `Bearer ${sanitizeSecret(process.env.BYNARA_API_KEY)}`
@@ -218,6 +259,7 @@ const describeProviderError = (data, response) => {
 };
 
 const errorCodeFromStatus = (status) => {
+  if (status === 404) return 'PROVIDER_NOT_FOUND';
   if (status === 401 || status === 403) return 'INVALID_PROVIDER_CONFIG';
   // 429 (batas laju/kuota per kelas model) dan 503 sengaja bisa dicoba ulang:
   // kuota berbayar yang habis memang biasanya pulih sendiri.
@@ -276,9 +318,10 @@ const bynaraDownloadCandidates = (raw) => {
   const hosts = [
     process.env.BYNARA_VIDEO_DOWNLOAD_BASE_URL || DEFAULT_BYNARA_VIDEO_DOWNLOAD_BASE_URL,
     DEFAULT_BYNARA_FALLBACK_DOWNLOAD_BASE_URL,
-    // Host video bisa saja diarahkan ke host lain lewat env; origin-nya ikut
-    // dicoba supaya konfigurasi yang menyimpang tidak langsung gagal.
-    new URL(bynaraVideoBaseUrl()).origin
+    // Host video bisa saja diarahkan ke host lain lewat env; origin setiap host
+    // yang dipakai untuk membuat/memantau job ikut dicoba supaya konfigurasi
+    // yang menyimpang tidak langsung gagal.
+    ...bynaraVideoBaseUrls().map((base) => new URL(base).origin)
   ]
     .map((host) => String(host).replace(/\/+$/, ''))
     .filter((host, index, semua) => host && semua.indexOf(host) === index);
@@ -300,6 +343,87 @@ const hostOf = (url) => {
   } catch {
     return url;
   }
+};
+
+/**
+ * Sama seperti fetchWithTimeout, tetapi URL-nya ikut dikembalikan supaya pesan
+ * galat bisa menyebut rute mana yang gagal. Tanpa itu, dua kemungkinan yang
+ * sangat berbeda — host salah dan model tidak tersedia — terlihat sama.
+ */
+const fetchBerlabel = async (url, options = {}) => ({
+  url,
+  respons: await fetchWithTimeout(url, options)
+});
+
+/**
+ * Jalankan satu permintaan video ke host-host yang mungkin, berurutan.
+ *
+ * 404 diperlakukan sebagai "rute ini tidak dilayani host ini" sehingga host
+ * berikutnya dicoba; status lain berarti host-nya benar dan balasannya
+ * dikembalikan apa adanya — 400/401/402 dari provider harus terlihat seperti
+ * apa adanya, bukan disamarkan menjadi gangguan jaringan.
+ *
+ * @param {string[]} bases host yang dicoba, berurutan
+ * @param {(base: string) => Promise<{url: string, respons: object}>} buat
+ * @returns {Promise<{base: string, url: string, respons: object, data: object}>}
+ */
+const bynaraRequest = async (bases, buat) => {
+  const kegagalan = [];
+  let terakhir = null;
+
+  for (const base of bases) {
+    const { url, respons } = await buat(base);
+    const data = await readJson(respons);
+
+    if (respons.ok) return { base, url, respons, data };
+
+    terakhir = { base, url, respons, data };
+    kegagalan.push(`${url} -> HTTP ${respons.status}`);
+
+    if (respons.status !== 404) break;
+  }
+
+  const rutenyaHilang = terakhir.respons.status === 404;
+
+  throw createError(
+    `NaraRouter video error (HTTP ${terakhir.respons.status}) di ${terakhir.url}: ` +
+      `${describeProviderError(terakhir.data, terakhir.respons)}. ` +
+      (rutenyaHilang
+        ? `Rute video tidak ada di host yang dicoba (${kegagalan.join('; ')}). ` +
+          'Set BYNARA_VIDEO_BASE_URL ke base API NaraRouter yang benar, atau ' +
+          'BYNARA_VIDEO_MODEL kalau modelnya sudah tidak tersedia bagi kunci ini.'
+        : `Dicoba: ${kegagalan.join('; ')}.`),
+    errorCodeFromStatus(terakhir.respons.status)
+  );
+};
+
+// Host yang terbukti melayani sebuah pekerjaan, diingat per jobId.
+const MAKS_INGATAN_BASE = 200;
+const basePerJob = new Map();
+
+/**
+ * Ingat host yang menjawab untuk satu pekerjaan.
+ *
+ * Alasannya hemat: polling berjalan tiap ~5 detik selama 1-5 menit, dan tanpa
+ * ingatan ini setiap putaran akan mencoba host yang rutenya sudah terbukti tidak
+ * ada — belasan permintaan 404 per menit, per pekerjaan.
+ */
+const ingatBase = (jobId, base) => {
+  if (basePerJob.size >= MAKS_INGATAN_BASE) basePerJob.clear();
+  basePerJob.set(String(jobId), base);
+};
+
+/**
+ * Urutan host untuk satu pekerjaan: yang sudah terbukti menjawab lebih dulu.
+ * @returns {string[]}
+ */
+const urutanBase = (jobId) => {
+  const semua = bynaraVideoBaseUrls();
+  const dikenal = basePerJob.get(String(jobId));
+
+  return dikenal && semua.includes(dikenal)
+    ? [dikenal, ...semua.filter((base) => base !== dikenal)]
+    : semua;
 };
 
 /**
@@ -334,45 +458,33 @@ const bynara = {
    */
   async createJob({ prompt, mode, imageBuffer, mimeType, resolution, ratio, duration }) {
     const model = bynaraModel();
-    const base = bynaraVideoBaseUrl();
-    const url = `${base}/videos`;
+    const pakaiGambar = mode === 'i2v';
 
-    let response;
+    const { base, url, data } = await bynaraRequest(bynaraVideoBaseUrls(), (host) => {
+      const target = `${host}/videos`;
 
-    if (mode === 'i2v') {
-      const form = new FormData();
+      if (pakaiGambar) {
+        const form = new FormData();
 
-      form.append('model', model);
-      form.append('mode', 'i2v');
-      form.append('prompt', prompt);
-      form.append('resolution', resolution);
-      form.append('duration', String(duration));
-      // Sesuai dokumentasi: gambar i2v dikirim sebagai berkas bernama `image`.
-      // Content-Type sengaja tidak disetel manual — fetch menambahkan boundary
-      // multipart sendiri, dan nilai manual justru merusak berkasnya.
-      form.append('image', new Blob([imageBuffer], { type: mimeType || 'image/png' }), 'first-frame');
+        form.append('model', model);
+        form.append('mode', 'i2v');
+        form.append('prompt', prompt);
+        form.append('resolution', resolution);
+        form.append('duration', String(duration));
+        // Sesuai dokumentasi: gambar i2v dikirim sebagai berkas bernama `image`.
+        // Content-Type sengaja tidak disetel manual — fetch menambahkan boundary
+        // multipart sendiri, dan nilai manual justru merusak berkasnya.
+        form.append('image', new Blob([imageBuffer], { type: mimeType || 'image/png' }), 'first-frame');
 
-      response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: bynaraAuthHeader(),
-        body: form
-      });
-    } else {
-      response = await fetchWithTimeout(url, {
+        return fetchBerlabel(target, { method: 'POST', headers: bynaraAuthHeader(), body: form });
+      }
+
+      return fetchBerlabel(target, {
         method: 'POST',
         headers: { ...bynaraAuthHeader(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt, mode: 't2v', resolution, ratio, duration })
       });
-    }
-
-    const data = await readJson(response);
-
-    if (!response.ok) {
-      throw createError(
-        `NaraRouter video error (HTTP ${response.status}): ${describeProviderError(data, response)}`,
-        errorCodeFromStatus(response.status)
-      );
-    }
+    });
 
     // 202 Accepted: `{ id, status: "pending", created }`. Id-nya bisa muncul di
     // beberapa nama kunci tergantung versi gateway, jadi ketiganya dibaca.
@@ -382,10 +494,14 @@ const bynara = {
       throw createError(
         `NaraRouter tidak mengembalikan id pekerjaan (kunci balasan: ${
           Object.keys(data || {}).join(', ') || 'kosong'
-        })`,
+        }) di ${url}`,
         'PROVIDER_ERROR'
       );
     }
+
+    // Host pembuat job dicatat: polling-nya bisa saja dilayani host yang sama,
+    // dan mencoba host lain lebih dulu hanya membuang satu putaran.
+    ingatBase(jobId, base);
 
     return { jobId: String(jobId), provider: 'bynara', model, status: data?.status || 'pending' };
   },
@@ -395,19 +511,13 @@ const bynara = {
    * @returns {Promise<{status: 'pending'|'completed'|'failed', url?: string, error?: string, duration?: number}>}
    */
   async getJob(jobId) {
-    const response = await fetchWithTimeout(
-      `${bynaraVideoBaseUrl()}/videos/${encodeURIComponent(jobId)}`,
-      { headers: bynaraAuthHeader() }
+    const { base, data } = await bynaraRequest(urutanBase(jobId), (host) =>
+      fetchBerlabel(`${host}/videos/${encodeURIComponent(jobId)}`, { headers: bynaraAuthHeader() })
     );
 
-    const data = await readJson(response);
-
-    if (!response.ok) {
-      throw createError(
-        `NaraRouter video error (HTTP ${response.status}): ${describeProviderError(data, response)}`,
-        errorCodeFromStatus(response.status)
-      );
-    }
+    // Host yang benar-benar menjawab dicatat supaya putaran polling berikutnya
+    // tidak mengulang percobaan ke host yang rutenya tidak ada.
+    ingatBase(jobId, base);
 
     const status = classifyJobStatus(data?.status);
     // URL hasil bisa ada di beberapa nama kunci: dokumentasi menyebut `url`,
@@ -729,11 +839,26 @@ const generateVideo = async ({
 
   // Kode yang layak diteruskan: semuanya berarti "coba lagi nanti" tetapi
   // tindak lanjutnya berbeda (menunggu, menambah saldo, memeriksa jaringan).
-  const KODE_LAYAK_DITERUSKAN = ['PROVIDER_TIMEOUT', 'PROVIDER_UNPAID', 'PROVIDER_NETWORK'];
+  // `PROVIDER_NOT_FOUND` ikut: artinya rute/model video yang diminta tidak ada
+  // bagi kunci ini, dan menyamarkannya menjadi "provider tidak tersedia" membuat
+  // satu-satunya petunjuk yang berguna hilang dari log dan record.
+  const KODE_LAYAK_DITERUSKAN = [
+    'PROVIDER_TIMEOUT',
+    'PROVIDER_UNPAID',
+    'PROVIDER_NETWORK',
+    'PROVIDER_NOT_FOUND'
+  ];
+
+  // Saran disesuaikan dengan sebabnya. Menyuruh "set BYNARA_API_KEY" pada
+  // kegagalan 404 itu menyesatkan: kuncinya sudah ada dan sudah diterima
+  // provider, yang salah rute atau modelnya — dan user yang mengikuti saran itu
+  // hanya akan memutar kunci yang sebenarnya baik-baik saja.
+  const saran = nothingConfigured
+    ? 'Set BYNARA_API_KEY di backend/.env (dipakai model agnes-video-v2.0).'
+    : 'Sebab tiap percobaan ada di atas; periksa URL dan status HTTP-nya.';
 
   throw createError(
-    `All video providers failed (${summary}). Set BYNARA_API_KEY di backend/.env ` +
-      '(dipakai model agnes-video-v2.0).',
+    `All video providers failed (${summary}). ${saran}`,
     nothingConfigured
       ? 'MISSING_CREDENTIALS'
       : KODE_LAYAK_DITERUSKAN.includes(lastError?.code)
@@ -779,6 +904,7 @@ module.exports = {
   getRatio,
   classifyJobStatus,
   bynaraDownloadCandidates,
+  bynaraVideoBaseUrls,
   PROVIDERS,
   PROVIDER_ORDER,
   ALLOWED_MODES,

@@ -18,6 +18,7 @@ const {
   getRatio,
   classifyJobStatus,
   bynaraDownloadCandidates,
+  bynaraVideoBaseUrls,
   PROVIDERS,
   ALLOWED_RESOLUTIONS,
   ALLOWED_RATIOS,
@@ -72,6 +73,15 @@ const jsonResponse = (body, { status = 200, ok = true } = {}) => ({
   statusText: ok ? 'OK' : 'ERR',
   text: async () => JSON.stringify(body),
   arrayBuffer: async () => Buffer.from(JSON.stringify(body))
+});
+
+/** Balasan teks polos — halaman 404 bawaan host berbentuk begini. */
+const textResponse = (body, { status = 200, ok = true } = {}) => ({
+  ok,
+  status,
+  statusText: ok ? 'OK' : 'ERR',
+  text: async () => body,
+  arrayBuffer: async () => Buffer.from(body)
 });
 
 const bufferResponse = (buffer, { status = 200, ok = true } = {}) => ({
@@ -400,5 +410,94 @@ describe('generateVideo', () => {
     await expect(generateVideo({ prompt: 'x', mode: 't2v' })).rejects.toMatchObject({
       code: 'INVALID_PROVIDER_CONFIG'
     });
+  });
+
+  test('polling yang 404 di host pertama tetap selesai lewat host kedua', async () => {
+    // Kegagalan nyata di produksi: `POST /v1/videos` diterima host pertama,
+    // tetapi rute STATUS-nya (GET /v1/videos/{id}) hanya ada di host kedua,
+    // sehingga job yang sebenarnya berjalan berakhir sebagai
+    // "NaraRouter video error (HTTP 404): Not found".
+    process.env.BYNARA_API_KEY = 'sk-nry-uji';
+
+    global.fetch = jest.fn(async (url) => {
+      const target = String(url);
+      const hostUtama = target.startsWith('https://api-images.bynara.id');
+
+      if (target.endsWith('/v1/videos') || target.endsWith('/videos')) {
+        return jsonResponse({ id: 'job-404', status: 'pending' }, { status: 202 });
+      }
+
+      if (target.includes('/videos/job-404/download')) return bufferResponse(MP4);
+
+      // Rute status: host pertama tidak punya, host kedua punya.
+      if (hostUtama) return textResponse('Not found', { status: 404, ok: false });
+
+      return jsonResponse({ id: 'job-404', status: 'succeeded', url: '/v1/videos/job-404/download' });
+    });
+
+    const hasil = await generateVideo({ prompt: 'gambar bergerak', mode: 't2v' });
+
+    expect(hasil.jobId).toBe('job-404');
+    expect(hasil.buffer.equals(MP4)).toBe(true);
+
+    const statusCalls = global.fetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/videos/job-404') && !url.includes('/download'));
+
+    expect(statusCalls[0]).toContain('api-images.bynara.id');
+    expect(statusCalls[1]).toContain('router.bynara.id');
+
+    // Host yang benar diingat: putaran polling berikutnya tidak lagi menyentuh
+    // host yang rutenya tidak ada.
+    expect(statusCalls.filter((url) => url.includes('api-images.bynara.id'))).toHaveLength(1);
+  });
+
+  test('404 di semua host menjelaskan rutenya, bukan menyuruh mengisi kunci', async () => {
+    process.env.BYNARA_API_KEY = 'sk-nry-uji';
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(textResponse('Not found', { status: 404, ok: false }));
+
+    let error;
+    try {
+      await generateVideo({ prompt: 'apa saja', mode: 't2v' });
+    } catch (e) {
+      error = e;
+    }
+
+    expect(error.code).toBe('PROVIDER_NOT_FOUND');
+    // Kedua host yang dicoba ikut dilaporkan: tanpa itu, satu-satunya petunjuk
+    // adalah "404" dan tidak jelas rute mana yang tidak ada.
+    expect(error.message).toContain('https://api-images.bynara.id/v1/videos');
+    expect(error.message).toContain('https://router.bynara.id/v1/videos');
+    expect(error.message).toMatch(/BYNARA_VIDEO_BASE_URL/);
+    // Pesan provider yang sebenarnya tetap ikut terbaca di log.
+    expect(error.message).toContain('Not found');
+    expect(error.message).not.toMatch(/Set BYNARA_API_KEY/);
+  });
+});
+
+describe('bynaraVideoBaseUrls', () => {
+  test('default: host video lalu host router', () => {
+    expect(bynaraVideoBaseUrls()).toEqual([
+      'https://api-images.bynara.id/v1',
+      'https://router.bynara.id/v1'
+    ]);
+  });
+
+  test('base dari env didahulukan, dan versi API yang hilang ditambahkan', () => {
+    // Tanpa `/v1`, rutenya menjadi `/videos` dan provider menjawab 404 —
+    // kesalahan salin yang mudah terjadi karena dokumentasi memisahkan host dan
+    // versi rutenya.
+    process.env.BYNARA_VIDEO_BASE_URL = 'https://contoh.example.com';
+
+    expect(bynaraVideoBaseUrls()[0]).toBe('https://contoh.example.com/v1');
+    expect(bynaraVideoBaseUrls()).toContain('https://router.bynara.id/v1');
+  });
+
+  test('base yang sudah lengkap tidak diubah', () => {
+    process.env.BYNARA_VIDEO_BASE_URL = 'https://contoh.example.com/v2/';
+
+    expect(bynaraVideoBaseUrls()[0]).toBe('https://contoh.example.com/v2');
   });
 });
