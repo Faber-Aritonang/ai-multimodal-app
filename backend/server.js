@@ -55,6 +55,7 @@ const { getVideoProviderStatus } = require('./config/videoProviders');
 const { getSpeechToTextStatus } = require('./config/speechToTextProviders');
 const { preferEnvFile } = require('./config/envFile');
 const { getBuildInfo } = require('./config/buildInfo');
+const { getSourceHash } = require('./config/sourceHash');
 const { logger } = require('./config/logger');
 const { requestContext } = require('./middleware/requestContext');
 const { requestLogger } = require('./middleware/requestLogger');
@@ -249,6 +250,13 @@ app.get('/health', (req, res) => {
     // ditulis job CI. Hanya dikirim saat nilainya ada, sama
     // seperti `storageCredentialSource`.
     ...(build.source ? { commitSource: build.source } : {}),
+    // Sidik isi kode (SHA-256). Ini pembanding yang dipakai job deploy, karena
+    // `commit` bergantung pada metadata platform yang ternyata bisa kosong di
+    // container yang sedang melayani user (Render tidak mengisi
+    // `RENDER_GIT_COMMIT` di runtime). Sidik tidak butuh bantuan platform: ia
+    // dihitung dari berkasnya sendiri, dengan aturan yang sama seperti di
+    // checkout CI, jadi nilai yang sama berarti isi kodenya benar-benar sama.
+    sourceHash: getSourceHash(),
     // Mode penyimpanan dilaporkan SELALU, termasuk di production.
     // Alasannya konkret: kalau nilainya `local` di produksi, setiap deploy akan
     // menghapus gambar user — dan itu satu-satunya fakta operasional penting yang

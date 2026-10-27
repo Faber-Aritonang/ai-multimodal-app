@@ -129,11 +129,19 @@ jobs:
   # yang sama; job tetap hijau, tetapi build gratisnya terbuang.
   #
   # Status job ini jujur karena langkah verifikasi di bawah menuntut `/health`
-  # produksi melaporkan commit yang baru di-push. Build yang gagal di Render —
-  # atau deploy yang tidak pernah dipicu sama sekali — berarti commit-nya tidak
-  # pernah muncul, dan job gagal setelah batas waktu. Kolom commit yang tidak
-  # dilaporkan juga gagal, bukan sekadar `::warning::`, karena tanpa pembanding
-  # status hijau tidak membuktikan apa pun tentang kode yang live.
+  # produksi melaporkan ISI KODE yang baru di-push, lewat `sourceHash`. Build yang
+  # gagal di Render — atau deploy yang tidak pernah dipicu sama sekali — berarti
+  # sidiknya tidak pernah muncul, dan job gagal setelah batas waktu. Kolom yang
+  # tidak dilaporkan juga gagal, bukan sekadar `::warning::`, karena tanpa
+  # pembanding status hijau tidak membuktikan apa pun tentang kode yang live.
+  #
+  # Kenapa `sourceHash` dan bukan commit: verifikasi ini dulu membandingkan
+  # `commit` dari `/health` dengan `GITHUB_SHA`. Nilai itu berasal dari
+  # `RENDER_GIT_COMMIT`, dan pada deployment yang sedang berjalan nilainya kosong
+  # (`commit: null`) — akibatnya job merah terus walau kode barunya sudah live,
+  # karena tidak ada yang bisa dibandingkan. `sourceHash` dihitung dari berkas
+  # backend itu sendiri dengan kode yang sama di kedua sisi, jadi ia tidak
+  # bergantung pada metadata platform dan tetap menangkap kode basi.
   deploy-backend:
     needs: quality
     # Hanya pada push ke main, atau saat dijalankan manual dengan input-nya
@@ -150,6 +158,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+
+      # Dihitung dari checkout SEBELUM deploy dipicu, lalu dibandingkan dengan
+      # yang dilaporkan `/health` produksi. Nilainya hanya bergantung pada isi
+      # berkas backend, sehingga tidak terpengaruh oleh cara Render membangun
+      # atau menamai deployment-nya.
+      - name: Hitung sidik kode backend yang di-push
+        run: |
+          sidik=$(node backend/scripts/source-hash.js)
+          echo "Sidik kode backend: $sidik"
+          echo "HARAPAN_SOURCE_HASH=$sidik" >> "$GITHUB_ENV"
 
       - name: Picu deploy Render
         run: |
@@ -240,6 +258,7 @@ jobs:
           batas = time.time() + 900
           terakhir = None
           diharapkan = (os.environ.get("GITHUB_SHA") or "").strip().lower()
+          harapan_sidik = (os.environ.get("HARAPAN_SOURCE_HASH") or "").strip().lower()
 
           while time.time() < batas:
               try:
@@ -253,15 +272,17 @@ jobs:
                       and terakhir.get("database") == "connected"
                       and terakhir.get("storageCheck") != "pending"
                   ):
-                      # Berhenti HANYA kalau commit produksi sudah sama dengan
-                      # yang di-push (atau tidak ada commit pembanding). Deployment
-                      # lama yang belum melaporkan commit juga TIDAK dianggap
-                      # selesai: kolom yang hilang berarti kita tidak punya bukti
-                      # apa pun, dan menunggu tetap masuk akal karena deploy yang
-                      # sedang berjalan akan menggantinya dengan kode yang
-                      # melaporkan commit.
+                      # Berhenti kalau sidiknya cocok — bukti terkuat bahwa isi
+                      # kode yang live sama dengan yang di-push. Keluar lebih awal
+                      # juga dibenarkan ketika platform SUDAH melaporkan commit
+                      # yang di-push tetapi belum mengirim `sourceHash`: itu
+                      # berarti container-nya masih kode lama, dan menunggu 15
+                      # menit hanya memperlambat kesimpulan yang sama.
+                      sidik = (terakhir.get("sourceHash") or "").strip().lower()
                       berjalan = (terakhir.get("commit") or "").strip().lower()
-                      if not diharapkan or berjalan == diharapkan:
+                      if (harapan_sidik and sidik == harapan_sidik) or (
+                          harapan_sidik and diharapkan and berjalan == diharapkan
+                      ):
                           break
               except Exception as galat:
                   print(f"  {url} belum siap: {type(galat).__name__}", flush=True)
@@ -324,38 +345,53 @@ jobs:
                   f"{check}{f' ({sebab})' if sebab else ''}."
               )
 
-          # Commit yang berjalan. Inilah yang membedakan "perintah deploy selesai"
+          # Isi kode yang berjalan. Inilah yang membedakan "perintah deploy selesai"
           # dari "kode baru benar-benar melayani user".
           jalur = terakhir.get("commitSource") or "tidak dilaporkan"
           berjalan = (terakhir.get("commit") or "").strip().lower()
+          sidik = (terakhir.get("sourceHash") or "").strip().lower()
 
-          if not diharapkan:
-              print("::warning::GITHUB_SHA tidak tersedia sehingga commit produksi tidak bisa dibandingkan.")
-          elif not berjalan:
-              # Kolom yang tidak ada berarti TIDAK ADA bukti bahwa deploy berjalan.
-              # Keadaan ini dulu hanya menghasilkan `::warning::`, dan akibatnya
-              # job hijau padahal Render belum membangun commit yang di-push —
-              # persis kegagalan yang seharusnya dicegah langkah ini. Deployment
-              # lama yang belum memuat kolom ini memang akan merah sampai sekali
-              # di-deploy manual; setelah itu kolomnya selalu ada.
+          if not harapan_sidik:
+              # Tanpa sidik pembanding, hijau hanya berarti "ada yang menjawab".
               print(
-                  "::error::/health tidak melaporkan commit sama sekali selama 15 menit, jadi "
-                  "tidak ada bukti bahwa produksi menjalankan kode baru. Penyebabnya salah satu "
-                  "dari: deploy Render tidak pernah dipicu (Auto-Deploy mati dan "
-                  "RENDER_DEPLOY_HOOK_URL kosong), build-nya gagal, atau kode yang live masih "
-                  "versi lama yang belum mengirim kolom commit. Periksa Events/Logs service "
-                  "ai-multimodal-backend, lalu jalankan Manual Deploy -> Deploy latest commit."
+                  "::error::Sidik kode backend tidak bisa dihitung di CI (langkah "
+                  "'Hitung sidik kode backend yang di-push'), sehingga tidak ada pembanding."
               )
               sys.exit(1)
-          elif berjalan != diharapkan:
+          elif not sidik:
               print(
-                  f"::error::Produksi menjalankan commit {berjalan[:7]}, bukan {diharapkan[:7]} "
-                  "yang baru di-push — deploy-nya belum selesai, gagal, atau diambil alih "
-                  "deployment lain. Periksa Events/Logs di dashboard Render."
+                  "::error::/health tidak melaporkan `sourceHash` selama 15 menit, jadi tidak "
+                  "ada bukti bahwa produksi menjalankan kode baru. Kemungkinannya: deploy "
+                  "Render tidak pernah dipicu (Auto-Deploy mati dan RENDER_DEPLOY_HOOK_URL "
+                  "kosong), build-nya gagal, atau kode yang live masih versi lama yang belum "
+                  "mengirim kolom itu. Periksa Events/Logs service ai-multimodal-backend, "
+                  "lalu jalankan Manual Deploy -> Deploy latest commit."
+              )
+              sys.exit(1)
+          elif sidik != harapan_sidik:
+              print(
+                  f"::error::Isi kode backend di produksi berbeda dari yang di-push "
+                  f"(sidik {sidik[:12]} vs {harapan_sidik[:12]}) — deploy belum selesai, gagal, "
+                  "atau diambil alih deployment lain. Periksa Events/Logs di dashboard Render."
               )
               sys.exit(1)
           else:
-              print(f"::notice::Produksi menjalankan commit {diharapkan[:7]} (sumber: {jalur}).")
+              print(f"::notice::Sidik kode backend cocok ({sidik[:12]}).")
+              # `commit` sekarang hanya keterangan: ia dilaporkan platform dan
+              # bisa kosong tanpa berarti deploy gagal. Isi kode sudah dibuktikan
+              # di atas, jadi ketidakcocokan di sini tidak boleh memerahkan job —
+              # tetapi tetap dicatat supaya anomali metadata tidak hilang diam-diam.
+              if berjalan and diharapkan and berjalan != diharapkan:
+                  print(
+                      f"::warning::Platform melaporkan commit {berjalan[:7]}, bukan "
+                      f"{diharapkan[:7]} (sumber: {jalur}); isi kodenya tetap identik."
+                  )
+              elif berjalan:
+                  print(f"::notice::Produksi menjalankan commit {berjalan[:7]} (sumber: {jalur}).")
+              else:
+                  print(
+                      "::notice::Platform tidak melaporkan commit; verifikasi memakai sourceHash."
+                  )
           PY
 
   # Verifikasi deploy Frontend (Vercel).

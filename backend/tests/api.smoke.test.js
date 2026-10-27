@@ -19,6 +19,7 @@ const { app } = require('../server');
 // berubah, yang gagal adalah test ini — bukan user yang menemukan dropdown
 // berisi voice milik provider lain.
 const { VOICES_BY_PROVIDER } = require('../config/soundProviders');
+const { hitungSourceHash } = require('../config/sourceHash');
 
 afterAll(() => {
   fs.rmSync(tempUploadDir, { recursive: true, force: true });
@@ -54,6 +55,17 @@ describe('GET /health', () => {
       if (asli === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = asli;
     }
+  });
+
+  test('sourceHash di /health sama dengan sidik yang dihitung job deploy', async () => {
+    // Job deploy membandingkan angka INI dengan hasil
+    // `backend/scripts/source-hash.js` di checkout. Kalau `/health` melaporkan
+    // nilai yang dihitung dengan aturan berbeda, verifikasi deploy akan merah
+    // untuk kode yang sebenarnya sama — jadi kesamaannya dikunci di sini.
+    const respons = await request(app).get('/health');
+
+    expect(respons.body.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(respons.body.sourceHash).toBe(hitungSourceHash());
   });
 
   test('commit yang berjalan dilaporkan, termasuk di production', async () => {

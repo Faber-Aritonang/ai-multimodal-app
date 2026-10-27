@@ -875,12 +875,13 @@ Setiap push ke `main` menjalankan tiga job:
 2. **deploy-backend** — memicu deploy Render lewat deploy hook (atau membiarkan
    *Auto-Deploy* Render yang memulainya, bila secret hook kosong), lalu
    **memverifikasi produksi**: database, penyimpanan, kredensialnya, dan
-   **commit yang benar-benar berjalan** — supaya "deploy selesai" tidak lagi
-   bisa berarti "kode lama masih live". Job gagal setelah 15 menit kalau commit
-   yang di-push tidak pernah muncul di `/health` (build gagal, tertahan, atau
-   deploy tidak pernah dipicu), **termasuk** kalau `/health` tidak melaporkan
-   kolom `commit` sama sekali — tanpa pembanding, status hijau tidak
-   membuktikan apa pun.
+   **isi kode yang benar-benar berjalan** — supaya "deploy selesai" tidak lagi
+   bisa berarti "kode lama masih live". Pembandingnya `sourceHash`: SHA-256 dari
+   isi berkas backend, dihitung dengan kode yang sama di CI dan di produksi,
+   sehingga tidak bergantung pada metadata commit platform. Job gagal setelah 15
+   menit kalau sidik yang di-push tidak pernah muncul di `/health` (build gagal,
+   tertahan, atau deploy tidak pernah dipicu) — tanpa pembanding, status hijau
+   tidak membuktikan apa pun.
 3. **deploy-frontend** — **memverifikasi** deployment Vercel untuk commit yang
    di-push lewat REST API: menunggu sampai `READY`, gagal kalau `ERROR` atau
    lewat 10 menit, lalu memastikan `/`, `/login`, dan `/tools/text-to-image`

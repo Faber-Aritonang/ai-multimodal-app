@@ -238,8 +238,9 @@ pertama bisa butuh ±30-60 detik, jadi jangan menyimpulkan backend mati dari sat
 ### Kenapa status provider tidak terlihat di `/health` produksi
 
 `/health` sengaja **hanya** melaporkan `status`, `database`, `storageMode`,
-`storageCheck` (+ `storageCheckReason` saat gagal), `commit` (+ `commitSource`),
-dan `storageCredentialSource` saat `NODE_ENV=production`; objek `services` (daftar
+`storageCheck` (+ `storageCheckReason` saat gagal), `sourceHash`, `commit`
+(+ `commitSource`), dan `storageCredentialSource` saat `NODE_ENV=production`;
+objek `services` (daftar
 provider gambar & chat) hanya muncul di development/test supaya info
 infrastruktur tidak dibocorkan ke repo publik. Kolom penyimpanan tetap
 dilaporkan karena mode `local` dan kredensial yang ditolak keduanya **merusak
@@ -270,32 +271,40 @@ lewat:
    namanya pasti muncul juga di rantai (`groq > … > openrouter`). Nilainya hanya
    `configured`/`missing`, tidak pernah memuat isi key.
 
-### Kode versi apa yang sedang live (`commit`)
+### Kode versi apa yang sedang live (`sourceHash` dan `commit`)
 
-Kolom `commit` menjawab pertanyaan yang berbeda dari semua kolom di atas: bukan
+Dua kolom ini menjawab pertanyaan yang berbeda dari semua kolom di atas: bukan
 "apakah konfigurasinya benar", melainkan "kode **versi apa** yang sedang
-melayani user". Dua jalur deploy membawa penandanya dengan cara berbeda:
+melayani user".
 
-| `commitSource` | Dari mana nilainya |
+| Kolom | Arti |
 |---|---|
-| `render-git` | Render mengisi `RENDER_GIT_COMMIT` untuk deployment yang berasal dari repo GitHub (setiap push ke `main`, termasuk yang dipicu deploy hook) |
-| `railway-git` | deployment lama yang masih dilayani Railway; `RAILWAY_GIT_COMMIT_SHA` tetap dibaca supaya tidak tiba-tiba berubah jadi `null` |
-| `build-meta` | dari `backend/build-meta.json` yang ditulis job CI untuk platform yang mengunggah direktori lokal (tidak ada metadata git yang bisa dibaca) |
+| `sourceHash` | SHA-256 dari isi berkas `backend/` (path relatif + isi tiap berkas). Dihitung oleh `backend/config/sourceHash.js`, kode yang sama dipakai job deploy lewat `backend/scripts/source-hash.js`. Nilai yang sama berarti isi kodenya identik — inilah pembanding yang **dipakai** job deploy |
+| `commit` | SHA git yang dilaporkan platform: `RENDER_GIT_COMMIT` (`commitSource: render-git`), `RAILWAY_GIT_COMMIT_SHA` untuk deployment lama (`railway-git`), atau `backend/build-meta.json` untuk unggahan berbasis CLI (`build-meta`). Keterangan tambahan saja |
 
-`commit: null` berarti tidak ada satu pun sumber yang terbaca (mis. deployment
-dibangun dari mesin lokal tanpa penanda). Job deploy **gagal** dalam dua keadaan:
-ketika nilainya ada tetapi berbeda dari commit yang baru di-push (deploy belum
-selesai atau kode lama masih live), dan ketika kolomnya **tidak dilaporkan sama
-sekali** selama 15 menit — tanpa nilai pembanding, hijau hanya berarti "ada yang
-menjawab", bukan "kode baru sudah live". Karena itu deployment pertama yang masih
-memakai kode lama memang merah sampai sekali di-deploy manual; setelah itu
-kolomnya selalu terisi.
+Kenapa pembandingnya bukan `commit`: nilainya bergantung pada platform, dan
+pada container Render yang sedang melayani user nilainya bisa kosong
+(`commit: null`). Dulu job deploy mensyaratkan kolom itu muncul dan sama dengan
+commit yang di-push, sehingga deploy yang sebenarnya berhasil tetap merah —
+bukan karena kodenya salah, tetapi karena tidak ada yang bisa dibandingkan.
+`sourceHash` tidak punya ketergantungan itu: ia dihitung dari berkasnya sendiri,
+sehingga juga menangkap keadaan "platform melaporkan commit yang benar tetapi
+container-nya masih menyajikan kode lama".
+
+Job deploy **gagal** dalam tiga keadaan: `sourceHash` tidak dilaporkan selama 15
+menit, nilainya berbeda dari checkout CI, atau langkah penghitungannya sendiri
+gagal. `commit` yang ada nilainya tetapi berbeda hanya menghasilkan
+`::warning::` — isi kodenya sudah dibuktikan sama, jadi itu anomali metadata,
+bukan kode basi.
 
 ```bash
-curl -s https://ai-multimodal-backend.onrender.com/health | python3 -m json.tool | grep -E '"commit"|"commitSource"'
-#    "commit": "56e1648641c4a7cd9a534f6339742021f319fc7c",
-#    "commitSource": "render-git",
+# Sidik yang dipakai job deploy, dihitung dari checkout lokal:
+node backend/scripts/source-hash.js
+
+# Bandingkan dengan produksi:
+curl -s https://ai-multimodal-backend.onrender.com/health \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sourceHash'), d.get('commit'), d.get('commitSource'))"
+#    9f2c…  (sourceHash)   56e1648…  render-git
 #
-# Cocokkan dengan commit yang seharusnya live:
-#    git rev-parse HEAD
+# `commit: null` tidak lagi menggagalkan deploy; `sourceHash` yang menentukan.
 ```
