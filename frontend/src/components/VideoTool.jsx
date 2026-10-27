@@ -5,8 +5,17 @@ import Layout from '../components/Layout'
 import MediaVideo from '../components/MediaVideo'
 import HistoryLink from './HistoryLink'
 import { useNotifications } from './NotificationsProvider'
-import { downloadMedia } from '../utils/downloadMedia'
+import { useMediaDownload } from '../hooks/useMediaDownload'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
+
+// Ukuran berkas untuk keterangan kemajuan unduhan. Satu desimal sudah cukup:
+// yang dicari user adalah "sudah separuh atau belum", bukan angka presisi.
+const ukuranBerkas = (bita) => {
+  if (!bita) return '0 KB'
+  if (bita >= 1024 * 1024) return `${(bita / (1024 * 1024)).toFixed(1)} MB`
+
+  return `${Math.max(1, Math.round(bita / 1024))} KB`
+}
 
 /**
  * Kerangka bersama halaman Text to Video & Image to Video.
@@ -95,6 +104,10 @@ const VideoTool = ({
 }) => {
   const location = useLocation()
   const notifikasi = useNotifications()
+  // Video berukuran puluhan MB, jadi tombolnya butuh kemajuan dan jalan untuk
+  // mengulang: kegagalan di tengah unduhan tidak boleh berakhir dengan tombol
+  // yang diam saja.
+  const unduhan = useMediaDownload({ namaCadangan: 'video.mp4' })
 
   const [options, setOptions] = useState(null)
   // Prompt dari halaman Riwayat ("Generate ulang") menjadi nilai awal; generate
@@ -583,19 +596,93 @@ const VideoTool = ({
 
                 {/* `download` tidak dihormati browser untuk URL beda origin, jadi
                     klik biasa ditangani lewat blob dan `href` hanya untuk klik kanan. */}
-                <a
-                  href={resolveMediaUrl(result.outputUrl)}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    downloadMedia(result.outputUrl, 'video.mp4')
-                  }}
-                  className="btn btn-ghost mt-4 text-xs"
-                >
-                  Download video
-                </a>
+                <div className="mt-4 space-y-2" data-testid="video-download">
+                  <a
+                    href={resolveMediaUrl(result.outputUrl)}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-disabled={unduhan.status === 'downloading'}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      if (unduhan.status !== 'downloading') unduhan.unduh(result.outputUrl)
+                    }}
+                    className="btn btn-ghost text-xs aria-disabled:pointer-events-none aria-disabled:opacity-60"
+                  >
+                    {unduhan.status === 'downloading'
+                      ? `Mengunduh…${unduhan.percent !== null ? ` ${unduhan.percent}%` : ''}`
+                      : 'Download video'}
+                  </a>
+
+                  {unduhan.status === 'downloading' && (
+                    <div className="w-full max-w-xs" data-testid="video-download-progress">
+                      <div
+                        role="progressbar"
+                        aria-label="Kemajuan unduhan video"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={unduhan.percent ?? undefined}
+                        aria-valuetext={
+                          unduhan.percent !== null
+                            ? `${unduhan.percent}%`
+                            : `${ukuranBerkas(unduhan.loaded)} terunduh`
+                        }
+                        className="h-1.5 overflow-hidden rounded-full bg-white/10"
+                      >
+                        <div
+                          className={`h-full rounded-full bg-cyan-300 transition-[width] duration-200 ${
+                            unduhan.percent === null ? 'w-1/3 animate-pulse' : ''
+                          }`}
+                          style={
+                            unduhan.percent !== null ? { width: `${unduhan.percent}%` } : undefined
+                          }
+                        />
+                      </div>
+                      <p className="mt-1 font-mono text-[11px] text-slate-400">
+                        {ukuranBerkas(unduhan.loaded)}
+                        {unduhan.total ? ` dari ${ukuranBerkas(unduhan.total)}` : ' terunduh'}
+                      </p>
+                    </div>
+                  )}
+
+                  {unduhan.status === 'done' && (
+                    <p className="text-xs text-emerald-200" role="status">
+                      Video tersimpan.
+                    </p>
+                  )}
+
+                  {unduhan.status === 'error' && (
+                    <div
+                      role="alert"
+                      data-testid="video-download-error"
+                      className="w-full max-w-md rounded-xl border border-rose-400/35 bg-rose-500/10 p-3 text-xs text-rose-100"
+                    >
+                      <p>
+                        Unduhan video gagal — koneksinya terputus atau server menolak mengirim
+                        berkasnya. Videonya tetap tersimpan di server; coba lagi, atau buka di tab
+                        baru agar browser yang mengunduhnya (bisa dilanjutkan sendiri bila
+                        terputus).
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={unduhan.ulangi}
+                          className="btn btn-ghost px-3 py-1.5 text-xs"
+                        >
+                          Coba lagi
+                        </button>
+                        <a
+                          href={resolveMediaUrl(result.outputUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-ghost px-3 py-1.5 text-xs"
+                        >
+                          Buka di tab baru
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </GlassPanel>
             ) : generating ? (
               <GlassPanel data-testid="video-progress-panel" className="rise rise-1 p-5 sm:p-6">
