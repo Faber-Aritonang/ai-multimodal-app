@@ -8,13 +8,12 @@
  *   3. minta gambar dari provider yang aktif (lihat config/imageProviders.js)
  *   4. simpan gambar ke penyimpanan media (object storage bila dikonfigurasi,
  *      kalau tidak ke folder uploads/) dan update record (status: completed)
- *   5. kurangi quota user (hanya jika berhasil)
  *
  * image-to-image:
  *   1. validasi prompt + gambar input (base64 data URL dari browser)
  *   2. simpan gambar input ke uploads/ agar riwayat bisa menampilkan sebelum/sesudah
  *   3. minta provider melakukan edit (FLUX.2 [klein] di Cloudflare)
- *   4. simpan hasil & update record, lalu kurangi quota user
+ *   4. simpan hasil & update record
  *
  * Provider gambar bisa ditukar lewat env IMAGE_PROVIDER / IMAGE_FALLBACK_PROVIDER,
  * jadi controller ini tidak bergantung pada satu vendor saja.
@@ -23,21 +22,26 @@
  *   1. validasi teks yang diucapkan + suara/gaya + format keluaran
  *   2. minta audio dari provider TTS (Gemini/Edge/ElevenLabs/OpenAI, lihat
  *      config/soundProviders.js)
- *   3. simpan berkasnya ke penyimpanan media, lalu kurangi quota user
+ *   3. simpan berkasnya ke penyimpanan media
  *
  * sound-to-text:
  *   1. validasi audio input (data URL base64 dari browser) dari magic bytes-nya,
  *      bukan dari header yang dikirim klien
  *   2. simpan audionya lebih dulu agar riwayat bisa memutarnya kembali
  *   3. minta transkrip dari provider STT (Groq/Gemini/OpenAI, lihat
- *      config/speechToTextProviders.js), lalu kurangi quota user
+ *      config/speechToTextProviders.js)
  *
  * Kuota: setiap jenis pekerjaan punya jatahnya sendiri — `imageGeneration` untuk
  * gambar, `audioGeneration` untuk suara (text-to-sound & sound-to-text), dan
  * `videoGeneration` untuk video. Sebelumnya audio memakai `videoGeneration`,
  * dan akibatnya satu fitur bisa menghabiskan jatah fitur lain tanpa terlihat.
  * Akun lama yang belum punya `audioGeneration` tetap dilayani lewat nilai
- * cadangan di middleware/auth (lihat `remainingQuota`).
+ * cadangan (lihat `remainingQuota` di config/quota.js).
+ *
+ * Kuota TIDAK dikurangi di controller ini: middleware checkQuota mereservasinya
+ * secara atomik sebelum handler berjalan, dan mengembalikannya bila responsnya
+ * gagal. Yang dilakukan controller hanyalah mengembalikan jatah untuk pekerjaan
+ * latar belakang yang gagal setelah respons dikirim (video) — lihat runVideoJob.
  *
  * Riwayat: `getMediaHistory` menerima pencarian (`q`), filter (`type`, `status`),
  * dan paginasi (`page`, `limit`) — dipakai halaman Riwayat di frontend.
@@ -89,8 +93,13 @@ const {
   generateVideo,
   getVideoOptions: getVideoOptionsConfig,
   MAX_PROMPT_LENGTH: MAX_VIDEO_PROMPT_LENGTH,
-  MAX_INPUT_BYTES: MAX_VIDEO_INPUT_BYTES
+  MAX_INPUT_BYTES: MAX_VIDEO_INPUT_BYTES,
+  DEFAULT_JOB_TIMEOUT_MS
 } = require('../config/videoProviders');
+// Kuota sudah DIRESERVASI middleware sebelum handler ini berjalan, dan hanya
+// perlu dikembalikan di sini untuk pekerjaan yang gagal SETELAH respons dikirim
+// (video latar belakang) — lihat config/quota.js.
+const { refundQuota } = require('../config/quota');
 
 // Ukuran yang didukung frontend. Provider yang tidak sanggup memenuhi ukuran
 // tertentu akan dilewati otomatis (lihat supportedSizes di imageProviders.js).
@@ -149,21 +158,6 @@ const EDIT_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
 // Sama seperti edit gambar: provider yang tidak sanggup mode yang diminta juga
 // masalah konfigurasi, bukan gangguan sesaat — mencoba lagi tidak menolong.
 const VIDEO_CONFIG_ERROR_CODES = [...CONFIG_ERROR_CODES, 'PROVIDER_UNSUPPORTED'];
-
-/**
- * Kurangi kuota audio satu langkah (text-to-sound & sound-to-text).
- *
- * Akun yang dibuat sebelum kuota audio dipisahkan belum punya field ini, dan
- * `undefined - 1` menghasilkan NaN yang ikut tersimpan ke database. Karena itu
- * nilainya diambil dari kuota media non-gambar yang dulu dipakai bersama
- * (`videoGeneration`) — perlakuan yang sama dengan nilai cadangan di
- * middleware/auth, supaya pemeriksaan kuota dan pengurangannya tidak berbeda
- * pendapat soal berapa sisa jatah user.
- */
-const consumeAudioQuota = (member) => {
-  const tersisa = member.quota.audioGeneration ?? member.quota.videoGeneration ?? 0;
-  member.quota.audioGeneration = Math.max(0, tersisa - 1);
-};
 
 /**
  * Pesan untuk kegagalan yang berasal dari konfigurasi penyimpanan server.
@@ -315,14 +309,13 @@ exports.textToImage = async (req, res) => {
     };
     await media.save();
 
-    // Quota dikurangi hanya setelah gambar benar-benar berhasil dibuat
-    req.member.quota.imageGeneration -= 1;
-    await req.member.save();
-
+    // Kuota sudah direservasi middleware (checkQuota) sebelum gambar dibuat.
+    // Angka yang dilaporkan adalah sisa setelah reservasi itu; kalau respons
+    // ini ternyata gagal, middleware yang mengembalikannya.
     return res.status(201).json({
       success: true,
       media,
-      quota: req.member.quota,
+      quota: req.quota?.quota || req.member.quota,
       provider: result.provider,
       revisedPrompt: result.revisedPrompt || null
     });
@@ -526,13 +519,10 @@ exports.imageToImage = async (req, res) => {
     };
     await media.save();
 
-    req.member.quota.imageGeneration -= 1;
-    await req.member.save();
-
     return res.status(201).json({
       success: true,
       media,
-      quota: req.member.quota,
+      quota: req.quota?.quota || req.member.quota,
       provider: result.provider
     });
   } catch (error) {
@@ -702,13 +692,10 @@ exports.textToSound = async (req, res) => {
     };
     await media.save();
 
-    consumeAudioQuota(req.member);
-    await req.member.save();
-
     return res.status(201).json({
       success: true,
       media,
-      quota: req.member.quota,
+      quota: req.quota?.quota || req.member.quota,
       provider: result.provider,
       duration: result.duration || null
     });
@@ -901,13 +888,10 @@ exports.soundToText = async (req, res) => {
     };
     await media.save();
 
-    consumeAudioQuota(req.member);
-    await req.member.save();
-
     return res.status(201).json({
       success: true,
       media,
-      quota: req.member.quota,
+      quota: req.quota?.quota || req.member.quota,
       provider: result.provider,
       transcript: result.text
     });
@@ -1075,6 +1059,151 @@ exports.getVideoOptions = (req, res) => {
   res.status(200).json({ success: true, ...getVideoOptionsConfig() });
 };
 
+// ---------------------------------------------------------------------------
+// Pemulihan pekerjaan video yang tertinggal
+// ---------------------------------------------------------------------------
+
+// Jenis media yang pekerjaannya berjalan SETELAH respons 202 dikirim.
+const VIDEO_JOB_TYPES = ['text-to-video', 'image-to-video'];
+
+// Tenggang saat boot. Proses yang baru naik tidak memegang pekerjaan apa pun,
+// tetapi platform bisa menaikkan container baru beberapa detik sebelum container
+// lama berhenti (Render melakukannya saat deploy). Record yang lebih muda dari
+// ini dibiarkan supaya container lama yang masih menyelesaikannya tidak
+// "digagalkan" dari luar; yang lebih tua tidak mungkin lagi punya pemilik.
+const INTERRUPTED_JOB_GRACE_MS = 60 * 1000;
+
+// Pesan yang dilihat user ketika pekerjaannya berhenti bersama proses yang
+// menjalankannya. Ini BUKAN kegagalan provider — hasilnya memang tidak pernah
+// ada — sehingga satu-satunya tindakan yang berguna adalah memintanya ulang.
+const PESAN_JOB_TERPUTUS =
+  'Video generation was interrupted by a server restart. Please try again.';
+
+const videoJobTimeoutMs = () =>
+  Number(process.env.VIDEO_JOB_TIMEOUT_MS) || DEFAULT_JOB_TIMEOUT_MS;
+
+/**
+ * Apakah record ini sudah lewat batas waktu pekerjaannya?
+ *
+ * Hanya record seperti ini yang boleh dianggap mati oleh proses yang SEDANG
+ * melayani permintaan: di proses itu pekerjaan yang masih berjalan benar-benar
+ * ada, dan menandainya gagal terlalu cepat akan membunuh video yang sebenarnya
+ * sedang diproses provider.
+ */
+const isStaleVideoJob = (media, now = Date.now()) => {
+  if (!media || media.status !== 'processing' || !VIDEO_JOB_TYPES.includes(media.type)) {
+    return false;
+  }
+
+  const dibuat = new Date(media.createdAt || 0).getTime();
+
+  return (
+    Number.isFinite(dibuat) &&
+    dibuat > 0 &&
+    now - dibuat > videoJobTimeoutMs() + INTERRUPTED_JOB_GRACE_MS
+  );
+};
+
+/**
+ * Tutup satu pekerjaan video yang ditinggalkan, lalu kembalikan jatahnya.
+ *
+ * Transisinya ATOMIK (`status: 'processing'` ikut menjadi syarat), sehingga
+ * hanya satu pemanggil yang berhasil mengubahnya. Itu yang membuat
+ * pengembalian kuota tidak mungkin terjadi dua kali walau dua proses
+ * menjalankan pemulihan bersamaan, atau walau job yang sama ternyata selesai
+ * di antara pembacaan dan penutupan — status `completed` tidak akan ditimpa.
+ *
+ * @returns {Promise<object|null>} record yang berhasil ditutup, atau `null`.
+ */
+const closeInterruptedJob = async ({ contentId, userId }) => {
+  let media;
+
+  try {
+    media = await MediaContent.findOneAndUpdate(
+      { contentId, status: 'processing' },
+      {
+        $set: {
+          status: 'failed',
+          error: { message: PESAN_JOB_TERPUTUS, code: 'JOB_INTERRUPTED' }
+        }
+      },
+      { new: true }
+    );
+  } catch (error) {
+    console.error(`Gagal menutup pekerjaan video ${contentId}:`, error.message);
+    return null;
+  }
+
+  if (!media) return null;
+
+  // Jatah sudah direservasi saat permintaan diterima (lihat checkQuota), jadi
+  // video yang tidak akan pernah datang harus mengembalikannya. Penanda
+  // `quotaReserved` yang menentukan: record dari deploy lama (sebelum reservasi
+  // ada) tidak pernah mengambil jatah, dan mengembalikannya akan memberi user
+  // kuota gratis.
+  if (userId && media.quotaReserved) {
+    try {
+      await refundQuota(userId, 'videoGeneration');
+    } catch (error) {
+      console.error(`Gagal mengembalikan kuota video uid=${userId}:`, error.message);
+    }
+  }
+
+  return media;
+};
+
+/**
+ * Tandai pekerjaan video yang tidak akan pernah selesai sebagai `failed`.
+ *
+ * Kenapa perlu: pekerjaan video berjalan DI DALAM proses ini (lihat
+ * runVideoJob), sementara record-nya sudah tersimpan sebagai `processing` lebih
+ * dulu. Begitu container diganti — deploy, restart, atau instance gratis Render
+ * yang tidur saat tidak ada trafik — proses itu berhenti tanpa sempat menutup
+ * recordnya. Statusnya lalu tinggal `processing` selamanya: UI menampilkan
+ * "Rendering…" tanpa akhir, dan user tidak pernah tahu videonya tidak akan
+ * datang.
+ *
+ * `olderThanMs` menentukan seberapa tua sebuah record boleh dianggap
+ * ditinggalkan. Saat boot nilainya kecil (proses baru tidak punya pekerjaan apa
+ * pun), sedangkan saat melayani request nilainya adalah batas waktu pekerjaan
+ * itu sendiri.
+ *
+ * Tidak pernah melempar: ini perbaikan, bukan bagian dari alur utama, jadi
+ * kegagalannya dicatat tetapi tidak boleh menggagalkan boot atau request.
+ */
+const markInterruptedVideoJobs = async ({ olderThanMs, filter = {} } = {}) => {
+  const batas = new Date(Date.now() - (olderThanMs ?? videoJobTimeoutMs()));
+
+  try {
+    const tertinggal = await MediaContent.find({
+      ...filter,
+      type: { $in: VIDEO_JOB_TYPES },
+      status: 'processing',
+      createdAt: { $lt: batas }
+    });
+
+    let jumlah = 0;
+
+    for (const media of tertinggal) {
+      if (await closeInterruptedJob(media)) jumlah += 1;
+    }
+
+    return jumlah;
+  } catch (error) {
+    console.error('Gagal memulihkan pekerjaan video yang tertinggal:', error.message);
+    return 0;
+  }
+};
+
+/**
+ * Dipanggil sekali saat server mulai, sebelum menerima permintaan.
+ *
+ * Nilai kembaliannya dicatat pemanggil di log: jumlah itulah satu-satunya jejak
+ * bahwa ada pekerjaan user yang berhenti karena deploy/restart.
+ */
+exports.recoverInterruptedVideoJobs = async () =>
+  markInterruptedVideoJobs({ olderThanMs: INTERRUPTED_JOB_GRACE_MS });
+
 /**
  * Jalankan pekerjaan video di latar belakang, lalu simpan hasilnya.
  *
@@ -1131,17 +1260,10 @@ const runVideoJob = async ({ media, params }) => {
     };
     await media.save();
 
-    // Kuota dikurangi hanya setelah videonya benar-benar tersimpan. Anggota
-    // dibaca ulang dari database (bukan dari objek request) karena request-nya
-    // sudah selesai sejak lama; objek lama bisa sudah tidak mencerminkan sisa
-    // kuota yang sebenarnya.
-    const member = await User.findOne({ uid: media.userId });
-
-    if (member) {
-      member.quota.videoGeneration -= 1;
-      await member.save();
-    }
-
+    // Kuota TIDAK dikurangi di sini: middleware sudah mereservasinya saat
+    // permintaan diterima (sebelum 202), yang juga berarti pekerjaan ini tidak
+    // bisa melebihi sisa jatah. Yang perlu dilakukan di sini hanyalah
+    // mengembalikannya bila pekerjaannya gagal — lihat blok catch.
     return media;
   } catch (error) {
     console.error('Video generation error:', error.message);
@@ -1157,10 +1279,29 @@ const runVideoJob = async ({ media, params }) => {
     media.status = 'failed';
     media.error = { message: body.message, code: error.code };
 
+    let tercatat = false;
+
     try {
       await media.save();
+      tercatat = true;
     } catch (saveError) {
       console.error('Failed to update media status:', saveError.message);
+    }
+
+    // Videonya tidak akan pernah datang, jadi jatah yang sudah direservasi
+    // dikembalikan. Uid diambil dari record, bukan `req` — objek request sudah
+    // selesai sejak menit-menit lalu.
+    //
+    // Dikembalikan HANYA bila kegagalannya benar-benar tercatat: kalau
+    // penyimpanan status gagal, record-nya masih `processing` dan pemulihan
+    // (markInterruptedVideoJobs) yang akan menutupnya sekaligus mengembalikan
+    // jatahnya. Mengembalikan di sini juga akan membuat kuota bertambah dua kali.
+    if (tercatat && media.quotaReserved) {
+      try {
+        await refundQuota(media.userId, 'videoGeneration');
+      } catch (refundError) {
+        console.error(`Gagal mengembalikan kuota video uid=${media.userId}:`, refundError.message);
+      }
     }
 
     return null;
@@ -1184,7 +1325,11 @@ exports.textToVideo = async (req, res) => {
       userId: req.member.uid,
       type: 'text-to-video',
       prompt: parsed.prompt,
-      status: 'processing'
+      status: 'processing',
+      // Jatahnya sudah diambil middleware; penanda ini yang membuat refund
+      // saat gagal/terputus hanya terjadi untuk pekerjaan yang benar-benar
+      // membayar.
+      quotaReserved: Boolean(req.quota)
     });
   } catch (error) {
     console.error('Text-to-video error:', error.message);
@@ -1205,8 +1350,8 @@ exports.textToVideo = async (req, res) => {
     message: 'Video generation started. It will appear in your history when ready.',
     status: 'processing',
     media,
-    // Kuota belum berkurang: angkanya baru berubah setelah videonya tersimpan.
-    quota: req.member.quota
+    // Kuota sudah direservasi dan akan dikembalikan bila pembuatannya gagal.
+    quota: req.quota?.quota || req.member.quota
   });
 };
 
@@ -1232,7 +1377,10 @@ exports.imageToVideo = async (req, res) => {
       userId: req.member.uid,
       type: 'image-to-video',
       prompt: parsed.prompt,
-      status: 'processing'
+      status: 'processing',
+      // Sama seperti text-to-video: hanya pekerjaan yang jatahnya benar-benar
+      // direservasi yang boleh mengembalikannya kalau gagal.
+      quotaReserved: Boolean(req.quota)
     });
 
     // Gambar pertamanya ikut disimpan supaya riwayat bisa menunjukkan dari mana
@@ -1284,7 +1432,7 @@ exports.imageToVideo = async (req, res) => {
     message: 'Video generation started. It will appear in your history when ready.',
     status: 'processing',
     media,
-    quota: req.member.quota
+    quota: req.quota?.quota || req.member.quota
   });
 };
 
@@ -1343,6 +1491,19 @@ exports.getMediaHistory = async (req, res) => {
         .limit(limit),
       MediaContent.countDocuments(filter)
     ]);
+
+    // Pekerjaan video yang sudah lewat batas waktunya tidak akan pernah selesai
+    // (proses yang menjalankannya sudah tidak ada). Ditutup di sini supaya
+    // halaman Riwayat tidak menampilkan "Rendering…" selamanya — statusnya ikut
+    // diperbaiki di database, dan jatah yang sudah direservasi dikembalikan.
+    for (const item of media.filter((entry) => isStaleVideoJob(entry))) {
+      const ditutup = await closeInterruptedJob(item);
+
+      if (ditutup) {
+        item.status = ditutup.status;
+        item.error = ditutup.error;
+      }
+    }
 
     res.json({
       success: true,
@@ -1426,6 +1587,22 @@ exports.getMediaById = async (req, res) => {
 
     if (!media) {
       return res.status(404).json({ success: false, message: 'Media not found' });
+    }
+
+    // Satu record yang dibaca setelah batas waktunya juga ditutup di sini.
+    // Pemantau pekerjaan di frontend hanya memanggil endpoint ini untuk satu
+    // record, jadi tanpa langkah ini ia akan terus melihat `processing` untuk
+    // pekerjaan yang prosesnya sudah mati.
+    if (isStaleVideoJob(media)) {
+      const ditutup = await closeInterruptedJob(media);
+
+      // Kalau `null`, pekerjaannya ternyata selesai lebih dulu; respons ini
+      // masih memuat status lama, dan pembacaan berikutnya sudah benar — status
+      // `completed` tidak pernah ditimpa.
+      if (ditutup) {
+        media.status = ditutup.status;
+        media.error = ditutup.error;
+      }
     }
 
     res.json({ success: true, media });
@@ -1659,3 +1836,10 @@ exports.getSharedMedia = async (req, res) => {
 // dan "jangan sampai keluar", jadi perubahannya harus terlihat di test.
 exports.publicMediaView = publicMediaView;
 exports.POLA_TOKEN_BAGIKAN = POLA_TOKEN_BAGIKAN;
+
+// Diekspos untuk test: pemulihan ini menentukan apakah user melihat kegagalan
+// yang jujur atau "Rendering…" tanpa akhir, jadi filter dan pesannya dikunci
+// lewat test — bukan hanya lewat komentar.
+exports.markInterruptedVideoJobs = markInterruptedVideoJobs;
+exports.PESAN_JOB_TERPUTUS = PESAN_JOB_TERPUTUS;
+exports.INTERRUPTED_JOB_GRACE_MS = INTERRUPTED_JOB_GRACE_MS;

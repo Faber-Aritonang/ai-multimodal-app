@@ -39,6 +39,7 @@ const mediaRoutes = require('./routes/media');
 const shareRoutes = require('./routes/share');
 const clientErrorRoutes = require('./routes/clientErrors');
 const paymentRoutes = require('./routes/payment');
+const { recoverInterruptedVideoJobs } = require('./controllers/mediaController');
 const { getProviderStatus } = require('./config/imageProviders');
 const {
   describeStorage,
@@ -381,6 +382,20 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await connectDB();
+
+  // Pekerjaan video berjalan di dalam proses ini (lihat runVideoJob), jadi
+  // record `processing` yang ditinggalkan proses sebelumnya tidak akan pernah
+  // selesai. Ditutup SEBELUM server menerima permintaan supaya user melihat
+  // alasannya — bukan "Rendering…" yang tidak berakhir. Tidak pernah melempar:
+  // kegagalan pemulihan tidak boleh menahan server naik.
+  const videoTertinggal = await recoverInterruptedVideoJobs();
+
+  if (videoTertinggal > 0) {
+    logger.warn(`Pekerjaan video yang terputus ditandai gagal: ${videoTertinggal}`, {
+      count: videoTertinggal
+    });
+  }
+
   // Bind explicitly to all interfaces. Render's proxy cannot reach a server
     // bound only to the container loopback interface.
     app.listen(PORT, '0.0.0.0', () => {

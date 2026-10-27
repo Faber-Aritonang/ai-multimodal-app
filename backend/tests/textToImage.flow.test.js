@@ -38,13 +38,33 @@ const authHeader = () => ({
   Authorization: `Bearer ${jwt.sign({ uid: 'uid-flow' }, process.env.JWT_SECRET)}`
 });
 
-const approvedMember = (imageGeneration = 3) => ({
-  uid: 'uid-flow',
-  role: 'member',
-  isApproved: true,
-  quota: { chat: 10, imageGeneration },
-  save: jest.fn().mockResolvedValue(undefined)
-});
+const approvedMember = (imageGeneration = 3) => {
+  const member = {
+    uid: 'uid-flow',
+    role: 'member',
+    isApproved: true,
+    quota: { chat: 10, imageGeneration }
+  };
+
+  // Reservasi kuota sekarang terjadi di middleware, sebagai satu operasi atomik
+  // `findOneAndUpdate` (syarat `$gte` + `$inc`). `quotaDb` adalah baris database
+  // yang sebenarnya: `req.member.quota` TIDAK ikut berubah, sama seperti dokumen
+  // Mongoose yang dibaca `requireMember` sebelum update dilakukan.
+  const quotaDb = { ...member.quota };
+
+  User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+    const [kunci, langkah] = Object.entries(update.$inc)[0];
+    const field = kunci.split('.')[1];
+    const minimum = filter[`quota.${field}`]?.$gte ?? 0;
+
+    if ((quotaDb[field] ?? 0) < minimum) return null;
+
+    quotaDb[field] += langkah;
+    return { quota: quotaDb };
+  });
+
+  return member;
+};
 
 beforeEach(() => {
   mockGenerateImage.mockReset();
@@ -79,7 +99,11 @@ describe('POST /api/v1/media/text-to-image', () => {
     expect(response.body.provider).toBe('cloudflare');
     expect(response.body.media.outputUrl).toBe('/uploads/media_flow.jpeg');
     expect(response.body.quota.imageGeneration).toBe(2);
-    expect(member.save).toHaveBeenCalled();
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      { uid: 'uid-flow', 'quota.imageGeneration': { $gte: 1 } },
+      { $inc: { 'quota.imageGeneration': -1 } },
+      { new: true }
+    );
 
     // File benar-benar tersimpan dan bisa diambil lewat endpoint statis
     expect(fs.existsSync(path.join(tempUploadDir, 'media_flow.jpeg'))).toBe(true);
@@ -121,8 +145,9 @@ describe('POST /api/v1/media/text-to-image', () => {
     expect(response.body.role).toBe('pending');
   });
 
-  test('prompt kosong ditolak 400 setelah lolos auth & quota', async () => {
-    User.findOne.mockResolvedValue(approvedMember(3));
+  test('prompt kosong ditolak 400 setelah lolos auth & quota, dan jatahnya kembali', async () => {
+    const member = approvedMember(3);
+    User.findOne.mockResolvedValue(member);
 
     const response = await request(app)
       .post('/api/v1/media/text-to-image')
@@ -132,9 +157,16 @@ describe('POST /api/v1/media/text-to-image', () => {
     expect(response.status).toBe(400);
     expect(response.body.message).toMatch(/prompt/i);
     expect(mockGenerateImage).not.toHaveBeenCalled();
+
+    // Reservasi terjadi di middleware, refund dipasang di sana juga — jadi
+    // jalur 400 (yang tidak menyentuh provider) tidak memakan jatah user.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({
+      $inc: { 'quota.imageGeneration': 1 }
+    });
   });
 
-  test('kegagalan provider dicatat sebagai media failed dan quota tidak berkurang', async () => {
+  test('kegagalan provider dicatat sebagai media failed dan quota dikembalikan', async () => {
     const member = approvedMember(3);
     User.findOne.mockResolvedValue(member);
 
@@ -149,7 +181,14 @@ describe('POST /api/v1/media/text-to-image', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.success).toBe(false);
-    expect(member.quota.imageGeneration).toBe(3);
-    expect(member.save).not.toHaveBeenCalled();
+
+    // Jatah direservasi sebelum provider dipanggil, lalu dikembalikan karena
+    // gambarnya tidak pernah ada. Dua tulisan: -1 saat reservasi, +1 saat refund.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1]).toEqual([
+      { uid: 'uid-flow' },
+      { $inc: { 'quota.imageGeneration': 1 } },
+      { new: true }
+    ]);
   });
 });

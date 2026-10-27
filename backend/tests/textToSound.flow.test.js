@@ -58,13 +58,32 @@ const authHeader = () => ({
 // Kuota audio punya jatahnya sendiri: `audioGeneration`. Sebelumnya fitur suara
 // memakai `videoGeneration` sehingga satu fitur bisa menghabiskan jatah fitur
 // lain; pemisahan itu yang dijaga di sini.
-const approvedMember = (audioGeneration = 3) => ({
-  uid: 'uid-sound',
-  role: 'member',
-  isApproved: true,
-  quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 },
-  save: jest.fn().mockResolvedValue(undefined)
-});
+const approvedMember = (audioGeneration = 3) => {
+  const member = {
+    uid: 'uid-sound',
+    role: 'member',
+    isApproved: true,
+    quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 }
+  };
+
+  // Reservasi kuota terjadi di middleware (config/quota.js), satu operasi
+  // atomik `findOneAndUpdate`. `quotaDb` adalah baris database; `req.member`
+  // tidak ikut berubah.
+  const quotaDb = { ...member.quota };
+
+  User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+    const [kunci, langkah] = Object.entries(update.$inc)[0];
+    const field = kunci.split('.')[1];
+    const minimum = filter[`quota.${field}`]?.$gte ?? 0;
+
+    if ((quotaDb[field] ?? 0) < minimum) return null;
+
+    quotaDb[field] += langkah;
+    return { quota: quotaDb };
+  });
+
+  return member;
+};
 
 const WAV_BYTES = Buffer.from('RIFF____WAVEfmt ');
 
@@ -115,7 +134,11 @@ describe('POST /api/v1/media/text-to-sound', () => {
     expect(response.body.quota.audioGeneration).toBe(2);
     expect(response.body.quota.videoGeneration).toBe(5);
     expect(response.body.quota.imageGeneration).toBe(5);
-    expect(member.save).toHaveBeenCalled();
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      { uid: 'uid-sound', 'quota.audioGeneration': { $gte: 1 } },
+      { $inc: { 'quota.audioGeneration': -1 } },
+      { new: true }
+    );
 
     expect(mockGenerateSpeech).toHaveBeenCalledWith({
       text: 'Selamat pagi, ini contoh suara.',
@@ -129,6 +152,51 @@ describe('POST /api/v1/media/text-to-sound', () => {
     const fileResponse = await request(app).get('/uploads/media_sound.wav');
     expect(fileResponse.status).toBe(200);
     expect(fileResponse.headers['content-type']).toMatch(/audio\/wav/);
+  });
+
+  test('akun lama tanpa audioGeneration memakai jatah videoGeneration, tetap atomik', async () => {
+    // Akun yang dibuat sebelum kuota audio dipisahkan: field `audioGeneration`
+    // belum ada, dan jatah audionya menumpang `videoGeneration`. Pemeriksa
+    // (middleware) dan pengurang (controller) harus memakai aturan yang sama —
+    // itulah alasan aturannya tinggal di config/quota.js.
+    const member = {
+      uid: 'uid-sound',
+      role: 'member',
+      isApproved: true,
+      quota: { chat: 10, imageGeneration: 5, videoGeneration: 4 }
+    };
+    User.findOne.mockResolvedValue(member);
+
+    User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+      // Filter pertama (audioGeneration) tidak cocok karena field-nya memang
+      // tidak ada di dokumen akun lama.
+      if (filter['quota.audioGeneration']?.$exists !== false) {
+        return null;
+      }
+
+      const langkah = update.$inc['quota.videoGeneration'];
+      member.quota.videoGeneration += langkah;
+
+      return { quota: member.quota };
+    });
+
+    const response = await request(app)
+      .post('/api/v1/media/text-to-sound')
+      .set(authHeader())
+      .send({ text: 'halo' });
+
+    expect(response.status).toBe(201);
+    expect(response.body.quota.videoGeneration).toBe(3);
+    expect(response.body.quota.audioGeneration).toBeUndefined();
+
+    // Dua percobaan: kunci audio dulu, lalu cadangan video. Syarat
+    // `$exists: false` yang membedakan akun lama dari kuota audio yang habis.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][0]).toEqual({
+      uid: 'uid-sound',
+      'quota.audioGeneration': { $exists: false },
+      'quota.videoGeneration': { $gte: 1 }
+    });
   });
 
   test('deskripsi gaya suara dicatat, dan voice yang dipakai tetap ikut disimpan', async () => {
@@ -283,8 +351,11 @@ describe('POST /api/v1/media/text-to-sound', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.success).toBe(false);
-    expect(member.quota.audioGeneration).toBe(3);
-    expect(member.save).not.toHaveBeenCalled();
+    // Reservasi di middleware, refund saat provider gagal: jatahnya kembali.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({
+      $inc: { 'quota.audioGeneration': 1 }
+    });
 
     const record = await MediaContent.create.mock.results[0].value;
     expect(record.status).toBe('failed');

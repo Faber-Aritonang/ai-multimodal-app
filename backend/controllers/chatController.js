@@ -287,10 +287,10 @@ exports.sendMessage = async (req, res) => {
 
       await session.save();
 
-      // Kurangi quota (hanya setelah balasan benar-benar diterima)
-      req.member.quota.chat -= 1;
-      await req.member.save();
-
+      // Kuota sudah direservasi middleware sebelum provider dipanggil, jadi
+      // tidak ada lagi pengurangan di sini. Angka yang dilaporkan adalah sisa
+      // setelah reservasi; kalau permintaan ini gagal, middleware yang
+      // mengembalikannya (lihat checkQuota).
       res.json({
         success: true,
         response: reply.content,
@@ -299,7 +299,7 @@ exports.sendMessage = async (req, res) => {
         ...(sources.length ? { sources } : {}),
         ...(publicActions.length ? { connectorActions: publicActions } : {}),
         session,
-        quota: req.member.quota
+        quota: req.quota?.quota || req.member.quota
       });
 
     } catch (apiError) {

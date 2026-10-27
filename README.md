@@ -473,7 +473,11 @@ curl -X POST http://localhost:3000/api/v1/media/text-to-image \
 Respons memuat `provider` yang dipakai (mis. `cloudflare`, `pollinations`, `openai`).
 Hasil generate disimpan di `backend/uploads/` dan disajikan statis di
 `/uploads/<file>` (PNG atau JPEG mengikuti keluaran provider).
-Quota `imageGeneration` berkurang 1 hanya jika gambar berhasil dibuat.
+Quota `imageGeneration` **direservasi** saat permintaan diterima — satu operasi
+atomik, sebelum provider dipanggil — dan **dikembalikan** bila gambarnya gagal
+dibuat. Jadi percobaan yang gagal tidak menghabiskan jatah, sementara beberapa
+permintaan paralel tidak bisa memakai sisa jatah yang sama (dan angkanya tidak
+pernah minus).
 
 Provider text-to-image bisa diganti lewat `IMAGE_PROVIDER` /
 `IMAGE_FALLBACK_PROVIDER` tanpa mengubah kode — lihat
@@ -506,8 +510,8 @@ pada OpenAI lewat parameter `instructions`, dan pada Edge/ElevenLabs diabaikan
 Hasilnya disimpan seperti media lain dan diputar lewat elemen `<audio>` di
 `/tools/text-to-sound`. Kuota yang berkurang adalah `audioGeneration` — jatah
 khusus suara, terpisah dari `videoGeneration` supaya membuat video tidak
-menghabiskan jatah suara (dan sebaliknya) — dan berkurang hanya bila audionya
-benar-benar berhasil dibuat.
+menghabiskan jatah suara (dan sebaliknya) — direservasi sebelum provider
+dipanggil, lalu dikembalikan bila audionya gagal dibuat.
 
 > Biaya: **nol untuk menyiapkan** — Edge TTS melayani suara Indonesia tanpa kunci
 > API sama sekali. Gemini TTS gratis juga (kuotanya tidak butuh billing) dan
@@ -544,7 +548,8 @@ Daftar bahasa, format, dan batas ukurannya dilayani
 `GET /api/v1/media/transcribe-options`, jadi halaman
 `/tools/sound-to-text` tidak menyimpan salinan aturan yang bisa menyimpang dari
 validasi server. Kuota yang berkurang adalah `audioGeneration` (jatah yang sama
-dengan text-to-sound), dan hanya bila transkripnya benar-benar berhasil.
+dengan text-to-sound): direservasi sebelum transkripsi, dan dikembalikan bila
+transkripnya gagal.
 
 > Biaya: **gratis** memakai Groq Whisper (1.000 request/hari, kunci yang sama
 dengan chat) dengan Gemini sebagai cadangan. Berbeda dari text-to-sound, fitur
@@ -570,8 +575,17 @@ hanya record `media` berstatus `processing`. Pekerjaannya berjalan di server, da
 hasilnya muncul di `GET /media/history?type=text-to-video` setelah statusnya
 menjadi `completed` (halaman `/tools/text-to-video` melakukan polling untuk ini).
 Kalau pembuatannya gagal, record-nya berstatus `failed` dan `error.message`
-menjelaskan sebabnya. Kuota `videoGeneration` berkurang **hanya setelah** videonya
-benar-benar tersimpan, jadi percobaan yang gagal tidak menghabiskan jatah user.
+menjelaskan sebabnya. Pekerjaan yang terputus karena deploy/restart juga ditandai
+`failed` (`error.code: "JOB_INTERRUPTED"`): record `processing` yang ditinggalkan
+proses sebelumnya disapu saat server mulai, dan record yang sudah lewat
+`VIDEO_JOB_TIMEOUT_MS` ditutup saat dibaca dari riwayat — jadi statusnya tidak
+tinggal `processing` selamanya.
+
+Kuota `videoGeneration` **direservasi** saat permintaan diterima (bukan setelah
+videonya jadi), sehingga satu sisa jatah tidak bisa dipakai beberapa pekerjaan
+paralel. Kalau pembuatannya gagal — termasuk yang terputus karena
+deploy/restart — jatahnya **dikembalikan**. Reservasi dan pengembaliannya atomik,
+jadi angkanya tidak pernah minus.
 
 `resolution` menerima `720p` atau `1080p` (bawaan `720p`). **`480p` sengaja tidak
 ada** — dokumentasi NaraRouter hanya menyebut 720p/1080p, dan menawarkan nilai

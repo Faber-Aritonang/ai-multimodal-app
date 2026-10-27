@@ -38,6 +38,18 @@ const mediaContentSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+
+  // Apakah jatah kuota sudah DIRESERVASI untuk pekerjaan ini.
+  //
+  // Hanya relevan untuk pekerjaan latar belakang (video): kalau pekerjaannya
+  // gagal atau terputus, jatahnya harus dikembalikan — dan hanya boleh
+  // dikembalikan bila memang pernah diambil. Record yang dibuat sebelum
+  // reservasi ada (deploy lama) tidak punya penanda ini, sehingga pemulihan
+  // tidak memberikan kuota gratis kepada pemiliknya.
+  quotaReserved: {
+    type: Boolean,
+    default: false
+  },
   
   // URL publik relatif (mis. /uploads/media_xxx.png) yang dipakai frontend
   outputUrl: {

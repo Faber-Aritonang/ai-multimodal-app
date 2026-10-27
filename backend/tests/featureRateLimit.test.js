@@ -115,6 +115,12 @@ describe('pemasangan limiter di route media', () => {
   });
 
   beforeEach(() => {
+    // checkQuota mereservasi jatah sebelum handler berjalan (lihat
+    // config/quota.js); tanpa mock ini permintaannya dijawab 403.
+    User.findOneAndUpdate.mockResolvedValue({
+      quota: { chat: 10, imageGeneration: 49 }
+    });
+
     mockGenerateImage.mockReset();
     mockGenerateImage.mockResolvedValue({
       buffer: Buffer.from('rate-limit-image-bytes'),

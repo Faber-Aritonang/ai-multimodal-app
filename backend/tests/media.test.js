@@ -66,10 +66,14 @@ function createRes() {
 }
 
 function createMember() {
+  // Kuota tidak lagi disentuh controller: middleware (checkQuota) yang
+  // mereservasi sebelum handler berjalan dan mengembalikannya bila gagal. Di
+  // test controller ini `req.quota` sengaja tidak diisi, jadi respons memakai
+  // angka dari `req.member` — perilaku cadangan yang juga dipakai di produksi
+  // bila middleware tidak terpasang (mis. pemanggilan langsung seperti ini).
   return {
     uid: 'uid-member',
-    quota: { chat: 10, imageGeneration: 3 },
-    save: jest.fn().mockResolvedValue(undefined)
+    quota: { chat: 10, imageGeneration: 3 }
   };
 }
 
@@ -133,16 +137,11 @@ describe('generate berhasil', () => {
     });
     expect(media.save).toHaveBeenCalled();
 
-    // Quota berkurang 1 dan tersimpan
-    expect(req.member.quota.imageGeneration).toBe(2);
-    expect(req.member.save).toHaveBeenCalled();
-
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: true,
-        provider: 'cloudflare',
-        quota: { chat: 10, imageGeneration: 2 }
+        provider: 'cloudflare'
       })
     );
   });
@@ -212,7 +211,7 @@ describe('generate berhasil', () => {
 });
 
 describe('generate gagal', () => {
-  test('menandai record failed dan tidak mengurangi quota', async () => {
+  test('menandai record failed saat provider gagal', async () => {
     const media = mockCreatedMedia('media_test3');
     mockGenerateImage.mockRejectedValue(new Error('Rate limit exceeded'));
 
@@ -223,8 +222,6 @@ describe('generate gagal', () => {
 
     expect(media.status).toBe('failed');
     expect(media.error).toEqual({ message: 'Rate limit exceeded' });
-    expect(req.member.quota.imageGeneration).toBe(3);
-    expect(req.member.save).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(502);
   });
 
@@ -246,7 +243,7 @@ describe('generate gagal', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('CLOUDFLARE_ACCOUNT_ID') })
     );
-    expect(req.member.save).not.toHaveBeenCalled();
+
   });
 
   test('nama provider salah di env juga dikembalikan sebagai 503', async () => {
@@ -390,7 +387,7 @@ describe('imageToImage', () => {
     });
   });
 
-  test('menyimpan gambar input, hasil edit, dan mengurangi quota', async () => {
+  test('menyimpan gambar input dan hasil edit', async () => {
     const media = mockCreatedEdit('media_i2i_ok');
     const req = createEditRequest(validBody);
     const res = createRes();
@@ -425,8 +422,6 @@ describe('imageToImage', () => {
       guidance: null
     });
 
-    expect(req.member.quota.imageGeneration).toBe(2);
-    expect(req.member.save).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, provider: 'cloudflare' })
@@ -454,7 +449,7 @@ describe('imageToImage', () => {
     expect(mockEditImage).toHaveBeenCalledWith(expect.objectContaining({ guidance: 7.5 }));
   });
 
-  test('kegagalan provider -> 502, record failed, quota tidak berkurang', async () => {
+  test('kegagalan provider -> 502 dan record failed', async () => {
     const media = mockCreatedEdit('media_i2i_fail');
     mockEditImage.mockRejectedValue(new Error('model overloaded'));
 
@@ -465,8 +460,7 @@ describe('imageToImage', () => {
 
     expect(media.status).toBe('failed');
     expect(media.error).toEqual({ message: 'model overloaded' });
-    expect(req.member.quota.imageGeneration).toBe(3);
-    expect(req.member.save).not.toHaveBeenCalled();
+
     expect(res.status).toHaveBeenCalledWith(502);
   });
 

@@ -47,13 +47,33 @@ const authHeader = () => ({
   Authorization: `Bearer ${jwt.sign({ uid: 'uid-chat' }, process.env.JWT_SECRET)}`
 });
 
-const approvedMember = (chat = 5) => ({
-  uid: 'uid-chat',
-  role: 'member',
-  isApproved: true,
-  quota: { chat, imageGeneration: 3 },
-  save: jest.fn().mockResolvedValue(undefined)
-});
+const approvedMember = (chat = 5) => {
+  const member = {
+    uid: 'uid-chat',
+    role: 'member',
+    isApproved: true,
+    quota: { chat, imageGeneration: 3 }
+  };
+
+  // Reservasi kuota terjadi di middleware, sebagai satu operasi atomik
+  // `findOneAndUpdate`. `quotaDb` adalah baris database yang sebenarnya;
+  // `req.member.quota` tidak ikut berubah — sama seperti Mongoose, yang tidak
+  // menyentuh dokumen yang sudah dibaca saat `findOneAndUpdate` dijalankan.
+  const quotaDb = { ...member.quota };
+
+  User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+    const [kunci, langkah] = Object.entries(update.$inc)[0];
+    const field = kunci.split('.')[1];
+    const minimum = filter[`quota.${field}`]?.$gte ?? 0;
+
+    if ((quotaDb[field] ?? 0) < minimum) return null;
+
+    quotaDb[field] += langkah;
+    return { quota: quotaDb };
+  });
+
+  return member;
+};
 
 const createSession = (overrides = {}) => ({
   sessionId: 'chat_flow',
@@ -115,7 +135,11 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(session.provider).toBe('groq');
     expect(session.model).toBe('openai/gpt-oss-120b');
     expect(session.save).toHaveBeenCalled();
-    expect(member.save).toHaveBeenCalled();
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      { uid: 'uid-chat', 'quota.chat': { $gte: 1 } },
+      { $inc: { 'quota.chat': -1 } },
+      { new: true }
+    );
   });
 
   test('riwayat percakapan diteruskan ke provider', async () => {
@@ -227,7 +251,10 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(response.status).toBe(502);
     expect(response.body.message).toMatch(/no usable sources/i);
     expect(mockReply).not.toHaveBeenCalled();
-    expect(member.save).not.toHaveBeenCalled();
+
+    // Jatah direservasi middleware, lalu dikembalikan karena permintaannya
+    // gagal sebelum balasan dibuat.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
   });
 
   test('system prompt menyebut kuota user yang sebenarnya', async () => {
@@ -250,7 +277,7 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(response.status).toBe(403);
     expect(response.body.message).toMatch(/quota/i);
     expect(mockReply).not.toHaveBeenCalled();
-    expect(member.save).not.toHaveBeenCalled();
+    expect(User.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   test('sesi milik user lain tidak bisa diakses (404)', async () => {
@@ -273,7 +300,7 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(mockReply).not.toHaveBeenCalled();
   });
 
-  test('provider belum dikonfigurasi -> 503 dengan pesan yang jelas, kuota tetap', async () => {
+  test('provider belum dikonfigurasi -> 503 dengan pesan yang jelas, jatah kembali', async () => {
     const member = approvedMember(5);
     User.findOne.mockResolvedValue(member);
     ChatSession.findOne.mockResolvedValue(createSession());
@@ -289,7 +316,10 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(response.status).toBe(503);
     expect(response.body.message).toContain('GROQ_API_KEY');
     expect(response.body.quota.chat).toBe(5);
-    expect(member.save).not.toHaveBeenCalled();
+
+    // Reservasi di middleware, lalu dikembalikan karena tidak ada balasan.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({ $inc: { 'quota.chat': 1 } });
   });
 
   test('kegagalan provider -> 502 dan pesan user tetap tersimpan', async () => {
@@ -309,7 +339,10 @@ describe('POST /api/v1/member/chat/sessions/:sessionId/message', () => {
     expect(response.body.message).toMatch(/temporarily unavailable/i);
     expect(session.messages).toEqual([{ role: 'user', content: 'halo' }]);
     expect(session.save).toHaveBeenCalled();
-    expect(member.save).not.toHaveBeenCalled();
+
+    // Provider gagal: jatah yang sudah direservasi dikembalikan.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({ $inc: { 'quota.chat': 1 } });
   });
 });
 

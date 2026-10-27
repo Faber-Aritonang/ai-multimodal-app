@@ -41,13 +41,32 @@ const authHeader = () => ({
 
 // Kuota audio punya jatahnya sendiri: `audioGeneration` (dulu memakai
 // `videoGeneration` — lihat mediaController).
-const approvedMember = (audioGeneration = 3) => ({
-  uid: 'uid-stt',
-  role: 'member',
-  isApproved: true,
-  quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 },
-  save: jest.fn().mockResolvedValue(undefined)
-});
+const approvedMember = (audioGeneration = 3) => {
+  const member = {
+    uid: 'uid-stt',
+    role: 'member',
+    isApproved: true,
+    quota: { chat: 10, imageGeneration: 5, audioGeneration, videoGeneration: 5 }
+  };
+
+  // Reservasi kuota terjadi di middleware (config/quota.js), satu operasi
+  // atomik `findOneAndUpdate`. `quotaDb` adalah baris database; `req.member`
+  // tidak ikut berubah.
+  const quotaDb = { ...member.quota };
+
+  User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+    const [kunci, langkah] = Object.entries(update.$inc)[0];
+    const field = kunci.split('.')[1];
+    const minimum = filter[`quota.${field}`]?.$gte ?? 0;
+
+    if ((quotaDb[field] ?? 0) < minimum) return null;
+
+    quotaDb[field] += langkah;
+    return { quota: quotaDb };
+  });
+
+  return member;
+};
 
 /** WAV minimal yang dikenali dari magic bytes-nya. */
 const wavBytes = () => {
@@ -114,7 +133,11 @@ describe('POST /api/v1/media/sound-to-text', () => {
     expect(response.body.quota.audioGeneration).toBe(2);
     expect(response.body.quota.videoGeneration).toBe(5);
     expect(response.body.quota.imageGeneration).toBe(5);
-    expect(member.save).toHaveBeenCalled();
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      { uid: 'uid-stt', 'quota.audioGeneration': { $gte: 1 } },
+      { $inc: { 'quota.audioGeneration': -1 } },
+      { new: true }
+    );
 
     expect(mockTranscribeAudio).toHaveBeenCalledWith({
       buffer: wavBytes(),
@@ -291,8 +314,11 @@ describe('POST /api/v1/media/sound-to-text', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.success).toBe(false);
-    expect(member.quota.audioGeneration).toBe(3);
-    expect(member.save).not.toHaveBeenCalled();
+    // Reservasi di middleware, refund saat provider gagal: jatahnya kembali.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({
+      $inc: { 'quota.audioGeneration': 1 }
+    });
 
     expect(mediaRecord.status).toBe('failed');
     expect(mediaRecord.error.message).toMatch(/All speech-to-text providers failed/);

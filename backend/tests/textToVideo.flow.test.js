@@ -44,13 +44,32 @@ const authHeader = () => ({
   Authorization: `Bearer ${jwt.sign({ uid: 'uid-video' }, process.env.JWT_SECRET)}`
 });
 
-const approvedMember = (videoGeneration = 3) => ({
-  uid: 'uid-video',
-  role: 'member',
-  isApproved: true,
-  quota: { chat: 10, imageGeneration: 5, videoGeneration },
-  save: jest.fn().mockResolvedValue(undefined)
-});
+const approvedMember = (videoGeneration = 3) => {
+  const member = {
+    uid: 'uid-video',
+    role: 'member',
+    isApproved: true,
+    quota: { chat: 10, imageGeneration: 5, videoGeneration }
+  };
+
+  // Reservasi kuota terjadi di middleware (config/quota.js), satu operasi
+  // atomik `findOneAndUpdate`. `quotaDb` adalah baris database; `req.member`
+  // tidak ikut berubah.
+  const quotaDb = { ...member.quota };
+
+  User.findOneAndUpdate.mockImplementation(async (filter, update) => {
+    const [kunci, langkah] = Object.entries(update.$inc)[0];
+    const field = kunci.split('.')[1];
+    const minimum = filter[`quota.${field}`]?.$gte ?? 0;
+
+    if ((quotaDb[field] ?? 0) < minimum) return null;
+
+    quotaDb[field] += langkah;
+    return { quota: quotaDb };
+  });
+
+  return member;
+};
 
 /**
  * Tunggu sampai pekerjaan latar belakang menutup recordnya.
@@ -105,6 +124,12 @@ beforeEach(() => {
 
   mediaRecord = {
     contentId: 'media_video',
+    // userId ikut diisi: pengembalian kuota memakai uid dari record ini, karena
+    // objek request sudah tidak dipakai lagi saat pekerjaannya selesai.
+    userId: 'uid-video',
+    // Jatah sudah direservasi middleware; penanda ini yang membuat refund saat
+    // gagal benar-benar terjadi.
+    quotaReserved: true,
     prompt: '',
     status: 'processing',
     save: jest.fn().mockResolvedValue(undefined)
@@ -130,9 +155,11 @@ describe('POST /api/v1/media/text-to-video', () => {
     expect(response.body.media.contentId).toBe('media_video');
     expect(response.body.media.status).toBe('processing');
 
-    // Kuota BELUM berkurang: angkanya baru berubah setelah videonya tersimpan,
-    // supaya pekerjaan yang gagal tidak menghabiskan jatah user.
-    expect(response.body.quota.videoGeneration).toBe(3);
+    // Kuota DIRESERVASI saat permintaan diterima — bukan setelah video selesai.
+    // Inilah yang membuat satu sisa jatah tidak bisa dipakai 20 pekerjaan
+    // paralel; kalau pembuatannya gagal, jatahnya dikembalikan (lihat test
+    // kegagalan provider di bawah).
+    expect(response.body.quota.videoGeneration).toBe(2);
 
     expect(mockGenerateVideo).toHaveBeenCalledWith({
       prompt: 'sebuah kota futuristik saat senja',
@@ -160,9 +187,14 @@ describe('POST /api/v1/media/text-to-video', () => {
       model: 'agnes-video-v2.0'
     });
 
-    // Kuota berkurang satu setelah hasilnya benar-benar tersimpan.
-    expect(member.quota.videoGeneration).toBe(2);
-    expect(member.save).toHaveBeenCalled();
+    // Sukses: reservasi di awal tidak dikembalikan, dan tidak ada pengurangan
+    // kedua saat pekerjaannya selesai.
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      { uid: 'uid-video', 'quota.videoGeneration': { $gte: 1 } },
+      { $inc: { 'quota.videoGeneration': -1 } },
+      { new: true }
+    );
 
     // Berkasnya benar-benar ada dan disajikan sebagai video.
     expect(fs.existsSync(path.join(tempUploadDir, 'media_video.mp4'))).toBe(true);
@@ -185,7 +217,7 @@ describe('POST /api/v1/media/text-to-video', () => {
     );
   });
 
-  test('kegagalan provider menutup recordnya sebagai failed, kuota tidak berkurang', async () => {
+  test('kegagalan provider menutup recordnya sebagai failed dan mengembalikan jatah', async () => {
     const member = approvedMember(3);
     User.findOne.mockResolvedValue(member);
     mockGenerateVideo.mockRejectedValue(
@@ -204,8 +236,13 @@ describe('POST /api/v1/media/text-to-video', () => {
     // Pesannya pesan ramah, bukan detail provider.
     expect(mediaRecord.error.message).toBe('Video generation failed. Please try again.');
     expect(mediaRecord.error.code).toBe('PROVIDER_UNAVAILABLE');
-    expect(member.quota.videoGeneration).toBe(3);
-    expect(member.save).not.toHaveBeenCalled();
+
+    // Jatah yang direservasi saat 202 dikembalikan oleh pekerjaan latar
+    // belakang yang gagal — bukan oleh middleware (responsnya 202, bukan 4xx).
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(User.findOneAndUpdate.mock.calls[1][1]).toEqual({
+      $inc: { 'quota.videoGeneration': 1 }
+    });
   });
 
   test('kunci yang belum diisi dijelaskan apa adanya, bukan sebagai "coba lagi"', async () => {

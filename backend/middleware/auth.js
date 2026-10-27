@@ -5,6 +5,10 @@
 
 const jwt = require('jsonwebtoken');
 const { getFirebaseAdmin } = require('../config/firebase');
+// Aturan kuota (sisa, reservasi, dan pengembaliannya) tinggal di satu tempat
+// supaya middleware dan controller tidak bisa berbeda pendapat.
+const { remainingQuota, reserveQuota, refundQuota } = require('../config/quota');
+const { logger } = require('../config/logger');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 
@@ -176,29 +180,22 @@ exports.requireGuest = async (req, res, next) => {
 };
 
 /**
- * Kunci kuota audio untuk akun lama.
+ * Ambil (reservasi) kuota untuk satu permintaan, lalu kembalikan bila gagal.
  *
- * Akun yang dibuat sebelum kuota audio dipisahkan hanya punya `videoGeneration`
- * (audio dahulu memakai jatah itu). Tanpa cadangan ini seluruh fitur suara akan
- * terjawab 403 "Quota exhausted" untuk member yang sudah ada — padahal sisa
- * jatahnya masih ada, hanya namanya berbeda. Nilai `undefined` (bukan 0) yang
- * membedakan akun lama dari akun yang kuotanya benar-benar habis.
- */
-const AUDIO_QUOTA_FALLBACK = 'videoGeneration';
-
-/** Sisa kuota untuk satu jenis pekerjaan, termasuk cadangan untuk akun lama. */
-const remainingQuota = (quota, type) => {
-  const value = quota?.[type];
-
-  if (value === undefined && type === 'audioGeneration') {
-    return quota?.[AUDIO_QUOTA_FALLBACK];
-  }
-
-  return value;
-};
-
-/**
- * Optional: Check quota
+ * Urutannya disengaja:
+ *   1. tolak cepat dari angka yang sudah dibaca `requireMember` (tanpa tulis DB),
+ *   2. reservasi ATOMIK sebelum handler menyentuh provider — inilah yang menutup
+ *      celah "sisa 1 tapi 20 permintaan paralel semuanya lolos", dan
+ *   3. kembalikan jatahnya bila respons akhirnya gagal (4xx/5xx), ditunggu
+ *      SEBELUM respons dikirim supaya angka kuota yang dilihat klien final.
+ *
+ * Pengembalian dipasang di sini, bukan di tiap `catch` controller, karena jalur
+ * gagal di controller bermacam-macam (validasi 400, provider 502, konfigurasi
+ * 503, 500) dan satu yang terlewat berarti user kehilangan kuotanya.
+ *
+ * Pekerjaan yang berjalan SETELAH respons (video 202) tidak ditangani di sini:
+ * statusnya 2xx, jadi reservasinya memang dipakai, dan `runVideoJob` sendiri
+ * yang mengembalikannya bila pekerjaannya gagal.
  */
 exports.checkQuota = (type) => {
   return async (req, res, next) => {
@@ -219,7 +216,60 @@ exports.checkQuota = (type) => {
         });
       }
 
-      req.quota = { type, remaining };
+      const reservasi = await reserveQuota(req.member.uid, type);
+
+      // Kalah balapan: permintaan lain mengambil sisa terakhir setelah
+      // `requireMember` membaca dokumennya. Jawabannya sama dengan kuota habis.
+      if (!reservasi) {
+        return res.status(403).json({
+          success: false,
+          message: `Quota for ${type} exhausted. Please upgrade your plan.`
+        });
+      }
+
+      req.quota = {
+        type,
+        // Kunci yang benar-benar dipotong (akun lama: audio -> videoGeneration).
+        key: reservasi.key,
+        quota: reservasi.quota,
+        remaining: remainingQuota(reservasi.quota, type)
+      };
+
+      // Bungkus `res.json` supaya pengembalian selesai sebelum respons gagal
+      // dikirim: klien tidak pernah menerima angka kuota yang masih "dipakai"
+      // padahal permintaannya gagal. Jalur sukses tidak disentuh.
+      const kirimJson = res.json.bind(res);
+      let sudahDikembalikan = false;
+
+      res.json = (body) => {
+        if (sudahDikembalikan || res.statusCode < 400) return kirimJson(body);
+
+        sudahDikembalikan = true;
+
+        return refundQuota(req.member.uid, reservasi.key)
+          .catch((error) => {
+            // User kehilangan jatahnya kalau ini gagal; catat, tapi jangan
+            // gagalkan respons yang sudah jadi.
+            const log = req.log || logger;
+            log.error('quota_refund_failed', {
+              uid: req.member.uid,
+              key: reservasi.key,
+              error
+            });
+          })
+          .then(() => {
+            try {
+              kirimJson(body);
+            } catch (error) {
+              // Respons sudah tidak bisa dikirim (mis. handler memanggil
+              // res.json dua kali). Jangan biarkan rejection tanpa penangan
+              // menjatuhkan proses hanya karena respons galat.
+              const log = req.log || logger;
+              log.error('response_send_failed', { error });
+            }
+          });
+      };
+
       next();
     } catch (error) {
       return res.status(500).json({
