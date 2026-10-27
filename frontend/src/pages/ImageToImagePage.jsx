@@ -5,6 +5,7 @@ import MediaImage from '../components/MediaImage'
 import Layout from '../components/Layout'
 import HistoryLink from '../components/HistoryLink'
 import ImagePreviewModal from '../components/ImagePreviewModal'
+import { downloadMedia } from '../utils/downloadMedia'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -507,11 +508,17 @@ const ImageToImagePage = ({ user, setUser }) => {
               {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
             </p>
 
+            {/* `download` tidak dihormati browser untuk URL beda origin, jadi klik
+                biasa ditangani lewat blob dan `href` hanya untuk klik kanan. */}
             <a
               href={resolveMediaUrl(result.outputUrl)}
               download
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(event) => {
+                event.preventDefault()
+                downloadMedia(result.outputUrl, 'gambar.png')
+              }}
               className="btn btn-ghost mt-4 text-xs"
             >
               Download result

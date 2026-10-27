@@ -8,6 +8,7 @@ import MediaVideo from '../components/MediaVideo'
 import ImagePreviewModal from '../components/ImagePreviewModal'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 import { RefreshIcon } from '../components/icons'
+import { downloadMedia } from '../utils/downloadMedia'
 
 /**
  * Halaman Riwayat: semua hasil generate milik user, satu tempat.
@@ -506,6 +507,10 @@ const HistoryPage = ({ user, setUser }) => {
                           download
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            downloadMedia(item.outputUrl)
+                          }}
                           className="btn btn-ghost text-xs"
                         >
                           Download

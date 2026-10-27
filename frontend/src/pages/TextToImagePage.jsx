@@ -5,6 +5,7 @@ import Layout from '../components/Layout'
 import MediaImage from '../components/MediaImage'
 import HistoryLink from '../components/HistoryLink'
 import ImagePreviewModal from '../components/ImagePreviewModal'
+import { downloadMedia } from '../utils/downloadMedia'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 const SIZES = [
@@ -331,8 +332,13 @@ const TextToImagePage = ({ user, setUser }) => {
                 <a
                   href={resolveMediaUrl(result.outputUrl)}
                   download
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={(event) => {
+                    // URL media ada di origin lain (backend/Cloudinary), dan
+                    // `download` diabaikan browser untuk kasus itu — jadi
+                    // berkasnya diambil sebagai blob dulu (lihat utils).
+                    event.preventDefault()
+                    downloadMedia(result.outputUrl, 'gambar.png')
+                  }}
                   className="btn btn-ghost mt-4 text-xs"
                 >
                   Download image

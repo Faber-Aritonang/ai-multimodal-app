@@ -4,6 +4,7 @@ import { shareAPI } from '../config/api'
 import MediaImage from '../components/MediaImage'
 import MediaAudio from '../components/MediaAudio'
 import MediaVideo from '../components/MediaVideo'
+import { downloadMedia } from '../utils/downloadMedia'
 import { GlassPanel } from '../components/ui'
 
 /**
@@ -160,11 +161,17 @@ const SharedMediaPage = () => {
             </p>
 
             <div className="mt-6 flex flex-wrap gap-2">
+              {/* `download` tidak dihormati browser untuk URL beda origin, jadi
+                  klik biasa ditangani lewat blob dan `href` hanya untuk klik kanan. */}
               <a
                 href={media.outputUrl}
                 download
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(event) => {
+                  event.preventDefault()
+                  downloadMedia(media.outputUrl)
+                }}
                 className="btn btn-ghost text-xs"
               >
                 Unduh berkas

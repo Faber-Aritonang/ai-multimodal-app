@@ -5,6 +5,7 @@ import Layout from '../components/Layout'
 import MediaVideo from '../components/MediaVideo'
 import HistoryLink from './HistoryLink'
 import { useNotifications } from './NotificationsProvider'
+import { downloadMedia } from '../utils/downloadMedia'
 import { GlassPanel, PageHeader, SectionTitle } from '../components/ui'
 
 /**
@@ -580,11 +581,17 @@ const VideoTool = ({
                   {result.metadata?.provider ? ` · via ${result.metadata.provider}` : ''}
                 </p>
 
+                {/* `download` tidak dihormati browser untuk URL beda origin, jadi
+                    klik biasa ditangani lewat blob dan `href` hanya untuk klik kanan. */}
                 <a
                   href={resolveMediaUrl(result.outputUrl)}
                   download
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    downloadMedia(result.outputUrl, 'video.mp4')
+                  }}
                   className="btn btn-ghost mt-4 text-xs"
                 >
                   Download video

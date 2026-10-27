@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { resolveMediaUrl } from '../config/api'
+import { downloadMedia } from '../utils/downloadMedia'
 
 const ImagePreviewModal = ({ url, alt = 'Generated image', prompt, resolution, onClose }) => {
   const [actualResolution, setActualResolution] = useState('')
@@ -65,11 +66,17 @@ const ImagePreviewModal = ({ url, alt = 'Generated image', prompt, resolution, o
           <p className="font-mono text-xs text-slate-400" data-testid="image-preview-resolution">
             Resolusi: {resolution || actualResolution || 'Memuat…'}
           </p>
+          {/* `href` + `download` tetap ada supaya klik kanan "Simpan tautan
+              sebagai" dan klik tengah bekerja. Klik biasa ditangani lewat blob:
+              atribut `download` tidak dihormati untuk URL beda origin, dan
+              `target="_blank"` dulu membuat tombol ini hanya membuka tab baru. */}
           <a
             href={resolveMediaUrl(url)}
             download
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={(event) => {
+              event.preventDefault()
+              downloadMedia(url, 'gambar.png')
+            }}
             className="btn btn-primary text-xs"
           >
             Download gambar
